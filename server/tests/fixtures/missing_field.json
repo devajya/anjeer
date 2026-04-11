@@ -1,0 +1,8 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "heartbeat_interval_ms": 500,
+    "ping_interval_ms": 500,
+    "ping_timeout_ms": 1500
+  }
+}
