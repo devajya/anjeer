@@ -1,0 +1,73 @@
+/contexts
+/session_summaries
+
+# C++ build output
+build/
+
+# FetchContent dependency sources (stored outside build/ so clean doesn't wipe them)
+.deps/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+*.out
+compile_commands.json
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+_deps/
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+.parcel-cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+.env
+
+# Config overrides — never commit local config
+config/dev.json
+config/local.json
+*.env
+.env.*
+
+# Secrets
+*.pem
+*.key
+*.p12
+id_rsa
+id_ed25519
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.user
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and test output
+*.log
+logs/
+coverage/
+lcov.info
+.nyc_output/
+
+# Database
+*.sqlite
+*.sqlite3

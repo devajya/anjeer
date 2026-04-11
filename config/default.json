@@ -1,0 +1,9 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 9001,
+    "heartbeat_interval_ms": 1000,
+    "ping_interval_ms": 1000,
+    "ping_timeout_ms": 9000
+  }
+}
