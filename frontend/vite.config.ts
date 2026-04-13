@@ -18,6 +18,13 @@ export default defineConfig({
         // Host header. Set to true if CORS rejections appear in later slices.
         changeOrigin: false,
       },
+      // AGENT-CTX: /api/log forwards frontend log batches to the C++ server so
+      // they land in logs/frontend_logs.txt alongside server and engine logs.
+      // Dev-only endpoint — not exposed in production nginx config.
+      '/api': {
+        target: 'http://localhost:9001',
+        changeOrigin: false,
+      },
     },
   },
   test: {

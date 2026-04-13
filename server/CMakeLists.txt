@@ -7,6 +7,7 @@ add_executable(server
     src/main.cpp
     src/config.cpp
     src/ws_server.cpp
+    src/logger.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -47,3 +48,34 @@ target_link_libraries(server_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(server_tests)
+
+# ---------------------------------------------------------------------------
+# Integration tests — spin up a real WsServer and connect a WS client
+# ---------------------------------------------------------------------------
+#
+# AGENT-CTX: ws_server_tests links the full server stack (ws_server.cpp,
+# config.cpp, logger.cpp) so the test covers the parse → validate → engine
+# → serialise path end-to-end. Registered as a single CTest entry with
+# RUN_SERIAL so it never races with itself if ctest is run with --parallel.
+
+add_executable(ws_server_tests
+    tests/test_ws_server.cpp
+    src/config.cpp
+    src/ws_server.cpp
+    src/logger.cpp
+)
+
+target_include_directories(ws_server_tests PRIVATE include)
+
+target_link_libraries(ws_server_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    pthread
+)
+
+# Register as a single test (not per-case) to avoid port conflicts when
+# ctest runs multiple instances of the binary in parallel.
+add_test(NAME ws_server_tests COMMAND ws_server_tests)
+set_tests_properties(ws_server_tests PROPERTIES RUN_SERIAL TRUE)

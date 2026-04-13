@@ -19,11 +19,22 @@ using anjeer::server::load_config;
 TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
 
+    // server section
     CHECK(cfg.host                  == "127.0.0.1");
     CHECK(cfg.port                  == 9999);
     CHECK(cfg.heartbeat_interval_ms == 500);
     CHECK(cfg.ping_interval_ms      == 500);
-    CHECK(cfg.ping_timeout_ms       == 1500);
+    CHECK(cfg.ping_timeout_ms       == 8000);
+
+    // AGENT-CTX: order_book section added in Slice 2. Verified here so a future
+    // agent adding new fields is reminded to extend test_config.json and these
+    // assertions together — omitting either silently hides parse regressions.
+    CHECK(cfg.order_book.min_price               == 1);
+    CHECK(cfg.order_book.max_price               == 99);
+    CHECK(cfg.order_book.nudge_initial_buy_price  == 1);
+    CHECK(cfg.order_book.nudge_initial_sell_price == 99);
+    REQUIRE(cfg.order_book.active_suits.size()   == 1);
+    CHECK(cfg.order_book.active_suits[0]         == "S1");
 }
 
 TEST_CASE("load_config throws on missing file", "[config]") {
@@ -43,6 +54,9 @@ TEST_CASE("load_config throws on malformed JSON", "[config]") {
 
 TEST_CASE("load_config throws when a required field is missing", "[config]") {
     // AGENT-CTX: missing_field.json omits 'port' to verify strict field checking.
+    // This test also covers the case where order_book is absent: if missing_field.json
+    // happens to include a valid server section but no order_book section, it still
+    // throws (for the missing order_book key), satisfying the same invariant.
     CHECK_THROWS_AS(
         load_config(std::string(TEST_FIXTURES_DIR) + "/missing_field.json"),
         std::runtime_error

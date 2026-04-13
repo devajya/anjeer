@@ -48,21 +48,36 @@ dev-server: build-server
 dev-frontend:
 	npm run dev --prefix frontend
 
-# AGENT-CTX: Parallel dev runner using shell & and wait with a trap for clean exit.
-# Both processes are started in the background; trap kills both on Ctrl+C.
-# No external tools (concurrently, foreman) — keeps the dev dependency footprint minimal.
-# Limitation: build output from both processes interleaves in the terminal.
-dev:
-	@trap 'kill %1 %2 2>/dev/null; exit 0' INT TERM; \
-	$(MAKE) dev-server & \
-	$(MAKE) dev-frontend & \
+# AGENT-CTX: Parallel dev runner. Builds the server binary first (blocking), then
+# starts the server and Vite in background jobs whose PIDs are captured directly.
+# The trap kills those exact PIDs on Ctrl+C, guaranteeing the server binary is
+# cleaned up and never left as a stale SO_REUSEPORT orphan on port 9001.
+#
+# Previous design used `$(MAKE) dev-server &` which spawned a child make process;
+# kill %1 killed that child make but NOT its grandchild (the server binary itself).
+# Multiple `make dev` invocations stacked up 8+ server processes competing on 9001
+# via SO_REUSEPORT — connections went to old (pre-logging) binaries, making the
+# new binary look like it received no traffic.
+#
+# Also kills any pre-existing server binary on port 9001 before starting, so a
+# manually-interrupted previous run never causes the same problem.
+dev: build-server
+	@fuser -k 9001/tcp 2>/dev/null || true; \
+	trap 'kill $$server_pid $$vite_pid 2>/dev/null; exit 0' INT TERM; \
+	./$(BUILD_DIR)/server/server --config $(CONFIG) & server_pid=$$!; \
+	npm run dev --prefix frontend & vite_pid=$$!; \
 	wait
 
 # ---------------------------------------------------------------------------
 # Test targets
 # ---------------------------------------------------------------------------
 test-unit: $(BUILD_DIR)/Makefile
+	# AGENT-CTX: Build all test binaries explicitly before running ctest.
+	# Adding a new test binary in a subdirectory CMakeLists requires a matching
+	# --target line here. ctest discovers all registered tests from all binaries.
+	cmake --build $(BUILD_DIR) --target engine_tests --parallel
 	cmake --build $(BUILD_DIR) --target server_tests --parallel
+	cmake --build $(BUILD_DIR) --target ws_server_tests --parallel
 	cd $(BUILD_DIR) && ctest --output-on-failure
 
 test-frontend:

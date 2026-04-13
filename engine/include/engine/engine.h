@@ -1,12 +1,9 @@
 #pragma once
 
-// AGENT-CTX: Slice 1 stub — this header is intentionally empty.
-// Future slices add OrderBook, GameState, ScoringEngine, etc. here.
-// All engine types must remain free of network/IO concerns.
-namespace anjeer {
-namespace engine {
+// AGENT-CTX: engine.h is the single public façade for the engine library.
+// Consumers should include only this header — never individual module headers.
+// Add a new #include here whenever a new engine module is introduced (Slice 3+
+// will add game_state.h, Slice 7 will add scoring_engine.h, etc.).
+// This keeps consumer include lists stable as the engine grows.
 
-// Placeholder — replaced by real types from Slice 2 onward.
-
-} // namespace engine
-} // namespace anjeer
+#include "engine/order_book.h"
