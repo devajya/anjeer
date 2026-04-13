@@ -1,31 +1,40 @@
-/contexts
-/session_summaries
-
-# C++ build output
-build/
-
-# FetchContent dependency sources (stored outside build/ so clean doesn't wipe them)
+# ── Hidden/dot directories ─────────────────────────────────────────────────
+.claude/
 .deps/
+.vscode/*
+!.vscode/extensions.json
+.idea/
 cmake-build-*/
+
+# ── Project-specific excluded directories ─────────────────────────────────
+/contexts/
+/session_summaries/
+/imgs/
+/readings/
+/build/
+
+# ── Logs: track the folder (via .gitkeep) but ignore all log files ─────────
+logs/*
+!logs/.gitkeep
+
+# ── C++ build artifacts ────────────────────────────────────────────────────
 *.o
 *.a
 *.so
 *.dylib
 *.out
 compile_commands.json
-
-# CMake
 CMakeCache.txt
 CMakeFiles/
 _deps/
 
-# Frontend
+# ── Frontend ────────────────────────────────────────────────────────────────
 node_modules/
 frontend/dist/
 frontend/.vite/
 .parcel-cache/
 
-# Python
+# ── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -34,40 +43,34 @@ __pycache__/
 venv/
 .env
 
-# Config overrides — never commit local config
+# ── Config overrides — never commit local config ────────────────────────────
 config/dev.json
 config/local.json
 *.env
 .env.*
 
-# Secrets
+# ── Secrets ─────────────────────────────────────────────────────────────────
 *.pem
 *.key
 *.p12
 id_rsa
 id_ed25519
 
-# IDE
-.vscode/*
-!.vscode/extensions.json
-.idea/
+# ── IDE ──────────────────────────────────────────────────────────────────────
 *.suo
 *.user
 *.swp
 *.swo
 
-# OS
+# ── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Logs and test output
+# ── Misc ─────────────────────────────────────────────────────────────────────
 *.log
-logs/
 coverage/
 lcov.info
 .nyc_output/
-
-# Database
 *.sqlite
 *.sqlite3

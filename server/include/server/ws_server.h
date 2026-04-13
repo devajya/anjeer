@@ -2,8 +2,7 @@
 
 #include "server/config.h"
 
-namespace anjeer {
-namespace server {
+namespace anjeer::server {
 
 // AGENT-CTX: WsServer owns the uWebSockets event loop for the lifetime of the process.
 // run() blocks until SIGINT terminates the process. All WebSocket callbacks and the
@@ -21,5 +20,4 @@ private:
     ServerConfig cfg_;
 };
 
-} // namespace server
-} // namespace anjeer
+} // namespace anjeer::server

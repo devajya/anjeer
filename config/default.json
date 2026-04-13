@@ -5,5 +5,12 @@
     "heartbeat_interval_ms": 1000,
     "ping_interval_ms": 1000,
     "ping_timeout_ms": 9000
+  },
+  "order_book": {
+    "min_price": 1,
+    "max_price": 99,
+    "nudge_initial_buy_price": 1,
+    "nudge_initial_sell_price": 99,
+    "active_suits": ["S1"]
   }
 }

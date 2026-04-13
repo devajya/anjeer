@@ -94,10 +94,183 @@ describe('useWebSocket — connection lifecycle', () => {
 
     act(() => { MockWebSocket.last.triggerOpen() })
     act(() => {
+      // Real browsers always fire onclose after onerror; mirror that here.
       MockWebSocket.last.onerror?.(new Event('error'))
+      MockWebSocket.last.triggerClose()
     })
 
     expect(result.current.connected).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC: Server sends book_update — books map is populated
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — book_update messages', () => {
+  test('populates books on first book_update', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'book_update', suit: 'S1', best_bid: 45, best_ask: 55 })
+    })
+    expect(result.current.books['S1']).toEqual({ best_bid: 45, best_ask: 55 })
+  })
+
+  test('updates only the affected suit', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'book_update', suit: 'S1', best_bid: 40, best_ask: 60 })
+      MockWebSocket.last.triggerMessage({ type: 'book_update', suit: 'S2', best_bid: 10, best_ask: 90 })
+    })
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'book_update', suit: 'S1', best_bid: 42, best_ask: null })
+    })
+    expect(result.current.books['S1']).toEqual({ best_bid: 42, best_ask: null })
+    expect(result.current.books['S2']).toEqual({ best_bid: 10, best_ask: 90 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC: order_ack — myOrders is populated; error is cleared for that suit
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — order_ack messages', () => {
+  test('appends order to myOrders', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'order_ack', order_id: 7, suit: 'S1', side: 'buy', price: 50,
+      })
+    })
+    expect(result.current.myOrders).toHaveLength(1)
+    expect(result.current.myOrders[0]).toEqual({ order_id: 7, suit: 'S1', side: 'buy', price: 50 })
+  })
+
+  test('clears the error for that suit on ack', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    // Simulate a prior error on S1 by sending an error after a suit-scoped send
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'error', code: 'PRICE_OUT_OF_RANGE', message: 'bad price' })
+    })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'order_ack', order_id: 8, suit: 'S1', side: 'sell', price: 55,
+      })
+    })
+    expect(result.current.errors['S1']).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC: trade — appended to feed, myOrders wiped (global wipe mechanic)
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — trade messages', () => {
+  test('appends to trades feed', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'S1', price: 50, aggressor_side: 'buy', your_side: null,
+      })
+    })
+    expect(result.current.trades).toHaveLength(1)
+    expect(result.current.trades[0].suit).toBe('S1')
+    expect(result.current.trades[0].price).toBe(50)
+  })
+
+  test('clears myOrders on trade (global wipe)', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'order_ack', order_id: 1, suit: 'S1', side: 'buy', price: 45,
+      })
+    })
+    expect(result.current.myOrders).toHaveLength(1)
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'S1', price: 45, aggressor_side: 'sell', your_side: 'buy',
+      })
+    })
+    expect(result.current.myOrders).toHaveLength(0)
+  })
+
+  test('newest trade appears first', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'S1', price: 40, aggressor_side: 'buy', your_side: null,
+      })
+    })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'S1', price: 60, aggressor_side: 'sell', your_side: null,
+      })
+    })
+    expect(result.current.trades[0].price).toBe(60)
+    expect(result.current.trades[1].price).toBe(40)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC: order_cancel_ack — order is removed from myOrders
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — order_cancel_ack messages', () => {
+  test('removes cancelled order from myOrders', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'order_ack', order_id: 3, suit: 'S1', side: 'buy', price: 40 })
+      MockWebSocket.last.triggerMessage({ type: 'order_ack', order_id: 4, suit: 'S1', side: 'sell', price: 60 })
+    })
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'order_cancel_ack', order_id: 3 })
+    })
+    expect(result.current.myOrders).toHaveLength(1)
+    expect(result.current.myOrders[0].order_id).toBe(4)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC: error — scoped to the suit of the last sent command
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — error messages', () => {
+  test('stores error under the suit of the last sent command', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+
+    // Simulate send so pendingSuitRef is set to 'S2'
+    act(() => {
+      result.current.sendMessage({ type: 'submit_order', suit: 'S2', side: 'buy', price: 5 })
+    })
+    act(() => {
+      MockWebSocket.last.triggerMessage({ type: 'error', code: 'PRICE_OUT_OF_RANGE', message: 'too low' })
+    })
+
+    expect(result.current.errors['S2']).toEqual({ type: 'error', code: 'PRICE_OUT_OF_RANGE', message: 'too low' })
+    expect(result.current.errors['S1']).toBeUndefined()
+  })
+
+  test('errors for different suits are independent', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+
+    act(() => { result.current.sendMessage({ type: 'nudge', suit: 'S1', side: 'buy' }) })
+    act(() => { MockWebSocket.last.triggerMessage({ type: 'error', code: 'UNKNOWN_SUIT', message: 'bad suit' }) })
+
+    act(() => { result.current.sendMessage({ type: 'nudge', suit: 'S2', side: 'sell' }) })
+    act(() => { MockWebSocket.last.triggerMessage({ type: 'error', code: 'UNKNOWN_SUIT', message: 'bad suit' }) })
+
+    expect(result.current.errors['S1']).not.toBeNull()
+    expect(result.current.errors['S2']).not.toBeNull()
   })
 })
 

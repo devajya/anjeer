@@ -1,0 +1,72 @@
+.trade-feed {
+  width: 100%;
+}
+
+.trade-feed__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
+.trade-feed__empty {
+  color: #555;
+  font-size: 0.875rem;
+}
+
+.trade-feed__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.trade-feed__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  background: #161616;
+  border: 1px solid #222;
+}
+
+/* AGENT-CTX: Highlight trades the local player was party to so they stand out
+   from the general trade stream without revealing counterparty identity. */
+.trade-feed__item--mine {
+  border-color: #3a3a1a;
+  background: #1e1e0e;
+}
+
+.trade-feed__suit {
+  color: #aaa;
+  font-weight: 600;
+  min-width: 2.5rem;
+}
+
+.trade-feed__price {
+  color: #e0e0e0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-feed__side {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+.trade-feed__side--buy  { background: #14532d; color: #4ade80; }
+.trade-feed__side--sell { background: #450a0a; color: #f87171; }
+
+.trade-feed__you {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: #facc15;
+  font-weight: 600;
+}

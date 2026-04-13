@@ -1,11 +1,17 @@
 .app {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 1.5rem;
-  padding: 2rem;
-  max-width: 600px;
+  padding: 1.5rem 2rem;
+  max-width: 1400px;
   margin: 0 auto;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
 }
 
 .app__title {
@@ -13,4 +19,57 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #f0f0f0;
+}
+
+/* AGENT-CTX: Three-column trading layout.
+   Col 1 (1fr):   SuitPanel per active suit — book state + inline order entry.
+   Col 2 (260px): My Orders (cancel-by-click) + Trade feed.
+   Col 3 (200px): Empty placeholder for future widgets (eval engine, position
+                  tracker, chat). Slice 8 replaces this with a configurable
+                  drag-and-resize widget panel.
+   Col 3 hides at ≤900px; Cols 2+3 collapse into a single column at ≤600px. */
+.app__layout {
+  display: grid;
+  grid-template-columns: 1fr 260px 200px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .app__layout {
+    grid-template-columns: 1fr 240px;
+  }
+  .app__future { display: none; }
+}
+
+@media (max-width: 600px) {
+  .app__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app__suits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app__right {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: sticky;
+  top: 1.5rem;
+}
+
+/* Placeholder column — visible but intentionally empty */
+.app__future {
+  border: 1px dashed #222;
+  border-radius: 6px;
+  min-height: 120px;
+}
+
+.app__waiting {
+  color: #555;
+  font-size: 0.875rem;
 }
