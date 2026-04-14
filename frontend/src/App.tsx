@@ -1,31 +1,29 @@
 import { useWebSocket } from './hooks/useWebSocket'
 import { ConnectionBanner } from './components/ConnectionBanner'
+import { RoundCountdown } from './components/RoundCountdown'
+import { HandPanel } from './components/HandPanel'
 import { SuitPanel } from './components/SuitPanel'
 import { TradeFeed } from './components/TradeFeed'
 import { MyOrders } from './components/MyOrders'
 import './App.css'
 
-// AGENT-CTX: active_suits is driven by server config (order_book.active_suits).
-// Slice 2: one suit. The frontend learns which suits exist from book_update messages
-// — the first book_update on connect populates `books` and therefore `activeSuits`.
-// Slice 3: server sends book_update for all 4 suits on connect; this auto-populates.
-//
-// AGENT-CTX: All WebSocket state is lifted here and passed down as props.
-// No context provider or global state store in Slice 2.
-// If prop drilling becomes painful in Slice 8, introduce a context then.
+// Canonical suit order matching the engine's Suit enum declaration order.
+const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
+
 function App() {
   const {
     connected,
-    lastServerTs,
     playerId,
     books,
     trades,
     myOrders,
     errors,
     sendMessage,
+    startsAt,
+    hand,
   } = useWebSocket('/ws')
 
-  const activeSuits = Object.keys(books)
+  const activeSuits = SUIT_ORDER.filter(s => s in books)
 
   // Most recent trade price per suit — used by SuitPanel to show last-traded price.
   // trades is newest-first, so the first match for each suit is the latest.
@@ -42,7 +40,8 @@ function App() {
     <main className="app">
       <header className="app__header">
         <h1 className="app__title">Anjeer</h1>
-        <ConnectionBanner connected={connected} lastServerTs={lastServerTs} />
+        <ConnectionBanner connected={connected} />
+        <RoundCountdown startsAt={startsAt} />
       </header>
 
       <div className="app__layout">
@@ -65,8 +64,9 @@ function App() {
           )}
         </section>
 
-        {/* ── Column 2: My Orders + Trade feed ── */}
+        {/* ── Column 2: Hand + My Orders + Trade feed ── */}
         <section className="app__right">
+          <HandPanel hand={hand} />
           <MyOrders orders={myOrders} onCancel={handleCancel} />
           <TradeFeed trades={trades} />
         </section>

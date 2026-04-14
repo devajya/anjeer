@@ -4,8 +4,12 @@ cmake_minimum_required(VERSION 3.20)
 # Never add network or I/O code here — that belongs in server/.
 # Slice 1 — stub only.
 # Slice 2 — OrderBook: price-time priority matching, nudge, cancel.
+# Slice 3 — GameState: deck composition, shuffle/deal, goal-suit derivation,
+#            4× OrderBook composition, per-player hand tracking.
+#            suit.h is header-only (constexpr); game_state.cpp has the impl.
 add_library(engine STATIC
     src/order_book.cpp
+    src/game_state.cpp
 )
 
 target_include_directories(engine PUBLIC include)
@@ -27,6 +31,19 @@ target_link_libraries(engine_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
+# AGENT-CTX: game_state_tests is a separate binary so it can be built and run
+# independently from engine_tests (order_book tests). Keeping them separate also
+# means a compilation error in one test file doesn't block running the other.
+# Both binaries link the same engine static library.
+add_executable(game_state_tests
+    tests/game_state_tests.cpp
+)
+
+target_link_libraries(game_state_tests PRIVATE
+    engine
+    Catch2::Catch2WithMain
+)
+
 # AGENT-CTX: include(CTest) + include(Catch) follow the same pattern as
 # server/CMakeLists.txt. include(Catch) provides catch_discover_tests(), which
 # registers each TEST_CASE as a separate CTest entry so ctest --output-on-failure
@@ -35,3 +52,4 @@ target_link_libraries(engine_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(engine_tests)
+catch_discover_tests(game_state_tests)

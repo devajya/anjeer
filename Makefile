@@ -4,7 +4,7 @@ CONFIG    := config/default.json
 .PHONY: build build-engine build-server build-frontend \
         dev dev-server dev-frontend \
         test test-unit test-frontend \
-        clean clean-all fmt
+        clean clean-all fmt install-hooks
 
 # ---------------------------------------------------------------------------
 # CMake configure
@@ -76,6 +76,7 @@ test-unit: $(BUILD_DIR)/Makefile
 	# Adding a new test binary in a subdirectory CMakeLists requires a matching
 	# --target line here. ctest discovers all registered tests from all binaries.
 	cmake --build $(BUILD_DIR) --target engine_tests --parallel
+	cmake --build $(BUILD_DIR) --target game_state_tests --parallel
 	cmake --build $(BUILD_DIR) --target server_tests --parallel
 	cmake --build $(BUILD_DIR) --target ws_server_tests --parallel
 	cd $(BUILD_DIR) && ctest --output-on-failure
@@ -104,6 +105,14 @@ clean-all:
 	rm -rf $(BUILD_DIR)
 	rm -rf .deps
 	rm -rf frontend/node_modules frontend/dist
+
+# Installs the doc-staleness pre-commit hook. Run once after cloning.
+# The hook warns (but does not block) when a new engine/server header or
+# frontend component is staged without updating CLAUDE.md or ARCHITECTURE.md.
+install-hooks:
+	cp scripts/check-docs-hook.sh .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed"
 
 # AGENT-CTX: fmt runs clang-format in-place on all C++ source and header files,
 # and prettier on frontend TypeScript/CSS. The `|| true` prevents a non-zero exit

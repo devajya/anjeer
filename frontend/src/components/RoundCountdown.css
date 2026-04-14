@@ -1,0 +1,16 @@
+.round-countdown {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  background: #1a1a2e;
+  border: 1px solid #4a4a8a;
+  color: #c0c0f0;
+}
+
+.round-countdown__count {
+  font-size: 1.4rem;
+  color: #a0a0ff;
+  margin: 0 0.2rem;
+}

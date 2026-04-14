@@ -62,10 +62,7 @@ describe('useWebSocket — initial state', () => {
     expect(result.current.connected).toBe(false)
   })
 
-  test('hook initialises with lastServerTs=null', () => {
-    const { result } = renderHook(() => useWebSocket('/ws'))
-    expect(result.current.lastServerTs).toBeNull()
-  })
+
 })
 
 describe('useWebSocket — connection lifecycle', () => {
@@ -274,24 +271,9 @@ describe('useWebSocket — error messages', () => {
   })
 })
 
-// ---------------------------------------------------------------------------
-// AC: Server sends heartbeat — client displays last received timestamp
-// ---------------------------------------------------------------------------
-
-describe('useWebSocket — heartbeat messages', () => {
-  test('updates lastServerTs on a valid heartbeat message', () => {
-    const { result } = renderHook(() => useWebSocket('/ws'))
-
-    act(() => { MockWebSocket.last.triggerOpen() })
-    act(() => {
-      MockWebSocket.last.triggerMessage({ type: 'heartbeat', server_ts: 1_700_000_000_000 })
-    })
-
-    expect(result.current.lastServerTs).toBe(1_700_000_000_000)
-  })
-
+describe('useWebSocket — unknown message type', () => {
   test('does not crash on unknown message type', () => {
-    const { result } = renderHook(() => useWebSocket('/ws'))
+    renderHook(() => useWebSocket('/ws'))
 
     act(() => { MockWebSocket.last.triggerOpen() })
     expect(() => {
@@ -299,8 +281,6 @@ describe('useWebSocket — heartbeat messages', () => {
         MockWebSocket.last.triggerMessage({ type: 'unknown_future_event', data: 42 })
       })
     }).not.toThrow()
-
-    expect(result.current.lastServerTs).toBeNull()
   })
 
   test('does not crash on malformed (non-JSON) message', () => {

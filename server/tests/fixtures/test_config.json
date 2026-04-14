@@ -12,5 +12,11 @@
     "nudge_initial_buy_price": 1,
     "nudge_initial_sell_price": 99,
     "active_suits": ["S1"]
+  },
+  "game": {
+    "player_count": 5,
+    "total_cards": 40,
+    "card_distribution": [12, 10, 10, 8],
+    "countdown_seconds": 3
   }
 }

@@ -35,6 +35,16 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     CHECK(cfg.order_book.nudge_initial_sell_price == 99);
     REQUIRE(cfg.order_book.active_suits.size()   == 1);
     CHECK(cfg.order_book.active_suits[0]         == "S1");
+
+    // AGENT-CTX: game section added in Slice 3. Extend assertions here when
+    // new fields are added to GameConfig.
+    CHECK(cfg.game.player_count                  == 5);
+    CHECK(cfg.game.total_cards                   == 40);
+    CHECK(cfg.game.countdown_seconds             == 3);
+    REQUIRE(cfg.game.card_distribution[0]        == 12);
+    REQUIRE(cfg.game.card_distribution[1]        == 10);
+    REQUIRE(cfg.game.card_distribution[2]        == 10);
+    REQUIRE(cfg.game.card_distribution[3]        == 8);
 }
 
 TEST_CASE("load_config throws on missing file", "[config]") {

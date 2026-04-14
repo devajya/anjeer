@@ -7,12 +7,6 @@
 // Server → Client (inbound)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface HeartbeatMessage {
-  type: 'heartbeat'
-  /** Unix timestamp in milliseconds from the server clock. */
-  server_ts: number
-}
-
 /** Sent to each client once on connect. Transient identity until Slice 5 auth. */
 export interface PlayerHelloMessage {
   type: 'player_hello'
@@ -80,19 +74,53 @@ export interface ErrorMessage {
 }
 
 /**
+ * Broadcast to ALL players when enough connections have joined.
+ * starts_at is an ISO 8601 UTC timestamp — clients drive their own countdown.
+ * AGENT-CTX: One message, client-side timer. Avoids four separate tick events.
+ * Evolves into lobby_started (with player roster) in the lobby slice.
+ */
+export interface RoundStartingMessage {
+  type: 'round_starting'
+  starts_at: string   // ISO 8601 UTC, e.g. "2026-04-14T18:03:03.000Z"
+  player_count: number
+}
+
+/** Per-suit card counts in a player's hand. Reused by RoundStartMessage and HandPanel. */
+export interface HandCounts {
+  clubs: number
+  diamonds: number
+  hearts: number
+  spades: number
+}
+
+/**
+ * Sent to each player individually after countdown expires.
+ * Contains only that player's own hand counts — no other player's info,
+ * no suit totals, no goal suit.
+ * AGENT-CTX: goal_suit and suit_totals are absent by design (Slice 3
+ * resolution 6 — spec error corrected: suit counts are private).
+ */
+export interface RoundStartMessage {
+  type: 'round_start'
+  player_slot: number
+  hand: HandCounts
+}
+
+/**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
  * useWebSocket.ts is exhaustive — TypeScript will error on unhandled variants
  * once the union has more than one member (the `never` check at the bottom).
  */
 export type ServerMessage =
-  | HeartbeatMessage
   | PlayerHelloMessage
   | OrderAckMessage
   | BookUpdateMessage
   | TradeMessage
   | OrderCancelAckMessage
   | ErrorMessage
+  | RoundStartingMessage
+  | RoundStartMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
