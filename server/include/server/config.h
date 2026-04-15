@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,15 @@ struct ServerConfig {
         // UNKNOWN_SUIT for anything not in it.
         std::vector<std::string> active_suits;
     } order_book;
+
+    // AGENT-CTX: Lobby seam — player_count is hardcoded here for Slice 3.
+    // Replaced by LobbyConfig in the lobby slice.
+    struct GameConfig {
+        int                  player_count;       // slots to wait for (e.g. 5)
+        int                  total_cards;        // sum of card_distribution (40)
+        std::array<int, 4>   card_distribution;  // counts per suit, randomly assigned each deal
+        int                  countdown_seconds;  // delay before round_start fires (3)
+    } game;
 };
 
 // Load and parse a JSON config file.

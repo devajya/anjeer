@@ -214,7 +214,13 @@ static void ensure_server_running() {
     cfg.order_book.max_price               = 99;
     cfg.order_book.nudge_initial_buy_price  = 1;
     cfg.order_book.nudge_initial_sell_price = 99;
-    cfg.order_book.active_suits             = { "S1" };
+    cfg.order_book.active_suits             = { "clubs" };
+    // AGENT-CTX: player_count=99 prevents any round from starting during tests
+    // (tests connect 1-2 clients, never reaching 99).
+    cfg.game.player_count      = 99;
+    cfg.game.total_cards       = 40;
+    cfg.game.card_distribution = {12, 10, 10, 8};
+    cfg.game.countdown_seconds = 3;
 
     std::thread([cfg]() {
         WsServer srv(cfg);
@@ -246,7 +252,7 @@ TEST_CASE("WS server — player_hello sent on connect", "[ws_server]") {
     const auto hello = client.recv_of_type("player_hello");
     REQUIRE(hello.contains("player_id"));
     REQUIRE(hello["player_id"].is_number_integer());
-    CHECK(hello["player_id"].get<int>() >= 1);
+    CHECK(hello["player_id"].get<int>() >= 0);  // 0-indexed slots
 }
 
 TEST_CASE("WS server — book_update snapshot sent on connect", "[ws_server]") {
@@ -255,7 +261,7 @@ TEST_CASE("WS server — book_update snapshot sent on connect", "[ws_server]") {
 
     client.recv_of_type("player_hello");
     const auto upd = client.recv_of_type("book_update");
-    CHECK(upd.value("suit", "") == "S1");
+    CHECK(upd.value("suit", "") == "clubs");
     CHECK(upd.contains("best_bid"));
     CHECK(upd.contains("best_ask"));
 }
@@ -267,10 +273,10 @@ TEST_CASE("WS server — submit_order returns order_ack", "[ws_server]") {
     client.recv_of_type("player_hello");
     client.recv_of_type("book_update");
 
-    client.send_json({ {"type","submit_order"}, {"suit","S1"}, {"side","buy"}, {"price",30} });
+    client.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
 
     const auto ack = client.recv_of_type("order_ack");
-    REQUIRE(ack.value("suit","") == "S1");
+    REQUIRE(ack.value("suit","") == "clubs");
     REQUIRE(ack.value("side","") == "buy");
     REQUIRE(ack.value("price",0) == 30);
     REQUIRE(ack.contains("order_id"));
@@ -308,21 +314,21 @@ TEST_CASE("WS server — crossing orders produce trade then global book wipe", "
     seller.recv_of_type("book_update");
 
     // Post a resting bid; both clients receive the resulting book_update.
-    buyer.send_json({ {"type","submit_order"}, {"suit","S1"}, {"side","buy"}, {"price",50} });
+    buyer.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",50} });
     buyer.recv_of_type("order_ack");
     buyer.recv_of_type("book_update");   // broadcast: best_bid=50
     seller.recv_of_type("book_update");  // same broadcast received by seller
 
     // Aggress with a crossing sell — should match at the resting (maker) price.
-    seller.send_json({ {"type","submit_order"}, {"suit","S1"}, {"side","sell"}, {"price",50} });
+    seller.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","sell"}, {"price",50} });
     seller.recv_of_type("order_ack");
 
     // Both clients receive the trade notification.
     const auto trade_b = buyer.recv_of_type("trade");
     const auto trade_s = seller.recv_of_type("trade");
-    REQUIRE(trade_b.value("suit","")  == "S1");
+    REQUIRE(trade_b.value("suit","")  == "clubs");
     REQUIRE(trade_b.value("price", 0) == 50);
-    REQUIRE(trade_s.value("suit","")  == "S1");
+    REQUIRE(trade_s.value("suit","")  == "clubs");
 
     // After any trade, all books are wiped — both clients see null bid and ask.
     const auto wipe_b = buyer.recv_of_type("book_update");

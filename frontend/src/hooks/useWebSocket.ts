@@ -5,6 +5,7 @@ import type {
   TradeMessage,
   ErrorMessage,
   ClientCommand,
+  HandCounts,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -43,7 +44,6 @@ export interface TradeEntry {
 
 export interface WsState {
   connected: boolean
-  lastServerTs: number | null
   /** Transient player identity assigned by the server on connect. null until received. */
   playerId: number | null
   /**
@@ -71,6 +71,12 @@ export interface WsState {
    * (because a trade triggers a global book wipe in Slice 2).
    */
   myOrders: MyOrder[]
+  /** ISO 8601 UTC timestamp from round_starting. null when no countdown is active. */
+  startsAt: string | null
+  /** This player's hand counts. null until round_start is received. */
+  hand: HandCounts | null
+  /** This player's slot index (0-indexed). null until round_start is received. */
+  playerSlot: number | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -84,12 +90,14 @@ const MAX_TRADE_HISTORY = 20
 export function useWebSocket(url: string): WsState & { sendMessage: (cmd: ClientCommand) => void } {
   const [state, setState] = useState<WsState>({
     connected: false,
-    lastServerTs: null,
     playerId: null,
     books: {},
     trades: [],
     errors: {},
     myOrders: [],
+    startsAt: null,
+    hand: null,
+    playerSlot: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -118,12 +126,9 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
     ws.onclose = (ev) => {
       logger.warn('ws', `connection closed — code=${ev.code} reason="${ev.reason}" wasClean=${ev.wasClean}`)
       setState(s => ({ ...s, connected: false }))
-      // AGENT-CTX: Guard against React 18 StrictMode double-invocation.
-      // StrictMode mounts → unmounts → remounts in dev. The cleanup closes ws1
-      // and immediately creates ws2 (wsRef = ws2). If ws1's onclose fires after
-      // ws2 is assigned, an unguarded `wsRef.current = null` wipes out the live
-      // socket reference, causing every subsequent sendMessage to be dropped
-      // (readyState = -1) even though the connection banner shows "Connected".
+      // TODO(Slice 5+): no reconnect attempted. When added, re-sync slot state
+      // (hand, active orders) on reconnect — the server will need to replay them.
+      // Guard: React 18 StrictMode remounts in dev — only clear if this ws is still current.
       if (wsRef.current === ws) {
         wsRef.current = null
       }
@@ -149,12 +154,6 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
       // in messages.ts but not here, the `default` never-check will surface it
       // as a compile error. Do not remove the default branch.
       switch (msg.type) {
-        case 'heartbeat':
-          // Heartbeats are noisy — log at DEBUG only
-          logger.debug('ws/recv', `heartbeat server_ts=${msg.server_ts}`)
-          setState(s => ({ ...s, lastServerTs: msg.server_ts }))
-          break
-
         case 'player_hello':
           logger.info('ws/recv', `player_hello player_id=${msg.player_id}`)
           setState(s => ({ ...s, playerId: msg.player_id }))
@@ -225,6 +224,23 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
           setState(s => ({ ...s, errors: { ...s.errors, [errorKey]: msg } }))
           break
         }
+
+        case 'round_starting':
+          logger.info('ws/recv',
+            `round_starting starts_at=${msg.starts_at} player_count=${msg.player_count}`)
+          setState(s => ({ ...s, startsAt: msg.starts_at }))
+          break
+
+        case 'round_start':
+          logger.info('ws/recv', `round_start player_slot=${msg.player_slot}`)
+          // Clear startsAt — countdown is over.
+          setState(s => ({
+            ...s,
+            hand: msg.hand,
+            playerSlot: msg.player_slot,
+            startsAt: null,
+          }))
+          break
 
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new

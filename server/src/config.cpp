@@ -40,21 +40,6 @@ ServerConfig load_config(const std::string& path) {
         cfg.ping_interval_ms      = srv.at("ping_interval_ms").get<int>();
         cfg.ping_timeout_ms       = srv.at("ping_timeout_ms").get<int>();
 
-        // AGENT-CTX: order_book section added in Slice 2. All fields required —
-        // omitting any throws here rather than silently defaulting, consistent
-        // with the server section above.
-        // int32_t is used for price bounds because width matters: these values
-        // are passed directly to the engine's fixed-point integer price model.
-        // If the engine ever widens to int64_t, widen here too.
-        // active_suits is a JSON array of strings; nlohmann handles the conversion.
-        // Slice 3 extends active_suits to four suit names — no struct change needed.
-        const auto& ob = j.at("order_book");
-        cfg.order_book.min_price               = ob.at("min_price").get<int32_t>();
-        cfg.order_book.max_price               = ob.at("max_price").get<int32_t>();
-        cfg.order_book.nudge_initial_buy_price  = ob.at("nudge_initial_buy_price").get<int32_t>();
-        cfg.order_book.nudge_initial_sell_price = ob.at("nudge_initial_sell_price").get<int32_t>();
-        cfg.order_book.active_suits             = ob.at("active_suits").get<std::vector<std::string>>();
-
         // uWebSockets requires idleTimeout >= 8 s; enforce that here so a bad
         // config fails loudly at startup rather than silently misbehaving.
         if (cfg.ping_timeout_ms < 8000) {
@@ -62,6 +47,27 @@ ServerConfig load_config(const std::string& path) {
                 "ping_timeout_ms must be >= 8000 (uWebSockets idleTimeout minimum is 8 s); "
                 "got " + std::to_string(cfg.ping_timeout_ms));
         }
+
+        const auto& ob = j.at("order_book");
+        cfg.order_book.min_price               = ob.at("min_price").get<int32_t>();
+        cfg.order_book.max_price               = ob.at("max_price").get<int32_t>();
+        cfg.order_book.nudge_initial_buy_price  = ob.at("nudge_initial_buy_price").get<int32_t>();
+        cfg.order_book.nudge_initial_sell_price = ob.at("nudge_initial_sell_price").get<int32_t>();
+        cfg.order_book.active_suits             = ob.at("active_suits").get<std::vector<std::string>>();
+
+        // card_distribution parsed as vector then copied into fixed array —
+        // nlohmann has no direct std::array deserialiser.
+        const auto& gm = j.at("game");
+        cfg.game.player_count      = gm.at("player_count").get<int>();
+        cfg.game.total_cards       = gm.at("total_cards").get<int>();
+        cfg.game.countdown_seconds = gm.at("countdown_seconds").get<int>();
+
+        const auto dist_vec = gm.at("card_distribution").get<std::vector<int>>();
+        if (dist_vec.size() != 4) {
+            throw std::runtime_error(
+                "game.card_distribution must have exactly 4 elements");
+        }
+        for (int i = 0; i < 4; ++i) cfg.game.card_distribution[i] = dist_vec[i];
 
         return cfg;
     } catch (const nlohmann::json::exception& e) {

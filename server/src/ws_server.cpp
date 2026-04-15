@@ -12,23 +12,26 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <iostream>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <random>
+#include <array>
 #include <set>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 
 namespace anjeer::server {
 
-// AGENT-CTX: PerSocketData is uWS per-connection user data. player_id is
-// transient in Slice 2 — assigned on connect, 0 is sentinel "not yet assigned".
+// AGENT-CTX: PerSocketData is uWS per-connection user data. player_slot is the
+// 0-indexed slot assigned on connect; -1 = unassigned sentinel.
 // Slice 5 adds jwt_token or similar auth credential here.
 struct PerSocketData {
-    int32_t player_id = 0;
+    int32_t player_slot = -1;  // lobby seam: Slice 6
 };
 
 using WsHandle = uWS::WebSocket<false, true, PerSocketData>*;
@@ -48,6 +51,7 @@ enum class WsErrorCode {
     NotYourOrder,
     UnknownSuit,
     MalformedMessage,
+    ServerFull,
 };
 
 // AGENT-CTX: Maps engine::OrderErrorEvent::Code → WsErrorCode. An exhaustive
@@ -81,6 +85,7 @@ static std::string error_code_str(WsErrorCode c) noexcept {
         case WsErrorCode::NotYourOrder:     return "NOT_YOUR_ORDER";
         case WsErrorCode::UnknownSuit:      return "UNKNOWN_SUIT";
         case WsErrorCode::MalformedMessage: return "MALFORMED_MESSAGE";
+        case WsErrorCode::ServerFull:       return "SERVER_FULL";
     }
     return "UNKNOWN_ERROR";
 }
@@ -120,7 +125,7 @@ static void error(WsHandle ws,
         nlohmann::json{{"type","error"},{"code",code_str},{"message",msg}}.dump();
     ws->send(payload, uWS::OpCode::TEXT);
     slog.warn("send",
-              "player=" + std::to_string(ws->getUserData()->player_id) +
+              "player=" + std::to_string(ws->getUserData()->player_slot) +
               " type=error code=" + code_str +
               " message=" + std::string(msg));
 }
@@ -157,7 +162,7 @@ static void trade(
               " recipients=" + std::to_string(conns.size()));
 
     for (WsHandle c : conns) {
-        const int32_t pid = c->getUserData()->player_id;
+        const int32_t pid = c->getUserData()->player_slot;
         nlohmann::json your_side = nullptr;
         if (pid == t.buyer_id)  your_side = "buy";
         if (pid == t.seller_id) your_side = "sell";
@@ -179,15 +184,27 @@ static void trade(
 // GameSession — all mutable game state owned by the event-loop thread
 // ═══════════════════════════════════════════════════════════════════════════
 
-// AGENT-CTX: GameSession groups the three pieces of per-run mutable state so
-// they can be passed as a single argument to message handlers and the wipe.
-// All fields live on the uWS event-loop thread; no synchronisation is needed.
-// In Slice 6+ this struct moves into a dedicated game-loop thread and the server
-// communicates with it via a command queue + Loop::defer().
+// AGENT-CTX: All mutable game state lives here, on the uWS event-loop thread.
+// In Slice 6+ this moves into a dedicated game-loop thread with a command queue.
 struct GameSession {
-    std::set<WsHandle>                                 connections;
-    std::unordered_map<std::string, engine::OrderBook> books;
-    int32_t                                            next_player_id = 1;
+    // books is indexed by engine::suit_index(). All 4 are always constructed;
+    // active_suits[i] marks whether suit i is in the active_suits config list.
+    std::array<engine::OrderBook, 4> books;
+    std::array<bool, 4>              active_suits{};
+
+    std::set<WsHandle> connections;
+
+    // AGENT-CTX: Slot-based tracking — lobby seam: moves to LobbyManager in Slice 6.
+    std::vector<WsHandle> player_slots;
+    int                   connected_count      = 0;
+    bool                  countdown_in_progress = false;  // set immediately on begin_countdown
+    bool                  round_started         = false;  // set after the deal fires
+
+    // AGENT-CTX: game_state is null until countdown fires.
+    std::unique_ptr<engine::GameState> game_state;
+
+    explicit GameSession(std::array<engine::OrderBook, 4> b, std::array<bool, 4> a)
+        : books(std::move(b)), active_suits(a) {}
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -219,14 +236,14 @@ static bool dispatch_events(
             }.dump();
             ws->send(payload, uWS::OpCode::TEXT);
             slog.info("send",
-                      "player=" + std::to_string(ws->getUserData()->player_id) +
+                      "player=" + std::to_string(ws->getUserData()->player_slot) +
                       " type=order_ack order_id=" + std::to_string(ack->order_id) +
                       " suit=" + ack->suit +
                       " side=" + serialise::side(ack->side) +
                       " price=" + std::to_string(ack->price));
             elog.info("order_ack",
                       "order_id=" + std::to_string(ack->order_id) +
-                      " player=" + std::to_string(ws->getUserData()->player_id) +
+                      " player=" + std::to_string(ws->getUserData()->player_slot) +
                       " suit=" + ack->suit +
                       " side=" + serialise::side(ack->side) +
                       " price=" + std::to_string(ack->price));
@@ -259,18 +276,18 @@ static bool dispatch_events(
             }.dump();
             ws->send(payload, uWS::OpCode::TEXT);
             slog.info("send",
-                      "player=" + std::to_string(ws->getUserData()->player_id) +
+                      "player=" + std::to_string(ws->getUserData()->player_slot) +
                       " type=order_cancel_ack order_id=" + std::to_string(cack->order_id));
             elog.info("cancel_ack",
                       "order_id=" + std::to_string(cack->order_id) +
-                      " player=" + std::to_string(ws->getUserData()->player_id));
+                      " player=" + std::to_string(ws->getUserData()->player_slot));
         }
 
         else if (const auto* err = std::get_if<engine::OrderErrorEvent>(&ev)) {
             elog.warn("engine_error",
                       "code=" + serialise::error_code_str(to_ws_error_code(err->code)) +
                       " message=" + err->message +
-                      " player=" + std::to_string(ws->getUserData()->player_id));
+                      " player=" + std::to_string(ws->getUserData()->player_slot));
             serialise::error(ws, to_ws_error_code(err->code), err->message, slog);
         }
     }
@@ -287,9 +304,10 @@ static bool dispatch_events(
 // only fans the returned BookUpdateEvents out to connected clients.
 static void apply_global_wipe(GameSession& session, Logger& slog, Logger& elog) {
     elog.info("global_wipe", "wiping all books after trade");
-    for (auto& [suit_name, book] : session.books) {
-        (void)suit_name;
-        const auto events = book.wipe();
+    for (auto s : engine::kAllSuits) {
+        const int si = engine::suit_index(s);
+        if (!session.active_suits[si]) continue;
+        const auto events = session.books[si].wipe();
         for (const auto& ev : events) {
             if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
                 serialise::book_update(session.connections, upd->suit,
@@ -348,38 +366,38 @@ static std::optional<engine::Side> side(const std::string& s) noexcept {
 } // namespace parse
 
 // ─── validate_suit_and_side ──────────────────────────────────────────────
-// Bridges parse and serialise: uses parse::side() and sends a serialise::error()
-// on failure. Lives outside both namespaces because it has I/O side effects.
-// Returns a validated {book_iterator, Side} or nullopt (error already sent).
-// AGENT-CTX: "known suits" is included in the UNKNOWN_SUIT log so log drift
-// between handlers cannot recur.
+// Parses suit and side from wire strings; sends error and returns nullopt on any
+// failure. "known suits" is always included in the UNKNOWN_SUIT log.
 
 struct SuitSideResult {
-    std::unordered_map<std::string, engine::OrderBook>::iterator book_it;
+    engine::Suit suit;
     engine::Side side;
 };
 
 static std::optional<SuitSideResult> validate_suit_and_side(
-        WsHandle                                             ws,
-        std::unordered_map<std::string, engine::OrderBook>& books,
-        const std::string&                                   suit_name,
-        const std::string&                                   side_raw,
-        std::string_view                                     op_name,
-        Logger&                                              server_log,
-        Logger&                                              engine_log) {
-    auto it = books.find(suit_name);
-    if (it == books.end()) {
+        WsHandle                      ws,
+        const std::array<bool, 4>&    active_suits,
+        const std::string&            suit_str,
+        const std::string&            side_raw,
+        std::string_view              op_name,
+        Logger&                       server_log,
+        Logger&                       engine_log) {
+    const auto suit_opt = engine::suit_from_string(suit_str);
+    if (!suit_opt || !active_suits[engine::suit_index(*suit_opt)]) {
         std::string known;
-        for (const auto& [k, v] : books) known += k + " ";
+        for (auto s : engine::kAllSuits) {
+            if (active_suits[engine::suit_index(s)])
+                known += std::string(engine::suit_name(s)) + " ";
+        }
         engine_log.warn(std::string(op_name),
-                        "UNKNOWN_SUIT: '" + suit_name + "'  known suits: " + known);
+                        "UNKNOWN_SUIT: '" + suit_str + "'  known suits: " + known);
         serialise::error(ws, WsErrorCode::UnknownSuit,
-                         "suit '" + suit_name + "' is not active", server_log);
+                         "suit '" + suit_str + "' is not active", server_log);
         return std::nullopt;
     }
 
-    const auto s = parse::side(side_raw);
-    if (!s) {
+    const auto side_opt = parse::side(side_raw);
+    if (!side_opt) {
         engine_log.warn(std::string(op_name),
                         "bad side value: '" + side_raw + "'");
         serialise::error(ws, WsErrorCode::MalformedMessage,
@@ -387,50 +405,51 @@ static std::optional<SuitSideResult> validate_suit_and_side(
         return std::nullopt;
     }
 
-    return SuitSideResult{it, *s};
+    return SuitSideResult{*suit_opt, *side_opt};
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Message handlers
 // ═══════════════════════════════════════════════════════════════════════════
 
-static void log_recv(int32_t player_id, std::string_view msg, Logger& slog) {
+static void log_recv(int32_t player_slot, std::string_view msg, Logger& slog) {
     constexpr std::size_t kMaxRawLog = 256;
     std::string raw(msg.substr(0, kMaxRawLog));
     for (auto& c : raw) if (c == '\n' || c == '\r') c = ' ';
     slog.info("recv",
-              "player=" + std::to_string(player_id) +
+              "player=" + std::to_string(player_slot) +
               " raw=" + raw +
               (msg.size() > kMaxRawLog ? "…" : ""));
 }
 
-static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_id,
+static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
                           GameSession& session, Logger& slog, Logger& elog) {
     const auto fields = parse::submit_order(j);
     if (!fields) {
         slog.error("submit_order",
-                   "player=" + std::to_string(player_id) + " missing required fields");
+                   "player=" + std::to_string(player_slot) + " missing required fields");
         serialise::error(ws, WsErrorCode::MalformedMessage,
                          "submit_order requires 'suit', 'side', 'price'", slog);
         return;
     }
 
     elog.info("submit_order",
-              "player=" + std::to_string(player_id) +
+              "player=" + std::to_string(player_slot) +
               " suit=" + fields->suit +
               " side=" + fields->side +
               " price=" + std::to_string(fields->price));
 
     const auto validated = validate_suit_and_side(
-        ws, session.books, fields->suit, fields->side, "submit_order", slog, elog);
+        ws, session.active_suits, fields->suit, fields->side, "submit_order", slog, elog);
     if (!validated) return;
 
     elog.debug("submit_order",
                "calling engine — suit=" + fields->suit +
-               " player=" + std::to_string(player_id) +
+               " player=" + std::to_string(player_slot) +
                " side=" + fields->side +
                " price=" + std::to_string(fields->price));
-    auto events = validated->book_it->second.submit(player_id, validated->side, fields->price);
+    auto events = session.books[engine::suit_index(validated->suit)]
+                      .submit(player_slot, validated->side, fields->price);
     elog.info("submit_order",
               "engine returned " + std::to_string(events.size()) + " event(s)");
 
@@ -438,27 +457,28 @@ static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_i
         apply_global_wipe(session, slog, elog);
 }
 
-static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_id,
+static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
                          GameSession& session, Logger& slog, Logger& elog) {
     const auto fields = parse::nudge(j);
     if (!fields) {
         slog.error("nudge",
-                   "player=" + std::to_string(player_id) + " missing required fields");
+                   "player=" + std::to_string(player_slot) + " missing required fields");
         serialise::error(ws, WsErrorCode::MalformedMessage,
                          "nudge requires 'suit' and 'side'", slog);
         return;
     }
 
     elog.info("nudge",
-              "player=" + std::to_string(player_id) +
+              "player=" + std::to_string(player_slot) +
               " suit=" + fields->suit +
               " side=" + fields->side);
 
     const auto validated = validate_suit_and_side(
-        ws, session.books, fields->suit, fields->side, "nudge", slog, elog);
+        ws, session.active_suits, fields->suit, fields->side, "nudge", slog, elog);
     if (!validated) return;
 
-    auto events = validated->book_it->second.nudge(validated->side, player_id);
+    auto events = session.books[engine::suit_index(validated->suit)]
+                      .nudge(validated->side, player_slot);
     elog.info("nudge",
               "engine returned " + std::to_string(events.size()) + " event(s)");
 
@@ -466,27 +486,29 @@ static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_id
         apply_global_wipe(session, slog, elog);
 }
 
-static void handle_cancel(WsHandle ws, const nlohmann::json& j, int32_t player_id,
+static void handle_cancel(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
                           GameSession& session, Logger& slog, Logger& elog) {
     const auto fields = parse::cancel_order(j);
     if (!fields) {
         slog.error("cancel_order",
-                   "player=" + std::to_string(player_id) + " missing required fields");
+                   "player=" + std::to_string(player_slot) + " missing required fields");
         serialise::error(ws, WsErrorCode::MalformedMessage,
                          "cancel_order requires 'order_id' (int)", slog);
         return;
     }
 
     elog.info("cancel_order",
-              "player=" + std::to_string(player_id) +
+              "player=" + std::to_string(player_slot) +
               " order_id=" + std::to_string(fields->order_id));
 
     // AGENT-CTX: Cancel searches ALL books because the wire protocol
     // omits suit from the cancel message.
     bool handled = false;
-    for (auto& [suit_name, book] : session.books) {
-        (void)suit_name;
-        auto events = book.cancel(fields->order_id, player_id);
+    for (auto s : engine::kAllSuits) {
+        const int si = engine::suit_index(s);
+        if (!session.active_suits[si]) continue;
+        auto events = session.books[si].cancel(fields->order_id, player_slot);
+        if (events.empty()) continue;
         const auto* err = std::get_if<engine::OrderErrorEvent>(&events.front());
         if (err && err->code == engine::OrderErrorEvent::Code::OrderNotFound) continue;
 
@@ -521,22 +543,151 @@ void WsServer::run() {
 
     server_log.info("startup", "server starting — config loaded");
 
-    GameSession session;
-    session.books.reserve(cfg_.order_book.active_suits.size());
-    for (const auto& suit : cfg_.order_book.active_suits) {
-        session.books.try_emplace(suit, engine::OrderBook::Config{
+    // Build all 4 books with identical price config; each gets its own suit name.
+    auto make_book = [&](engine::Suit s) {
+        return engine::OrderBook{engine::OrderBook::Config{
             cfg_.order_book.min_price,
             cfg_.order_book.max_price,
             cfg_.order_book.nudge_initial_buy_price,
             cfg_.order_book.nudge_initial_sell_price,
-            suit
-        });
-        server_log.info("startup", "registered suit: " + suit);
+            std::string(engine::suit_name(s)),
+        }};
+    };
+    std::array<engine::OrderBook, 4> books_arr{
+        make_book(engine::Suit::Clubs),
+        make_book(engine::Suit::Diamonds),
+        make_book(engine::Suit::Hearts),
+        make_book(engine::Suit::Spades),
+    };
+
+    // Validate active_suits from config; fail loud on any unrecognized name.
+    std::array<bool, 4> active_arr{};
+    for (const auto& suit_str : cfg_.order_book.active_suits) {
+        const auto s = engine::suit_from_string(suit_str);
+        if (!s) throw std::runtime_error(
+            "active_suits contains unrecognized suit: '" + suit_str + "'");
+        active_arr[engine::suit_index(*s)] = true;
+        server_log.info("startup", "registered suit: " + suit_str);
     }
+
+    GameSession session(std::move(books_arr), active_arr);
+    session.player_slots.resize(cfg_.game.player_count, nullptr);
+
+    // AGENT-CTX: Seeded once per process from OS entropy. Single instance shared
+    // across all deals in this process lifetime (safe — all engine calls are on
+    // the event-loop thread, no concurrent access).
+    std::mt19937 rng{std::random_device{}()};
 
     std::atomic<bool> running{true};
     uWS::App   app;
     uWS::Loop* loop = uWS::Loop::get();
+
+    // AGENT-CTX: Stored (not detached) so run() can join before locals are
+    // destroyed — the thread captures session, loggers, rng by reference.
+    std::optional<std::thread> countdown_thread;
+
+    // ── begin_countdown ───────────────────────────────────────────────────────
+    // Broadcasts round_starting, then spawns a thread that sleeps countdown_seconds
+    // and defers the deal + per-player round_start to the event-loop thread.
+    auto begin_countdown = [&]() {
+        session.countdown_in_progress = true;
+
+        // Compute absolute fire time as ISO 8601 UTC string.
+        // AGENT-CTX: Absolute timestamp so API clients can compute remaining time
+        // regardless of when they receive the message (one message, client timer).
+        auto now     = std::chrono::system_clock::now();
+        auto fire_at = now + std::chrono::seconds(cfg_.game.countdown_seconds);
+        auto fire_t  = std::chrono::system_clock::to_time_t(fire_at);
+        std::tm gmt{};
+        gmtime_r(&fire_t, &gmt);
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000Z", &gmt);
+        const std::string starts_at_str(buf);
+
+        const std::string payload = nlohmann::json{
+            {"type",         "round_starting"},
+            {"starts_at",    starts_at_str},
+            {"player_count", cfg_.game.player_count},
+        }.dump();
+        for (WsHandle ws : session.connections)
+            ws->send(payload, uWS::OpCode::TEXT);
+        server_log.info("round",
+                        "round_starting broadcast starts_at=" + starts_at_str +
+                        " player_count=" + std::to_string(cfg_.game.player_count));
+
+        countdown_thread.emplace([&]() {
+            std::this_thread::sleep_for(
+                std::chrono::seconds(cfg_.game.countdown_seconds));
+
+            loop->defer([&]() {
+                // AGENT-CTX: Guard against double-fire and post-shutdown access.
+                if (!running || session.round_started) return;
+                session.round_started = true;
+
+                engine::GameState::Config gs_cfg{
+                    cfg_.game.player_count,
+                    cfg_.game.total_cards,
+                    cfg_.game.card_distribution,
+                };
+                session.game_state = std::make_unique<engine::GameState>(gs_cfg);
+                auto deal = session.game_state->deal(rng);
+
+                // AGENT-CTX: grep `has_extra_card` to find and disable this log
+                // when the EV module supersedes it.
+                if (deal.uneven_deal) {
+                    for (int p = 0; p < static_cast<int>(deal.hands.size()); ++p) {
+                        if (deal.hands[p].has_extra_card) {
+                            server_log.warn("round",
+                                "UNEVEN_DEAL slot=" + std::to_string(p) +
+                                " has informational edge — see future EV module.");
+                        }
+                    }
+                }
+
+                // goal_suit logged but never sent to clients (withheld until round end).
+                engine_log.info("deal",
+                    "goal_suit=" + std::string(engine::suit_name(deal.goal_suit)) +
+                    " totals[clubs="    + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Clubs)])    +
+                    " diamonds=" + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Diamonds)]) +
+                    " hearts="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Hearts)])   +
+                    " spades="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Spades)])   + "]");
+
+                // Send each player only their own hand.
+                for (int slot = 0; slot < cfg_.game.player_count; ++slot) {
+                    WsHandle ws = session.player_slots[slot];
+                    if (!ws) {
+                        server_log.warn("round",
+                            "slot=" + std::to_string(slot) +
+                            " disconnected during countdown — hand not sent");
+                        continue;
+                    }
+                    const auto& h = deal.hands[slot];
+                    const std::string hand_payload = nlohmann::json{
+                        {"type",        "round_start"},
+                        {"player_slot", slot},
+                        {"hand", {
+                            {"clubs",    h.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
+                            {"diamonds", h.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},
+                            {"hearts",   h.suit_counts[engine::suit_index(engine::Suit::Hearts)]},
+                            {"spades",   h.suit_counts[engine::suit_index(engine::Suit::Spades)]},
+                        }},
+                    }.dump();
+                    ws->send(hand_payload, uWS::OpCode::TEXT);
+                    server_log.info("send",
+                        "player=" + std::to_string(slot) + " type=round_start" +
+                        " clubs="    + std::to_string(h.suit_counts[0]) +
+                        " diamonds=" + std::to_string(h.suit_counts[1]) +
+                        " hearts="   + std::to_string(h.suit_counts[2]) +
+                        " spades="   + std::to_string(h.suit_counts[3]));
+                }
+
+                server_log.info("round",
+                    "round started — goal_suit=" +
+                    std::string(engine::suit_name(deal.goal_suit)) +
+                    " (withheld from clients until round end)");
+            });
+        });
+    };
 
     // ── WebSocket handler ─────────────────────────────────────────────────
     app.ws<PerSocketData>("/ws", {
@@ -545,29 +696,52 @@ void WsServer::run() {
 
         // ── open ──────────────────────────────────────────────────────────
         .open = [&](WsHandle ws) {
-            const int32_t pid = session.next_player_id++;
-            ws->getUserData()->player_id = pid;
+            // Find the first empty slot. Reject if all slots are taken.
+            int slot = -1;
+            for (int i = 0; i < static_cast<int>(session.player_slots.size()); ++i) {
+                if (!session.player_slots[i]) { slot = i; break; }
+            }
+            if (slot == -1) {
+                serialise::error(ws, WsErrorCode::ServerFull,
+                                 "no player slots available", server_log);
+                ws->close();
+                server_log.warn("open", "connection rejected — all slots filled");
+                return;
+            }
+
+            session.player_slots[slot] = ws;
+            session.connected_count++;
+            ws->getUserData()->player_slot = static_cast<int32_t>(slot);
             session.connections.insert(ws);
             server_log.info("open",
-                            "player_id=" + std::to_string(pid) +
-                            " total=" + std::to_string(session.connections.size()));
+                            "slot=" + std::to_string(slot) +
+                            " connected=" + std::to_string(session.connected_count) +
+                            "/" + std::to_string(cfg_.game.player_count));
 
-            ws->send(nlohmann::json{{"type","player_hello"},{"player_id",pid}}.dump(),
+            ws->send(nlohmann::json{{"type","player_hello"},{"player_id",slot}}.dump(),
                      uWS::OpCode::TEXT);
             server_log.info("send",
-                            "player=" + std::to_string(pid) +
-                            " type=player_hello player_id=" + std::to_string(pid));
+                            "player=" + std::to_string(slot) +
+                            " type=player_hello player_id=" + std::to_string(slot));
 
-            // Send current book state for all suits
-            for (const auto& [suit_name, book] : session.books) {
-                ws->send(serialise::book_update_payload(
-                             suit_name, book.best_bid(), book.best_ask()),
+            for (auto s : engine::kAllSuits) {
+                const int si = engine::suit_index(s);
+                if (!session.active_suits[si]) continue;
+                const auto& book     = session.books[si];
+                const std::string ss = std::string(engine::suit_name(s));
+                ws->send(serialise::book_update_payload(ss, book.best_bid(), book.best_ask()),
                          uWS::OpCode::TEXT);
                 server_log.info("send",
-                                "player=" + std::to_string(pid) +
-                                " type=book_update(on-connect) suit=" + suit_name +
+                                "player=" + std::to_string(slot) +
+                                " type=book_update(on-connect) suit=" + ss +
                                 " best_bid=" + serialise::opt_price(book.best_bid()) +
                                 " best_ask=" + serialise::opt_price(book.best_ask()));
+            }
+
+            // Trigger countdown once all slots are filled (exactly once).
+            if (!session.countdown_in_progress &&
+                session.connected_count == cfg_.game.player_count) {
+                begin_countdown();
             }
         },
 
@@ -578,15 +752,15 @@ void WsServer::run() {
                 return;
             }
 
-            const int32_t player_id = ws->getUserData()->player_id;
-            log_recv(player_id, msg, server_log);
+            const int32_t player_slot = ws->getUserData()->player_slot;
+            log_recv(player_slot, msg, server_log);
 
             nlohmann::json j;
             try {
                 j = nlohmann::json::parse(msg);
             } catch (const nlohmann::json::exception& ex) {
                 server_log.error("recv",
-                                 "player=" + std::to_string(player_id) +
+                                 "player=" + std::to_string(player_slot) +
                                  " JSON parse failed: " + ex.what());
                 serialise::error(ws, WsErrorCode::MalformedMessage, "invalid JSON", server_log);
                 return;
@@ -597,19 +771,19 @@ void WsServer::run() {
                 type = j.at("type").get<std::string>();
             } catch (const nlohmann::json::exception& ex) {
                 server_log.error("recv",
-                                 "player=" + std::to_string(player_id) +
+                                 "player=" + std::to_string(player_slot) +
                                  " missing 'type': " + ex.what());
                 serialise::error(ws, WsErrorCode::MalformedMessage,
                                  "missing or invalid 'type' field", server_log);
                 return;
             }
 
-            if      (type == "submit_order") handle_submit(ws, j, player_id, session, server_log, engine_log);
-            else if (type == "nudge")        handle_nudge (ws, j, player_id, session, server_log, engine_log);
-            else if (type == "cancel_order") handle_cancel(ws, j, player_id, session, server_log, engine_log);
+            if      (type == "submit_order") handle_submit(ws, j, player_slot, session, server_log, engine_log);
+            else if (type == "nudge")        handle_nudge (ws, j, player_slot, session, server_log, engine_log);
+            else if (type == "cancel_order") handle_cancel(ws, j, player_slot, session, server_log, engine_log);
             else {
                 server_log.warn("recv",
-                                "player=" + std::to_string(player_id) +
+                                "player=" + std::to_string(player_slot) +
                                 " unknown type: '" + type + "'");
                 serialise::error(ws, WsErrorCode::MalformedMessage,
                                  "unknown message type: '" + type + "'", server_log);
@@ -618,10 +792,15 @@ void WsServer::run() {
 
         // ── close ─────────────────────────────────────────────────────────
         .close = [&](WsHandle ws, int code, std::string_view /*msg*/) {
-            const int32_t pid = ws->getUserData()->player_id;
+            const int32_t slot = ws->getUserData()->player_slot;
             session.connections.erase(ws);
+            if (slot >= 0 && slot < static_cast<int32_t>(session.player_slots.size())) {
+                session.player_slots[slot] = nullptr;
+                // Only decrement before round starts; count is unused after.
+                if (!session.round_started) session.connected_count--;
+            }
             server_log.info("close",
-                            "player_id=" + std::to_string(pid) +
+                            "slot=" + std::to_string(slot) +
                             " code=" + std::to_string(code) +
                             " total=" + std::to_string(session.connections.size()));
         }
@@ -677,8 +856,7 @@ void WsServer::run() {
         });
 
         res->onAborted([body_buf]() {
-            // shared_ptr goes out of scope here; body_buf freed automatically.
-            (void)body_buf;
+            // body_buf captured to extend shared_ptr lifetime; freed on abort.
         });
     });
 
@@ -708,33 +886,37 @@ void WsServer::run() {
         throw std::runtime_error("failed to listen on port " + std::to_string(cfg_.port));
     }
 
-    // ── Heartbeat thread ──────────────────────────────────────────────────
-    std::thread heartbeat_thread([&] {
-        while (running) {
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(cfg_.heartbeat_interval_ms));
-            if (!running) break;
-
-            const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()
-            ).count();
-
-            loop->defer([&session, ts, &server_log] {
-                if (session.connections.empty()) return;
-                const std::string payload =
-                    nlohmann::json{{"type","heartbeat"},{"server_ts",ts}}.dump();
-                for (WsHandle ws : session.connections)
-                    ws->send(payload, uWS::OpCode::TEXT);
-                server_log.debug("heartbeat",
-                                 "broadcast to " +
-                                 std::to_string(session.connections.size()) + " client(s)");
-            });
-        }
-    });
+    // ── Heartbeat thread (disabled — uncomment to re-enable for debugging) ──
+    // Note: server_ts is captured before loop->defer executes, so it slightly
+    // lags the actual broadcast time. Acceptable for debug purposes.
+    //
+    // std::thread heartbeat_thread([&] {
+    //     while (running) {
+    //         std::this_thread::sleep_for(
+    //             std::chrono::milliseconds(cfg_.heartbeat_interval_ms));
+    //         if (!running) break;
+    //         const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+    //             std::chrono::system_clock::now().time_since_epoch()
+    //         ).count();
+    //         loop->defer([&session, ts, &server_log] {
+    //             if (session.connections.empty()) return;
+    //             const std::string payload =
+    //                 nlohmann::json{{"type","heartbeat"},{"server_ts",ts}}.dump();
+    //             for (WsHandle ws : session.connections)
+    //                 ws->send(payload, uWS::OpCode::TEXT);
+    //             server_log.debug("heartbeat",
+    //                              "broadcast to " +
+    //                              std::to_string(session.connections.size()) + " client(s)");
+    //         });
+    //     }
+    // });
 
     app.run();
     running = false;
-    heartbeat_thread.join();
+    // heartbeat_thread.join();
+    // Join before locals (session, rng, loggers) are destroyed.
+    if (countdown_thread.has_value() && countdown_thread->joinable())
+        countdown_thread->join();
     server_log.info("shutdown", "server stopped");
 }
 

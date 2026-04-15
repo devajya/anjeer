@@ -74,3 +74,6 @@ lcov.info
 .nyc_output/
 *.sqlite
 *.sqlite3
+
+
+CLAUDE.md
