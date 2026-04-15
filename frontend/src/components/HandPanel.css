@@ -55,3 +55,14 @@
   min-width: 1.5rem;
   text-align: right;
 }
+
+.hand-panel__delta {
+  font-size: 0.72rem;
+  font-weight: 600;
+  min-width: 2.8rem;
+  text-align: right;
+  letter-spacing: 0.02em;
+}
+
+.hand-panel__delta--up   { color: #4caf50; }
+.hand-panel__delta--down { color: #e05050; }

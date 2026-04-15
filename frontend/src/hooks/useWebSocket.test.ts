@@ -167,6 +167,63 @@ describe('useWebSocket — order_ack messages', () => {
 // ---------------------------------------------------------------------------
 
 describe('useWebSocket — trade messages', () => {
+  const INITIAL_HAND = { clubs: 3, diamonds: 2, hearts: 4, spades: 1 }
+
+  function setupWithHand() {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'round_start', player_slot: 0, hand: INITIAL_HAND,
+      })
+    })
+    return result
+  }
+
+  test('increments hand count for traded suit when your_side=buy', () => {
+    const result = setupWithHand()
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: 'buy',
+      })
+    })
+    expect(result.current.hand?.clubs).toBe(INITIAL_HAND.clubs + 1)
+    // other suits unchanged
+    expect(result.current.hand?.diamonds).toBe(INITIAL_HAND.diamonds)
+    expect(result.current.hand?.hearts).toBe(INITIAL_HAND.hearts)
+  })
+
+  test('decrements hand count for traded suit when your_side=sell', () => {
+    const result = setupWithHand()
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'spades', price: 30, aggressor_side: 'sell', your_side: 'sell',
+      })
+    })
+    expect(result.current.hand?.spades).toBe(INITIAL_HAND.spades - 1)
+  })
+
+  test('does not change hand counts when your_side=null (observer)', () => {
+    const result = setupWithHand()
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: null,
+      })
+    })
+    expect(result.current.hand).toEqual(INITIAL_HAND)
+  })
+
+  test('initialHand is not mutated by trades', () => {
+    const result = setupWithHand()
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: 'buy',
+      })
+    })
+    expect(result.current.initialHand).toEqual(INITIAL_HAND)
+    expect(result.current.hand?.clubs).toBe(INITIAL_HAND.clubs + 1)
+  })
+
   test('appends to trades feed', () => {
     const { result } = renderHook(() => useWebSocket('/ws'))
     act(() => { MockWebSocket.last.triggerOpen() })

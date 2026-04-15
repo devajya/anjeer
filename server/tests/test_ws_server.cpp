@@ -184,7 +184,8 @@ private:
 // the thread. The static atomic ensures only one server instance binds the port,
 // even if multiple TEST_CASEs call ensure_server_running() concurrently.
 
-static constexpr int WS_TEST_PORT = 19002;
+static constexpr int WS_TEST_PORT  = 19002;
+static constexpr int WS_ROUND_PORT = 19003;
 
 static void ensure_server_running() {
     static std::atomic<bool> started{false};
@@ -241,6 +242,83 @@ static void ensure_server_running() {
     throw std::runtime_error("test server failed to start");
 }
 
+// AGENT-CTX: ensure_round_server_running starts a second server (port 19003)
+// with player_count=2 and countdown_seconds=0. Two primer clients connect to
+// trigger the round immediately, then disconnect. Subsequent test clients
+// connect into an already-Active server and can place orders freely.
+// Tests that need Active phase must use WS_ROUND_PORT, not WS_TEST_PORT.
+// Tests that need Waiting phase (ROUND_NOT_ACTIVE checks) use WS_TEST_PORT.
+static void ensure_round_server_running() {
+    static std::atomic<bool> started{false};
+    if (started.exchange(true)) {
+        for (int i = 0; i < 200; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_port   = htons(WS_ROUND_PORT);
+            ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+            const bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+            ::close(fd);
+            if (ok) return;
+        }
+        throw std::runtime_error("round test server did not become ready in time");
+    }
+
+    ServerConfig cfg;
+    cfg.host                  = "127.0.0.1";
+    cfg.port                  = WS_ROUND_PORT;
+    cfg.heartbeat_interval_ms = 60000;
+    cfg.ping_interval_ms      = 1000;
+    cfg.ping_timeout_ms       = 8000;
+    cfg.order_book.min_price               = 1;
+    cfg.order_book.max_price               = 99;
+    cfg.order_book.nudge_initial_buy_price  = 1;
+    cfg.order_book.nudge_initial_sell_price = 99;
+    cfg.order_book.active_suits             = { "clubs" };
+    // AGENT-CTX: player_count=2, countdown_seconds=0 so the primer (two
+    // dummy clients) triggers an immediate deal. After primer disconnects,
+    // the server stays in Active phase for all order-related tests.
+    cfg.game.player_count      = 2;
+    cfg.game.total_cards       = 40;
+    cfg.game.card_distribution = {12, 10, 10, 8};
+    cfg.game.countdown_seconds = 0;
+
+    std::thread([cfg]() {
+        WsServer srv(cfg);
+        srv.run();
+    }).detach();
+
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port   = htons(WS_ROUND_PORT);
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        const bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+        ::close(fd);
+        if (ok) break;
+        if (i == 199) throw std::runtime_error("round server failed to start");
+    }
+
+    // Primer: connect two clients to trigger begin_countdown → immediate deal.
+    // Both clients wait for round_start before disconnecting so the server is
+    // definitely in Active phase when this function returns.
+    {
+        WsTestClient c0(WS_ROUND_PORT);
+        c0.recv_of_type("player_hello");
+        WsTestClient c1(WS_ROUND_PORT);
+        c1.recv_of_type("player_hello");
+        // countdown_seconds=0 → round_starting arrives immediately after c1 joins
+        c0.recv_of_type("round_starting");
+        c1.recv_of_type("round_starting");
+        // deal fires on next loop iteration
+        c0.recv_of_type("round_start");
+        c1.recv_of_type("round_start");
+    }  // c0, c1 disconnect here; server remains Active; slots freed for tests
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -267,11 +345,10 @@ TEST_CASE("WS server — book_update snapshot sent on connect", "[ws_server]") {
 }
 
 TEST_CASE("WS server — submit_order returns order_ack", "[ws_server]") {
-    ensure_server_running();
-    WsTestClient client(WS_TEST_PORT);
+    ensure_round_server_running();
+    WsTestClient client(WS_ROUND_PORT);
 
     client.recv_of_type("player_hello");
-    client.recv_of_type("book_update");
 
     client.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
 
@@ -287,11 +364,10 @@ TEST_CASE("WS server — submit_order returns order_ack", "[ws_server]") {
 }
 
 TEST_CASE("WS server — unknown suit returns UNKNOWN_SUIT error", "[ws_server]") {
-    ensure_server_running();
-    WsTestClient client(WS_TEST_PORT);
+    ensure_round_server_running();
+    WsTestClient client(WS_ROUND_PORT);
 
     client.recv_of_type("player_hello");
-    client.recv_of_type("book_update");
 
     client.send_json({ {"type","submit_order"}, {"suit","BOGUS"}, {"side","buy"}, {"price",50} });
 
@@ -302,10 +378,10 @@ TEST_CASE("WS server — unknown suit returns UNKNOWN_SUIT error", "[ws_server]"
 TEST_CASE("WS server — crossing orders produce trade then global book wipe", "[ws_server]") {
     // AGENT-CTX: This test is order-sensitive and should run last in the file.
     // A trade triggers a global wipe of all books, leaving a clean state.
-    ensure_server_running();
+    ensure_round_server_running();
 
-    WsTestClient buyer(WS_TEST_PORT);
-    WsTestClient seller(WS_TEST_PORT);
+    WsTestClient buyer(WS_ROUND_PORT);
+    WsTestClient seller(WS_ROUND_PORT);
 
     // Each client receives hello + initial book snapshot on connect.
     buyer.recv_of_type("player_hello");
@@ -337,4 +413,34 @@ TEST_CASE("WS server — crossing orders produce trade then global book wipe", "
     REQUIRE(wipe_b["best_ask"].is_null());
     REQUIRE(wipe_s["best_bid"].is_null());
     REQUIRE(wipe_s["best_ask"].is_null());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase gate tests — Slice 4 bug fix
+// AGENT-CTX: These tests use the Waiting-phase server (WS_TEST_PORT,
+// player_count=99) so the round never starts and orders must be rejected.
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("WS server — submit_order rejected before round is active", "[ws_server][phase]") {
+    ensure_server_running();
+    WsTestClient client(WS_TEST_PORT);
+
+    client.recv_of_type("player_hello");
+
+    client.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
+
+    const auto err = client.recv_of_type("error");
+    REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
+}
+
+TEST_CASE("WS server — nudge rejected before round is active", "[ws_server][phase]") {
+    ensure_server_running();
+    WsTestClient client(WS_TEST_PORT);
+
+    client.recv_of_type("player_hello");
+
+    client.send_json({ {"type","nudge"}, {"suit","clubs"}, {"side","buy"} });
+
+    const auto err = client.recv_of_type("error");
+    REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
 }

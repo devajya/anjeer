@@ -52,6 +52,7 @@ enum class WsErrorCode {
     UnknownSuit,
     MalformedMessage,
     ServerFull,
+    RoundNotActive,
 };
 
 // AGENT-CTX: Maps engine::OrderErrorEvent::Code → WsErrorCode. An exhaustive
@@ -86,6 +87,7 @@ static std::string error_code_str(WsErrorCode c) noexcept {
         case WsErrorCode::UnknownSuit:      return "UNKNOWN_SUIT";
         case WsErrorCode::MalformedMessage: return "MALFORMED_MESSAGE";
         case WsErrorCode::ServerFull:       return "SERVER_FULL";
+        case WsErrorCode::RoundNotActive:   return "ROUND_NOT_ACTIVE";
     }
     return "UNKNOWN_ERROR";
 }
@@ -181,6 +183,16 @@ static void trade(
 } // namespace serialise
 
 // ═══════════════════════════════════════════════════════════════════════════
+// RoundPhase — server-side round lifecycle state machine
+//
+// AGENT-CTX: Only Waiting and Active are used in Slices 1–4. Scoring and
+// Ended are introduced in Task 8 (round-end flow). Lives here (not in the
+// engine) because it describes which protocol messages are accepted — pure
+// server-layer policy, not game logic.
+// ═══════════════════════════════════════════════════════════════════════════
+enum class RoundPhase { Waiting, Active, Scoring, Ended };
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GameSession — all mutable game state owned by the event-loop thread
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -196,9 +208,10 @@ struct GameSession {
 
     // AGENT-CTX: Slot-based tracking — lobby seam: moves to LobbyManager in Slice 6.
     std::vector<WsHandle> player_slots;
-    int                   connected_count      = 0;
-    bool                  countdown_in_progress = false;  // set immediately on begin_countdown
-    bool                  round_started         = false;  // set after the deal fires
+    int                   connected_count       = 0;
+    bool                  countdown_in_progress = false;
+    bool                  round_started         = false;
+    RoundPhase            round_phase           = RoundPhase::Waiting;
 
     // AGENT-CTX: game_state is null until countdown fires.
     std::unique_ptr<engine::GameState> game_state;
@@ -317,6 +330,28 @@ static void apply_global_wipe(GameSession& session, Logger& slog, Logger& elog) 
     }
 }
 
+// AGENT-CTX: Called after every dispatch_events() that produced a trade.
+// game_state may be null during tests or if somehow called before deal; guard
+// is intentional — the server should not crash on a double-fire.
+static void apply_card_transfers(
+        GameSession&                           session,
+        const std::vector<engine::OrderEvent>& events,
+        Logger&                                elog) {
+    if (!session.game_state) return;
+    for (const auto& ev : events) {
+        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
+            const auto suit_opt = engine::suit_from_string(t->suit);
+            if (!suit_opt) continue;
+            // seller sends the card; buyer receives it
+            session.game_state->transfer_card(t->seller_id, t->buyer_id, *suit_opt);
+            elog.info("transfer_card",
+                      "seller=" + std::to_string(t->seller_id) +
+                      " buyer="  + std::to_string(t->buyer_id)  +
+                      " suit="   + t->suit);
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // namespace parse — JSON→typed-command layer
 //
@@ -424,6 +459,11 @@ static void log_recv(int32_t player_slot, std::string_view msg, Logger& slog) {
 
 static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
                           GameSession& session, Logger& slog, Logger& elog) {
+    if (session.round_phase != RoundPhase::Active) {
+        serialise::error(ws, WsErrorCode::RoundNotActive, "round is not active", slog);
+        return;
+    }
+
     const auto fields = parse::submit_order(j);
     if (!fields) {
         slog.error("submit_order",
@@ -453,12 +493,18 @@ static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_s
     elog.info("submit_order",
               "engine returned " + std::to_string(events.size()) + " event(s)");
 
-    if (dispatch_events(ws, session.connections, events, slog, elog))
-        apply_global_wipe(session, slog, elog);
+    const bool had_trade = dispatch_events(ws, session.connections, events, slog, elog);
+    apply_card_transfers(session, events, elog);
+    if (had_trade) apply_global_wipe(session, slog, elog);
 }
 
 static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
                          GameSession& session, Logger& slog, Logger& elog) {
+    if (session.round_phase != RoundPhase::Active) {
+        serialise::error(ws, WsErrorCode::RoundNotActive, "round is not active", slog);
+        return;
+    }
+
     const auto fields = parse::nudge(j);
     if (!fields) {
         slog.error("nudge",
@@ -482,8 +528,9 @@ static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_sl
     elog.info("nudge",
               "engine returned " + std::to_string(events.size()) + " event(s)");
 
-    if (dispatch_events(ws, session.connections, events, slog, elog))
-        apply_global_wipe(session, slog, elog);
+    const bool had_trade = dispatch_events(ws, session.connections, events, slog, elog);
+    apply_card_transfers(session, events, elog);
+    if (had_trade) apply_global_wipe(session, slog, elog);
 }
 
 static void handle_cancel(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
@@ -623,6 +670,7 @@ void WsServer::run() {
                 // AGENT-CTX: Guard against double-fire and post-shutdown access.
                 if (!running || session.round_started) return;
                 session.round_started = true;
+                session.round_phase   = RoundPhase::Active;
 
                 engine::GameState::Config gs_cfg{
                     cfg_.game.player_count,

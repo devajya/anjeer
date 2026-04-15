@@ -1,4 +1,4 @@
-import type { BookState } from '../hooks/useWebSocket'
+import type { BookState, MyOrder } from '../hooks/useWebSocket'
 import type { ErrorMessage, ClientCommand } from '../types/messages'
 import { useOrderForm } from '../hooks/useOrderForm'
 import './SuitPanel.css'
@@ -26,6 +26,30 @@ interface Props {
   /** Last executed trade price for this suit, null if no trades yet. */
   lastTradePrice: number | null
   /**
+   * How many cards of this suit the player currently holds.
+   * null/undefined = hand not yet dealt (sell controls remain enabled to avoid
+   * blocking the UI before round_start arrives).
+   */
+  suitCardCount?: number | null
+  /**
+   * True when the player's own order is sitting at the current best bid.
+   * Disables all sell-side controls — executing a sell would be a self-trade.
+   */
+  isOwnBestBid?: boolean
+  /**
+   * True when the player's own order is sitting at the current best ask.
+   * Disables all buy-side controls — executing a buy would be a self-trade.
+   */
+  isOwnBestAsk?: boolean
+  /**
+   * The player's own resting orders for this suit. Passed into useOrderForm for
+   * submit-time self-trade detection on the price-input path.
+   * AGENT-CTX: Makeshift client-side guard until server sends per-order player IDs.
+   * When best_bid_player / best_ask_player arrive from the server, replace this
+   * with server-side rejection and remove the myOrdersForSuit param from useOrderForm.
+   */
+  myOrdersForSuit?: MyOrder[]
+  /**
    * Player ID who placed the current best bid. Null until the server sends
    * best_bid_player in a future slice — column stays neutral while null.
    */
@@ -49,16 +73,23 @@ export function SuitPanel({
   playerId,
   error,
   lastTradePrice,
+  suitCardCount = null,
+  isOwnBestBid = false,
+  isOwnBestAsk = false,
+  myOrdersForSuit = [],
   bidPlayerColor = null,
   askPlayerColor = null,
   onSendMessage,
 }: Props) {
-  const { bidInput, offerInput, setBidInput, setOfferInput, submitBid, submitOffer } =
-    useOrderForm(suit, onSendMessage)
+  const { bidInput, offerInput, setBidInput, setOfferInput, submitBid, submitOffer, selfTradeError } =
+    useOrderForm(suit, onSendMessage, myOrdersForSuit)
 
   const disabled = playerId === null
   const hasBid = book.best_bid !== null
   const hasAsk = book.best_ask !== null
+  // Disable all sell-side controls when the player holds no cards of this suit.
+  // suitCardCount null means hand not yet dealt — allow sells until we know better.
+  const noCards = suitCardCount !== null && suitCardCount === 0
 
   // Neutral dark background when no player colour is known yet.
   const BID_NEUTRAL = '#0e0e0e'
@@ -94,8 +125,13 @@ export function SuitPanel({
             <button
               className="sp__action-btn sp__action-btn--sell"
               type="button"
-              disabled={disabled || !hasBid}
-              title={hasBid ? `Sell at ${book.best_bid}` : 'No bid to sell into'}
+              disabled={disabled || !hasBid || noCards || isOwnBestBid}
+              title={
+                noCards      ? 'No cards to sell' :
+                isOwnBestBid ? 'Cannot sell to your own buy order' :
+                hasBid       ? `Sell at ${book.best_bid}` :
+                               'No bid to sell into'
+              }
               onClick={() =>
                 onSendMessage({
                   type: 'submit_order',
@@ -143,8 +179,8 @@ export function SuitPanel({
             <button
               className="sp__nudge sp__nudge--down"
               type="button"
-              title="Nudge ask down by 1"
-              disabled={disabled}
+              title={noCards ? 'No cards to sell' : 'Nudge ask down by 1'}
+              disabled={disabled || noCards}
               onClick={() => onSendMessage({ type: 'nudge', suit, side: 'sell' })}
             >
               ▼
@@ -165,15 +201,19 @@ export function SuitPanel({
                 value={offerInput}
                 onChange={e => setOfferInput(e.target.value)}
                 placeholder="price"
-                disabled={disabled}
+                disabled={disabled || noCards}
                 aria-label={`Offer price for ${suit}`}
               />
             </form>
             <button
               className="sp__action-btn sp__action-btn--buy"
               type="button"
-              disabled={disabled || !hasAsk}
-              title={hasAsk ? `Buy at ${book.best_ask}` : 'No ask to buy from'}
+              disabled={disabled || !hasAsk || isOwnBestAsk}
+              title={
+                isOwnBestAsk ? 'Cannot buy your own sell order' :
+                hasAsk       ? `Buy at ${book.best_ask}` :
+                               'No ask to buy from'
+              }
               onClick={() =>
                 onSendMessage({
                   type: 'submit_order',
@@ -192,6 +232,9 @@ export function SuitPanel({
 
       {error && (
         <p className="sp__error">✗ {error.code}: {error.message}</p>
+      )}
+      {selfTradeError && (
+        <p className="sp__error">✗ {selfTradeError}</p>
       )}
     </div>
   )

@@ -155,6 +155,24 @@ int GameState::player_count() const {
 }
 
 // ---------------------------------------------------------------------------
+// GameState::transfer_card — post-trade hand mutation
+// ---------------------------------------------------------------------------
+
+void GameState::transfer_card(int from_slot, int to_slot, Suit suit) {
+    assert(dealt_ && "transfer_card() called before deal()");
+    assert(from_slot >= 0 && from_slot < static_cast<int>(hands_.size()));
+    assert(to_slot   >= 0 && to_slot   < static_cast<int>(hands_.size()));
+    const int si = suit_index(suit);
+    // AGENT-CTX: Assert (not return/throw) — a transfer with an empty source hand
+    // means the engine and server book are out of sync, which is always a
+    // programming error, not a recoverable runtime condition.
+    assert(hands_[from_slot].suit_counts[si] > 0 &&
+           "transfer_card(): from_slot has no cards of this suit");
+    hands_[from_slot].suit_counts[si]--;
+    hands_[to_slot].suit_counts[si]++;
+}
+
+// ---------------------------------------------------------------------------
 // GameState::derive_goal_suit — static, pure function
 // ---------------------------------------------------------------------------
 

@@ -73,8 +73,13 @@ export interface WsState {
   myOrders: MyOrder[]
   /** ISO 8601 UTC timestamp from round_starting. null when no countdown is active. */
   startsAt: string | null
-  /** This player's hand counts. null until round_start is received. */
+  /** This player's hand counts, updated in real-time as trades execute. null until round_start. */
   hand: HandCounts | null
+  /**
+   * Hand counts as-dealt at round_start. Held constant through the round so
+   * HandPanel can show per-suit deltas (current − initial).
+   */
+  initialHand: HandCounts | null
   /** This player's slot index (0-indexed). null until round_start is received. */
   playerSlot: number | null
 }
@@ -97,6 +102,7 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
     myOrders: [],
     startsAt: null,
     hand: null,
+    initialHand: null,
     playerSlot: null,
   })
 
@@ -198,13 +204,28 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
             your_side: trade.your_side,
             ts: Date.now(),
           }
-          setState(s => ({
-            ...s,
-            trades: [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
-            // AGENT-CTX: Global wipe — any trade clears all resting orders server-side.
-            // Mirror that here so the MyOrders list stays consistent.
-            myOrders: [],
-          }))
+          setState(s => {
+            // Update hand counts when this player was a party to the trade.
+            // Buyer gains one card; seller loses one. Observers unchanged.
+            // AGENT-CTX: Inferred client-side from your_side to avoid a separate
+            // hand_update wire message. Mirrors the server's transfer_card() call.
+            let hand = s.hand
+            if (trade.your_side !== null && hand !== null) {
+              const key = trade.suit as keyof HandCounts
+              if (key in hand) {
+                const delta = trade.your_side === 'buy' ? 1 : -1
+                hand = { ...hand, [key]: hand[key] + delta }
+              }
+            }
+            return {
+              ...s,
+              hand,
+              trades: [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
+              // AGENT-CTX: Global wipe — any trade clears all resting orders server-side.
+              // Mirror that here so the MyOrders list stays consistent.
+              myOrders: [],
+            }
+          })
           break
         }
 
@@ -233,10 +254,10 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
 
         case 'round_start':
           logger.info('ws/recv', `round_start player_slot=${msg.player_slot}`)
-          // Clear startsAt — countdown is over.
           setState(s => ({
             ...s,
             hand: msg.hand,
+            initialHand: msg.hand,
             playerSlot: msg.player_slot,
             startsAt: null,
           }))

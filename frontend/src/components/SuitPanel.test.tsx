@@ -96,6 +96,36 @@ describe('SuitPanel — disabled states', () => {
     renderPanel({ book: BOOK_FULL })
     expect(screen.getByRole('button', { name: /SELL/i })).not.toBeDisabled()
   })
+
+  test('SELL button is disabled when suitCardCount is 0', () => {
+    renderPanel({ book: BOOK_FULL, suitCardCount: 0 })
+    expect(screen.getByRole('button', { name: /SELL/i })).toBeDisabled()
+  })
+
+  test('nudge-down button is disabled when suitCardCount is 0', () => {
+    renderPanel({ book: BOOK_FULL, suitCardCount: 0 })
+    const nudgeDown = screen.getAllByTitle('No cards to sell')
+      .find(el => el.classList.contains('sp__nudge--down'))
+    expect(nudgeDown).toBeDefined()
+    expect(nudgeDown).toBeDisabled()
+  })
+
+  test('offer price input is disabled when suitCardCount is 0', () => {
+    renderPanel({ book: BOOK_FULL, suitCardCount: 0 })
+    const input = screen.getByRole('spinbutton', { name: /Offer price for S1/i })
+    expect(input).toBeDisabled()
+  })
+
+  test('sell controls are enabled when suitCardCount is 1 or more', () => {
+    renderPanel({ book: BOOK_FULL, suitCardCount: 1 })
+    expect(screen.getByRole('button', { name: /SELL/i })).not.toBeDisabled()
+    expect(screen.getByRole('spinbutton', { name: /Offer price for S1/i })).not.toBeDisabled()
+  })
+
+  test('sell controls are enabled when suitCardCount is null (hand not yet dealt)', () => {
+    renderPanel({ book: BOOK_FULL, suitCardCount: null })
+    expect(screen.getByRole('button', { name: /SELL/i })).not.toBeDisabled()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -157,5 +187,69 @@ describe('SuitPanel — interactions', () => {
     fireEvent.change(input, { target: { value: '' } })
     fireEvent.submit(input.closest('form')!)
     expect(onSendMessage).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Self-trade prevention
+// ---------------------------------------------------------------------------
+
+describe('SuitPanel — self-trade prevention', () => {
+  test('SELL button is disabled when isOwnBestBid is true', () => {
+    renderPanel({ book: BOOK_FULL, isOwnBestBid: true })
+    expect(screen.getByRole('button', { name: /SELL/i })).toBeDisabled()
+  })
+
+  test('BUY button is disabled when isOwnBestAsk is true', () => {
+    renderPanel({ book: BOOK_FULL, isOwnBestAsk: true })
+    expect(screen.getByRole('button', { name: /BUY/i })).toBeDisabled()
+  })
+
+  test('SELL button shows self-trade tooltip when isOwnBestBid is true', () => {
+    renderPanel({ book: BOOK_FULL, isOwnBestBid: true })
+    expect(screen.getByRole('button', { name: /SELL/i })).toHaveAttribute(
+      'title', 'Cannot sell to your own buy order'
+    )
+  })
+
+  test('BUY button shows self-trade tooltip when isOwnBestAsk is true', () => {
+    renderPanel({ book: BOOK_FULL, isOwnBestAsk: true })
+    expect(screen.getByRole('button', { name: /BUY/i })).toHaveAttribute(
+      'title', 'Cannot buy your own sell order'
+    )
+  })
+
+  test('bid price form shows selfTradeError when crossing own sell order', () => {
+    // myOrdersForSuit has a sell at 40; submitting a buy at 45 would cross it.
+    renderPanel({
+      myOrdersForSuit: [{ id: 1, suit: 'S1', side: 'sell', price: 40 }],
+    })
+    const input = screen.getByRole('spinbutton', { name: /Bid price for S1/i })
+    fireEvent.change(input, { target: { value: '45' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(screen.getByText(/Cannot buy your own sell order/)).toBeInTheDocument()
+  })
+
+  test('offer price form shows selfTradeError when crossing own buy order', () => {
+    // myOrdersForSuit has a buy at 50; submitting a sell at 45 would cross it.
+    renderPanel({
+      myOrdersForSuit: [{ id: 2, suit: 'S1', side: 'buy', price: 50 }],
+    })
+    const input = screen.getByRole('spinbutton', { name: /Offer price for S1/i })
+    fireEvent.change(input, { target: { value: '45' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(screen.getByText(/Cannot sell to your own buy order/)).toBeInTheDocument()
+  })
+
+  test('bid form sends when own sell is at a higher price (no cross)', () => {
+    const { onSendMessage } = renderPanel({
+      myOrdersForSuit: [{ id: 1, suit: 'S1', side: 'sell', price: 60 }],
+    })
+    const input = screen.getByRole('spinbutton', { name: /Bid price for S1/i })
+    fireEvent.change(input, { target: { value: '40' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(onSendMessage).toHaveBeenCalledWith({
+      type: 'submit_order', suit: 'S1', side: 'buy', price: 40,
+    })
   })
 })

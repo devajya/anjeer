@@ -84,6 +84,19 @@ public:
 
     [[nodiscard]] int player_count() const;
 
+    // Transfer one card of `suit` from player `from_slot` to player `to_slot`.
+    // Called by the server after every executed trade to keep hand state current
+    // for scoring at round end.
+    //
+    // AGENT-CTX: This is the only mutating method after deal() by design. The
+    // server is the authoritative source of who bought/sold what (via TradeEvent),
+    // so it drives all transfers. Engine does not observe order books directly
+    // until GameSession wraps them in Slice 6.
+    //
+    // Precondition: hand(from_slot).suit_counts[suit_index(suit)] >= 1.
+    // Asserts in debug; caller must ensure validity.
+    void transfer_card(int from_slot, int to_slot, Suit suit);
+
     // Rule: color_partner of the suit with the highest card count.
     // Static so unit tests can call it without constructing a full GameState.
     [[nodiscard]] static Suit derive_goal_suit(const std::array<int, 4>& suit_totals);

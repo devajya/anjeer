@@ -21,6 +21,7 @@ function App() {
     sendMessage,
     startsAt,
     hand,
+    initialHand,
   } = useWebSocket('/ws')
 
   const activeSuits = SUIT_ORDER.filter(s => s in books)
@@ -50,23 +51,38 @@ function App() {
           {activeSuits.length === 0 ? (
             <p className="app__waiting">Waiting for book data…</p>
           ) : (
-            activeSuits.map(suit => (
-              <SuitPanel
-                key={suit}
-                suit={suit}
-                book={books[suit]}
-                playerId={playerId}
-                error={errors[suit] ?? null}
-                lastTradePrice={lastTradePrices[suit] ?? null}
-                onSendMessage={sendMessage}
-              />
-            ))
+            activeSuits.map(suit => {
+              // AGENT-CTX: Makeshift self-trade guard — derive ownsBestBid/ownsBestAsk
+              // from myOrders since the server does not yet send best_bid_player /
+              // best_ask_player. When those fields arrive (future slice), replace this
+              // derivation with the server-provided values and remove myOrdersForSuit.
+              const suitOrders = myOrders.filter(o => o.suit === suit)
+              const bestBid = books[suit].best_bid
+              const bestAsk = books[suit].best_ask
+              const ownsBestBid = bestBid !== null && suitOrders.some(o => o.side === 'buy'  && o.price === bestBid)
+              const ownsBestAsk = bestAsk !== null && suitOrders.some(o => o.side === 'sell' && o.price === bestAsk)
+              return (
+                <SuitPanel
+                  key={suit}
+                  suit={suit}
+                  book={books[suit]}
+                  playerId={playerId}
+                  error={errors[suit] ?? null}
+                  lastTradePrice={lastTradePrices[suit] ?? null}
+                  suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
+                  isOwnBestBid={ownsBestBid}
+                  isOwnBestAsk={ownsBestAsk}
+                  myOrdersForSuit={suitOrders}
+                  onSendMessage={sendMessage}
+                />
+              )
+            })
           )}
         </section>
 
         {/* ── Column 2: Hand + My Orders + Trade feed ── */}
         <section className="app__right">
-          <HandPanel hand={hand} />
+          <HandPanel hand={hand} initialHand={initialHand} />
           <MyOrders orders={myOrders} onCancel={handleCancel} />
           <TradeFeed trades={trades} />
         </section>

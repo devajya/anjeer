@@ -298,3 +298,100 @@ TEST_CASE("deal_total_cards_conservation_across_all_players", "[game_state][deal
         for (int c : h.suit_counts) grand_total += c;
     REQUIRE(grand_total == 40);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// transfer_card tests — Slice 4 bug fix
+//
+// AGENT-CTX: transfer_card() is called by the server after every executed
+// trade so that hand state stays accurate for end-of-round scoring. These
+// tests verify the mutation is correct and isolated to the transferred suit.
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("transfer_card: reduces sender count and increases receiver count", "[game_state][transfer]") {
+    GameState gs(make_test_config(5));
+    std::mt19937 rng(42);
+    auto deal = gs.deal(rng);
+
+    // Find the first suit where player 0 holds at least one card.
+    Suit transfer_suit = Suit::Clubs;
+    for (auto s : kAllSuits) {
+        if (deal.hands[0].suit_counts[suit_index(s)] > 0) {
+            transfer_suit = s;
+            break;
+        }
+    }
+
+    const int si = suit_index(transfer_suit);
+    const int from_before = gs.hand(0).suit_counts[si];
+    const int to_before   = gs.hand(1).suit_counts[si];
+
+    gs.transfer_card(0, 1, transfer_suit);
+
+    REQUIRE(gs.hand(0).suit_counts[si] == from_before - 1);
+    REQUIRE(gs.hand(1).suit_counts[si] == to_before + 1);
+}
+
+TEST_CASE("transfer_card: only the transferred suit count changes", "[game_state][transfer]") {
+    // AGENT-CTX: Verifies the operation is surgical — other suits and other
+    // players' hands are untouched. Critical invariant for scoring correctness.
+    GameState gs(make_test_config(5));
+    std::mt19937 rng(42);
+    auto deal = gs.deal(rng);
+
+    Suit transfer_suit = Suit::Clubs;
+    for (auto s : kAllSuits) {
+        if (deal.hands[0].suit_counts[suit_index(s)] > 0) {
+            transfer_suit = s;
+            break;
+        }
+    }
+
+    // Capture complete hand state before transfer.
+    const auto hand0_before = gs.hand(0);
+    const auto hand1_before = gs.hand(1);
+    const auto hand2_before = gs.hand(2);
+
+    gs.transfer_card(0, 1, transfer_suit);
+
+    // Other suits for both transacting players must be unchanged.
+    for (auto s : kAllSuits) {
+        const int si = suit_index(s);
+        if (s == transfer_suit) continue;
+        CHECK(gs.hand(0).suit_counts[si] == hand0_before.suit_counts[si]);
+        CHECK(gs.hand(1).suit_counts[si] == hand1_before.suit_counts[si]);
+    }
+    // Non-transacting player untouched entirely.
+    for (int si = 0; si < 4; ++si)
+        CHECK(gs.hand(2).suit_counts[si] == hand2_before.suit_counts[si]);
+}
+
+TEST_CASE("transfer_card: total cards across all players is conserved", "[game_state][transfer]") {
+    // AGENT-CTX: Conservation invariant — cards cannot be created or destroyed,
+    // only moved. Failure here means a double-credit or double-debit bug.
+    GameState gs(make_test_config(5));
+    std::mt19937 rng(42);
+    gs.deal(rng);
+
+    // Count total cards before.
+    auto total = [&]() {
+        int t = 0;
+        for (int p = 0; p < 5; ++p)
+            for (int c : gs.hand(p).suit_counts) t += c;
+        return t;
+    };
+    const int before = total();
+
+    // Perform several transfers.
+    Suit s0 = Suit::Clubs, s1 = Suit::Diamonds;
+    // Ensure slot 0 has clubs and slot 1 has diamonds; fall back if not.
+    for (auto s : kAllSuits) {
+        if (gs.hand(0).suit_counts[suit_index(s)] > 0) { s0 = s; break; }
+    }
+    for (auto s : kAllSuits) {
+        if (gs.hand(1).suit_counts[suit_index(s)] > 0) { s1 = s; break; }
+    }
+    gs.transfer_card(0, 1, s0);
+    gs.transfer_card(1, 2, s1);
+
+    REQUIRE(total() == before);
+}

@@ -63,6 +63,7 @@ struct OrderErrorEvent {
         PriceOutOfRange,
         OrderNotFound,
         NotYourOrder,
+        SelfTrade,
     };
     Code        code;
     std::string message;  // human-readable; may change — do not parse on the client
