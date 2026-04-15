@@ -41,10 +41,16 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     CHECK(cfg.game.player_count                  == 5);
     CHECK(cfg.game.total_cards                   == 40);
     CHECK(cfg.game.countdown_seconds             == 3);
+    CHECK(cfg.game.round_duration_seconds        == 240);
     REQUIRE(cfg.game.card_distribution[0]        == 12);
     REQUIRE(cfg.game.card_distribution[1]        == 10);
     REQUIRE(cfg.game.card_distribution[2]        == 10);
     REQUIRE(cfg.game.card_distribution[3]        == 8);
+
+    // AGENT-CTX: scoring section added in Slice 4. Extend here if ScoringConfig grows.
+    CHECK(cfg.scoring.starting_balance           == 100);
+    CHECK(cfg.scoring.buy_in                     == 50);
+    CHECK(cfg.scoring.points_per_card            == 20);
 }
 
 TEST_CASE("load_config throws on missing file", "[config]") {

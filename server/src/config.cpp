@@ -58,9 +58,10 @@ ServerConfig load_config(const std::string& path) {
         // card_distribution parsed as vector then copied into fixed array —
         // nlohmann has no direct std::array deserialiser.
         const auto& gm = j.at("game");
-        cfg.game.player_count      = gm.at("player_count").get<int>();
-        cfg.game.total_cards       = gm.at("total_cards").get<int>();
-        cfg.game.countdown_seconds = gm.at("countdown_seconds").get<int>();
+        cfg.game.player_count            = gm.at("player_count").get<int>();
+        cfg.game.total_cards             = gm.at("total_cards").get<int>();
+        cfg.game.countdown_seconds       = gm.at("countdown_seconds").get<int>();
+        cfg.game.round_duration_seconds  = gm.at("round_duration_seconds").get<int>();
 
         const auto dist_vec = gm.at("card_distribution").get<std::vector<int>>();
         if (dist_vec.size() != 4) {
@@ -68,6 +69,21 @@ ServerConfig load_config(const std::string& path) {
                 "game.card_distribution must have exactly 4 elements");
         }
         for (int i = 0; i < 4; ++i) cfg.game.card_distribution[i] = dist_vec[i];
+
+        const auto& sc = j.at("scoring");
+        cfg.scoring.starting_balance = sc.at("starting_balance").get<int>();
+        cfg.scoring.buy_in           = sc.at("buy_in").get<int>();
+        cfg.scoring.points_per_card  = sc.at("points_per_card").get<int>();
+
+        // AGENT-CTX: buy_in > starting_balance would put a player into negative
+        // balance immediately on round entry, which is not a valid game state.
+        // Equality is allowed — a player can spend their last coins to enter.
+        if (cfg.scoring.buy_in > cfg.scoring.starting_balance) {
+            throw std::runtime_error(
+                "scoring.buy_in must be <= scoring.starting_balance; got buy_in=" +
+                std::to_string(cfg.scoring.buy_in) +
+                " starting_balance=" + std::to_string(cfg.scoring.starting_balance));
+        }
 
         return cfg;
     } catch (const nlohmann::json::exception& e) {

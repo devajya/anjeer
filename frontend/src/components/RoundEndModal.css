@@ -1,0 +1,127 @@
+/* ─── Backdrop ─────────────────────────────────────────────────────────────── */
+
+.round-end-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* AGENT-CTX: z-index 100 puts the modal above all trading UI (SuitPanel,
+     HandPanel, etc.) which are at default stacking order. If any future panel
+     adds a z-index, keep this value higher. */
+  z-index: 100;
+}
+
+/* ─── Modal card ────────────────────────────────────────────────────────────── */
+
+.round-end-modal {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 2rem;
+  min-width: 360px;
+  max-width: 90vw;
+  color: #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.round-end-modal__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  color: #f0f0f0;
+}
+
+/* ─── Goal suit reveal ─────────────────────────────────────────────────────── */
+
+.round-end-modal__goal-suit {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.1rem;
+}
+
+.round-end-modal__suit-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+/* AGENT-CTX: Red/black colouring mirrors the canonical card-suit convention.
+   Applied via data class so the icon colour is driven by CSS, not inline style,
+   making it easy to override for accessibility (e.g. colour-blind mode). */
+.round-end-modal__suit-icon--hearts,
+.round-end-modal__suit-icon--diamonds {
+  color: #e05a5a;
+}
+
+.round-end-modal__suit-icon--clubs,
+.round-end-modal__suit-icon--spades {
+  color: #e0e0e0;
+}
+
+/* ─── Own summary ───────────────────────────────────────────────────────────── */
+
+.round-end-modal__own-summary {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.95rem;
+  background: #2a2a2a;
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+}
+
+/* ─── Standings table ──────────────────────────────────────────────────────── */
+
+.round-end-modal__standings {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.round-end-modal__standings th,
+.round-end-modal__standings td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.round-end-modal__standings th {
+  color: #888;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* AGENT-CTX: Own row is highlighted with a left border accent + subtle
+   background. Avoids bold text change which would shift column widths. */
+.round-end-modal__row--own {
+  background: rgba(100, 160, 255, 0.08);
+  border-left: 3px solid #6494e8;
+}
+
+.round-end-modal__away {
+  color: #888;
+  font-size: 0.85em;
+}
+
+/* ─── Dismiss button ────────────────────────────────────────────────────────── */
+
+.round-end-modal__dismiss {
+  align-self: flex-end;
+  padding: 0.4rem 1rem;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: transparent;
+  color: #c0c0c0;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.round-end-modal__dismiss:hover {
+  background: #2e2e2e;
+  color: #f0f0f0;
+}

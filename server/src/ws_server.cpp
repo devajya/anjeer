@@ -53,6 +53,7 @@ enum class WsErrorCode {
     MalformedMessage,
     ServerFull,
     RoundNotActive,
+    InsufficientBalance,
 };
 
 // AGENT-CTX: Maps engine::OrderErrorEvent::Code → WsErrorCode. An exhaustive
@@ -86,8 +87,9 @@ static std::string error_code_str(WsErrorCode c) noexcept {
         case WsErrorCode::NotYourOrder:     return "NOT_YOUR_ORDER";
         case WsErrorCode::UnknownSuit:      return "UNKNOWN_SUIT";
         case WsErrorCode::MalformedMessage: return "MALFORMED_MESSAGE";
-        case WsErrorCode::ServerFull:       return "SERVER_FULL";
-        case WsErrorCode::RoundNotActive:   return "ROUND_NOT_ACTIVE";
+        case WsErrorCode::ServerFull:          return "SERVER_FULL";
+        case WsErrorCode::RoundNotActive:      return "ROUND_NOT_ACTIVE";
+        case WsErrorCode::InsufficientBalance: return "INSUFFICIENT_BALANCE";
     }
     return "UNKNOWN_ERROR";
 }
@@ -180,6 +182,24 @@ static void trade(
     }
 }
 
+static std::string round_end_payload(const engine::RoundResult& result) {
+    auto arr = nlohmann::json::array();
+    for (const auto& pr : result.player_results) {
+        arr.push_back({
+            {"player_slot",     pr.player_slot},
+            {"goal_cards_held", pr.goal_cards_held},
+            {"payout",          pr.payout},
+            {"new_balance",     pr.new_balance},
+            {"disconnected",    pr.disconnected},
+        });
+    }
+    return nlohmann::json{
+        {"type",      "round_end"},
+        {"goal_suit", std::string(engine::suit_name(result.goal_suit))},
+        {"results",   arr},
+    }.dump();
+}
+
 } // namespace serialise
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -208,6 +228,7 @@ struct GameSession {
 
     // AGENT-CTX: Slot-based tracking — lobby seam: moves to LobbyManager in Slice 6.
     std::vector<WsHandle> player_slots;
+    std::vector<int>      balances;
     int                   connected_count       = 0;
     bool                  countdown_in_progress = false;
     bool                  round_started         = false;
@@ -619,6 +640,9 @@ void WsServer::run() {
 
     GameSession session(std::move(books_arr), active_arr);
     session.player_slots.resize(cfg_.game.player_count, nullptr);
+    // AGENT-CTX: Balances are initialized once at session start, not on each
+    // connect/disconnect, so a balance survives a player leaving and rejoining.
+    session.balances.resize(cfg_.game.player_count, cfg_.scoring.starting_balance);
 
     // AGENT-CTX: Seeded once per process from OS entropy. Single instance shared
     // across all deals in this process lifetime (safe — all engine calls are on
@@ -632,6 +656,7 @@ void WsServer::run() {
     // AGENT-CTX: Stored (not detached) so run() can join before locals are
     // destroyed — the thread captures session, loggers, rng by reference.
     std::optional<std::thread> countdown_thread;
+    std::optional<std::thread> round_timer_thread;
 
     // ── begin_countdown ───────────────────────────────────────────────────────
     // Broadcasts round_starting, then spawns a thread that sleeps countdown_seconds
@@ -700,39 +725,129 @@ void WsServer::run() {
                     " hearts="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Hearts)])   +
                     " spades="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Spades)])   + "]");
 
-                // Send each player only their own hand.
-                for (int slot = 0; slot < cfg_.game.player_count; ++slot) {
-                    WsHandle ws = session.player_slots[slot];
-                    if (!ws) {
-                        server_log.warn("round",
-                            "slot=" + std::to_string(slot) +
-                            " disconnected during countdown — hand not sent");
-                        continue;
+                // Compute round_end_at for clients (absolute ISO 8601 UTC).
+                // AGENT-CTX: Same timestamp sent to every player so all clients
+                // derive the same deadline without clock-skew between messages.
+                {
+                    auto re_now = std::chrono::system_clock::now();
+                    auto re_at  = re_now + std::chrono::seconds(cfg_.game.round_duration_seconds);
+                    auto re_t   = std::chrono::system_clock::to_time_t(re_at);
+                    std::tm re_gmt{};
+                    gmtime_r(&re_t, &re_gmt);
+                    char re_buf[32];
+                    std::strftime(re_buf, sizeof(re_buf), "%Y-%m-%dT%H:%M:%S.000Z", &re_gmt);
+                    const std::string round_end_at_str(re_buf);
+
+                    // Send each player only their own hand.
+                    for (int slot = 0; slot < cfg_.game.player_count; ++slot) {
+                        WsHandle ws = session.player_slots[slot];
+                        if (!ws) {
+                            server_log.warn("round",
+                                "slot=" + std::to_string(slot) +
+                                " disconnected during countdown — hand not sent");
+                            continue;
+                        }
+                        const auto& h = deal.hands[slot];
+                        // AGENT-CTX: balance sent is the effective post-buyin balance
+                        // (pre-buyin balance minus buy_in). This is the maximum price
+                        // the player may bid this round. The server does NOT yet enforce
+                        // this as a hard limit — KNOWN_BUG: a player can submit a buy
+                        // order above their effective balance. Fix: add price > available
+                        // guard in handle_submit (see WsErrorCode::InsufficientBalance
+                        // which is already wired and ready to use).
+                        const int effective_balance = session.balances[slot] - cfg_.scoring.buy_in;
+                        const std::string hand_payload = nlohmann::json{
+                            {"type",         "round_start"},
+                            {"player_slot",  slot},
+                            {"round_end_at", round_end_at_str},
+                            {"balance",      effective_balance},
+                            {"hand", {
+                                {"clubs",    h.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
+                                {"diamonds", h.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},
+                                {"hearts",   h.suit_counts[engine::suit_index(engine::Suit::Hearts)]},
+                                {"spades",   h.suit_counts[engine::suit_index(engine::Suit::Spades)]},
+                            }},
+                        }.dump();
+                        ws->send(hand_payload, uWS::OpCode::TEXT);
+                        server_log.info("send",
+                            "player=" + std::to_string(slot) + " type=round_start" +
+                            " round_end_at=" + round_end_at_str +
+                            " clubs="    + std::to_string(h.suit_counts[0]) +
+                            " diamonds=" + std::to_string(h.suit_counts[1]) +
+                            " hearts="   + std::to_string(h.suit_counts[2]) +
+                            " spades="   + std::to_string(h.suit_counts[3]));
                     }
-                    const auto& h = deal.hands[slot];
-                    const std::string hand_payload = nlohmann::json{
-                        {"type",        "round_start"},
-                        {"player_slot", slot},
-                        {"hand", {
-                            {"clubs",    h.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
-                            {"diamonds", h.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},
-                            {"hearts",   h.suit_counts[engine::suit_index(engine::Suit::Hearts)]},
-                            {"spades",   h.suit_counts[engine::suit_index(engine::Suit::Spades)]},
-                        }},
-                    }.dump();
-                    ws->send(hand_payload, uWS::OpCode::TEXT);
-                    server_log.info("send",
-                        "player=" + std::to_string(slot) + " type=round_start" +
-                        " clubs="    + std::to_string(h.suit_counts[0]) +
-                        " diamonds=" + std::to_string(h.suit_counts[1]) +
-                        " hearts="   + std::to_string(h.suit_counts[2]) +
-                        " spades="   + std::to_string(h.suit_counts[3]));
+
+                    server_log.info("round",
+                        "round started — goal_suit=" +
+                        std::string(engine::suit_name(deal.goal_suit)) +
+                        " round_end_at=" + round_end_at_str +
+                        " (goal_suit withheld from clients until round end)");
                 }
 
-                server_log.info("round",
-                    "round started — goal_suit=" +
-                    std::string(engine::suit_name(deal.goal_suit)) +
-                    " (withheld from clients until round end)");
+                // Start round expiry timer.
+                round_timer_thread.emplace([&]() {
+                    std::this_thread::sleep_for(
+                        std::chrono::seconds(cfg_.game.round_duration_seconds));
+                    loop->defer([&]() {
+                        if (!running) return;
+                        session.round_phase = RoundPhase::Scoring;
+
+                        apply_global_wipe(session, server_log, engine_log);
+
+                        // Collect scoring inputs. session.balances are pre-buyin —
+                        // score_round deducts buy_in and returns new_balance.
+                        std::vector<engine::PlayerHand> hands;
+                        std::vector<int>                balances_snap;
+                        std::vector<bool>               disc;
+                        hands.reserve(cfg_.game.player_count);
+                        balances_snap.reserve(cfg_.game.player_count);
+                        disc.reserve(cfg_.game.player_count);
+                        for (int p = 0; p < cfg_.game.player_count; ++p) {
+                            hands.push_back(session.game_state->hand(p));
+                            balances_snap.push_back(session.balances[p]);
+                            disc.push_back(session.player_slots[p] == nullptr);
+                        }
+
+                        const engine::ScoringConfig sc{
+                            cfg_.scoring.buy_in,
+                            cfg_.scoring.points_per_card,
+                        };
+                        const auto result = engine::score_round(
+                            hands,
+                            session.game_state->goal_suit(),
+                            balances_snap,
+                            disc,
+                            sc
+                        );
+
+                        engine_log.info("score_round",
+                            "goal_suit=" + std::string(engine::suit_name(result.goal_suit)) +
+                            " pot="        + std::to_string(result.pot) +
+                            " bonus_pool=" + std::to_string(result.bonus_pool));
+
+                        // Dispatch privately; skip disconnected slots.
+                        const std::string re_payload = serialise::round_end_payload(result);
+                        for (int p = 0; p < cfg_.game.player_count; ++p) {
+                            session.balances[p] = result.player_results[p].new_balance;
+                            WsHandle ws = session.player_slots[p];
+                            if (!ws) {
+                                server_log.warn("round_end",
+                                    "slot=" + std::to_string(p) +
+                                    " disconnected — round_end not sent");
+                                continue;
+                            }
+                            ws->send(re_payload, uWS::OpCode::TEXT);
+                            server_log.info("send",
+                                "player=" + std::to_string(p) + " type=round_end" +
+                                " payout="      + std::to_string(result.player_results[p].payout) +
+                                " new_balance=" + std::to_string(result.player_results[p].new_balance));
+                        }
+
+                        session.round_phase = RoundPhase::Ended;
+                        server_log.info("round", "round ended");
+                    });
+                });
             });
         });
     };
@@ -965,6 +1080,8 @@ void WsServer::run() {
     // Join before locals (session, rng, loggers) are destroyed.
     if (countdown_thread.has_value() && countdown_thread->joinable())
         countdown_thread->join();
+    if (round_timer_thread.has_value() && round_timer_thread->joinable())
+        round_timer_thread->join();
     server_log.info("shutdown", "server stopped");
 }
 

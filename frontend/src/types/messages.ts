@@ -65,7 +65,7 @@ export interface OrderCancelAckMessage {
  * AGENT-CTX: Switch on `code`, not `message`. message is human-readable and
  * may change between releases. Stable codes (from server error_code_str()):
  *   PRICE_OUT_OF_RANGE | ORDER_NOT_FOUND | NOT_YOUR_ORDER |
- *   UNKNOWN_SUIT | MALFORMED_MESSAGE
+ *   UNKNOWN_SUIT | MALFORMED_MESSAGE | INSUFFICIENT_BALANCE
  */
 export interface ErrorMessage {
   type: 'error'
@@ -104,6 +104,28 @@ export interface RoundStartMessage {
   type: 'round_start'
   player_slot: number
   hand: HandCounts
+  round_end_at: string
+  balance: number
+}
+
+/** Per-player entry in round_end standings. */
+export interface PlayerRoundResult {
+  player_slot: number
+  goal_cards_held: number
+  payout: number
+  new_balance: number
+  disconnected: boolean
+}
+
+/**
+ * Sent privately to each connected player at round end.
+ * Includes all players (including disconnected) so the client can render
+ * a full standings table. Own slot is identifiable by player_slot.
+ */
+export interface RoundEndMessage {
+  type: 'round_end'
+  goal_suit: string
+  results: PlayerRoundResult[]
 }
 
 /**
@@ -121,6 +143,7 @@ export type ServerMessage =
   | ErrorMessage
   | RoundStartingMessage
   | RoundStartMessage
+  | RoundEndMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)

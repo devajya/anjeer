@@ -222,7 +222,7 @@ describe('SuitPanel — self-trade prevention', () => {
   test('bid price form shows selfTradeError when crossing own sell order', () => {
     // myOrdersForSuit has a sell at 40; submitting a buy at 45 would cross it.
     renderPanel({
-      myOrdersForSuit: [{ id: 1, suit: 'S1', side: 'sell', price: 40 }],
+      myOrdersForSuit: [{ order_id: 1, suit: 'S1', side: 'sell', price: 40 }],
     })
     const input = screen.getByRole('spinbutton', { name: /Bid price for S1/i })
     fireEvent.change(input, { target: { value: '45' } })
@@ -233,7 +233,7 @@ describe('SuitPanel — self-trade prevention', () => {
   test('offer price form shows selfTradeError when crossing own buy order', () => {
     // myOrdersForSuit has a buy at 50; submitting a sell at 45 would cross it.
     renderPanel({
-      myOrdersForSuit: [{ id: 2, suit: 'S1', side: 'buy', price: 50 }],
+      myOrdersForSuit: [{ order_id: 1, suit: 'S1', side: 'buy', price: 50 }],
     })
     const input = screen.getByRole('spinbutton', { name: /Offer price for S1/i })
     fireEvent.change(input, { target: { value: '45' } })
@@ -243,7 +243,7 @@ describe('SuitPanel — self-trade prevention', () => {
 
   test('bid form sends when own sell is at a higher price (no cross)', () => {
     const { onSendMessage } = renderPanel({
-      myOrdersForSuit: [{ id: 1, suit: 'S1', side: 'sell', price: 60 }],
+      myOrdersForSuit: [{ order_id: 1, suit: 'S1', side: 'sell', price: 60 }],
     })
     const input = screen.getByRole('spinbutton', { name: /Bid price for S1/i })
     fireEvent.change(input, { target: { value: '40' } })

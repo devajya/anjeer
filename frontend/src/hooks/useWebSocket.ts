@@ -4,6 +4,7 @@ import type {
   BookUpdateMessage,
   TradeMessage,
   ErrorMessage,
+  RoundEndMessage,
   ClientCommand,
   HandCounts,
 } from '../types/messages'
@@ -82,6 +83,12 @@ export interface WsState {
   initialHand: HandCounts | null
   /** This player's slot index (0-indexed). null until round_start is received. */
   playerSlot: number | null
+  /** ISO 8601 UTC deadline for the active round. null until round_start; cleared on round_end. */
+  roundEndAt: string | null
+  /** Last round_end payload. null until first round completes. */
+  roundEnd: RoundEndMessage | null
+  /** Effective post-buyin balance for the current round. null until first round_start. */
+  balance: number | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -104,11 +111,18 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
     hand: null,
     initialHand: null,
     playerSlot: null,
+    roundEndAt: null,
+    roundEnd: null,
+    balance: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
   // outside the effect) can call ws.send() without being recreated on every render.
   const wsRef = useRef<WebSocket | null>(null)
+  // AGENT-CTX: balanceRef mirrors state.balance so sendOrder (a stable useCallback)
+  // can read the latest balance without closing over a stale state value. Pattern
+  // mirrors wsRef — update both whenever balance changes.
+  const balanceRef = useRef<number | null>(null)
   // Local counter for TradeEntry.id — never reset, guarantees unique React keys.
   const tradeSeqRef = useRef(0)
   // Tracks which suit the most-recently sent command targeted, so that an
@@ -253,14 +267,29 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
           break
 
         case 'round_start':
-          logger.info('ws/recv', `round_start player_slot=${msg.player_slot}`)
+          logger.info('ws/recv', `round_start player_slot=${msg.player_slot} round_end_at=${msg.round_end_at} balance=${msg.balance}`)
+          balanceRef.current = msg.balance
           setState(s => ({
             ...s,
             hand: msg.hand,
             initialHand: msg.hand,
             playerSlot: msg.player_slot,
             startsAt: null,
+            roundEndAt: msg.round_end_at,
+            roundEnd: null,
+            balance: msg.balance,
           }))
+          break
+
+        case 'round_end':
+          logger.info('ws/recv', `round_end goal_suit=${msg.goal_suit} results=${msg.results.length}`)
+          setState(s => {
+            // Update balance from own result so it reflects the new balance
+            // (post-payout) between rounds.
+            const own = msg.results.find(r => r.player_slot === s.playerSlot) ?? null
+            if (own !== null) balanceRef.current = own.new_balance
+            return { ...s, roundEndAt: null, roundEnd: msg, balance: own?.new_balance ?? s.balance }
+          })
           break
 
         default: {

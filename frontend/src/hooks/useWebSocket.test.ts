@@ -174,7 +174,12 @@ describe('useWebSocket — trade messages', () => {
     act(() => { MockWebSocket.last.triggerOpen() })
     act(() => {
       MockWebSocket.last.triggerMessage({
-        type: 'round_start', player_slot: 0, hand: INITIAL_HAND,
+        type: 'round_start',
+        player_slot: 0,
+        hand: INITIAL_HAND,
+        // AGENT-CTX: far-future timestamp keeps roundEndAt non-null for the
+        // duration of these hand/trade tests without the timer firing.
+        round_end_at: '2099-01-01T00:00:00.000Z',
       })
     })
     return result
@@ -325,6 +330,67 @@ describe('useWebSocket — error messages', () => {
 
     expect(result.current.errors['S1']).not.toBeNull()
     expect(result.current.errors['S2']).not.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// AC: round_start / round_end — roundEndAt state tracked correctly
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — round lifecycle', () => {
+  test('round_start sets roundEndAt, playerSlot, and clears startsAt', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    // First receive round_starting so startsAt is set.
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'round_starting', starts_at: '2026-04-15T20:00:00.000Z', player_count: 2,
+      })
+    })
+    expect(result.current.startsAt).toBe('2026-04-15T20:00:00.000Z')
+
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'round_start',
+        player_slot: 2,
+        hand: { clubs: 2, diamonds: 3, hearts: 1, spades: 2 },
+        round_end_at: '2026-04-15T20:04:00.000Z',
+      })
+    })
+    expect(result.current.roundEndAt).toBe('2026-04-15T20:04:00.000Z')
+    expect(result.current.playerSlot).toBe(2)
+    // round_start clears the pre-deal countdown.
+    expect(result.current.startsAt).toBeNull()
+  })
+
+  test('round_end clears roundEndAt and stores the full result payload', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'round_start',
+        player_slot: 0,
+        hand: { clubs: 2, diamonds: 3, hearts: 1, spades: 2 },
+        round_end_at: '2026-04-15T20:04:00.000Z',
+      })
+    })
+    expect(result.current.roundEndAt).toBe('2026-04-15T20:04:00.000Z')
+
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'round_end',
+        goal_suit: 'hearts',
+        results: [
+          { player_slot: 0, goal_cards_held: 3, payout: 60, new_balance: 110, disconnected: false },
+          { player_slot: 1, goal_cards_held: 1, payout: 20, new_balance: 70,  disconnected: false },
+        ],
+      })
+    })
+    // roundEndAt must be null after round_end so the active-round timer hides.
+    expect(result.current.roundEndAt).toBeNull()
+    expect(result.current.roundEnd).not.toBeNull()
+    expect(result.current.roundEnd?.goal_suit).toBe('hearts')
+    expect(result.current.roundEnd?.results).toHaveLength(2)
   })
 })
 

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { ConnectionBanner } from './components/ConnectionBanner'
 import { RoundCountdown } from './components/RoundCountdown'
@@ -5,6 +6,7 @@ import { HandPanel } from './components/HandPanel'
 import { SuitPanel } from './components/SuitPanel'
 import { TradeFeed } from './components/TradeFeed'
 import { MyOrders } from './components/MyOrders'
+import { RoundEndModal } from './components/RoundEndModal'
 import './App.css'
 
 // Canonical suit order matching the engine's Suit enum declaration order.
@@ -20,9 +22,23 @@ function App() {
     errors,
     sendMessage,
     startsAt,
+    roundEndAt,
     hand,
     initialHand,
+    playerSlot,
+    roundEnd,
+    balance,
   } = useWebSocket('/ws')
+
+  // AGENT-CTX: Local dismissed flag so the modal can be closed without mutating
+  // hook state. Reset whenever a new round_end payload arrives (round_end changes
+  // referential identity each time because useWebSocket creates a new object).
+  const [roundEndDismissed, setRoundEndDismissed] = useState(false)
+  useEffect(() => {
+    if (roundEnd) setRoundEndDismissed(false)
+  }, [roundEnd])
+
+  const showRoundEnd = roundEnd !== null && !roundEndDismissed
 
   const activeSuits = SUIT_ORDER.filter(s => s in books)
 
@@ -38,11 +54,19 @@ function App() {
   }
 
   return (
+    <>
+    {showRoundEnd && (
+      <RoundEndModal
+        roundEnd={roundEnd!}
+        playerSlot={playerSlot}
+        onDismiss={() => setRoundEndDismissed(true)}
+      />
+    )}
     <main className="app">
       <header className="app__header">
         <h1 className="app__title">Anjeer</h1>
         <ConnectionBanner connected={connected} />
-        <RoundCountdown startsAt={startsAt} />
+        <RoundCountdown startsAt={startsAt} roundEndAt={roundEndAt} />
       </header>
 
       <div className="app__layout">
@@ -82,7 +106,7 @@ function App() {
 
         {/* ── Column 2: Hand + My Orders + Trade feed ── */}
         <section className="app__right">
-          <HandPanel hand={hand} initialHand={initialHand} />
+          <HandPanel hand={hand} initialHand={initialHand} balance={balance} />
           <MyOrders orders={myOrders} onCancel={handleCancel} />
           <TradeFeed trades={trades} />
         </section>
@@ -96,6 +120,7 @@ function App() {
         </aside>
       </div>
     </main>
+    </>
   )
 }
 

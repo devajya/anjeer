@@ -77,6 +77,7 @@ test-unit: $(BUILD_DIR)/Makefile
 	# --target line here. ctest discovers all registered tests from all binaries.
 	cmake --build $(BUILD_DIR) --target engine_tests --parallel
 	cmake --build $(BUILD_DIR) --target game_state_tests --parallel
+	cmake --build $(BUILD_DIR) --target scoring_engine_tests --parallel
 	cmake --build $(BUILD_DIR) --target server_tests --parallel
 	cmake --build $(BUILD_DIR) --target ws_server_tests --parallel
 	cd $(BUILD_DIR) && ctest --output-on-failure

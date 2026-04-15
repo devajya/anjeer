@@ -10,6 +10,7 @@ cmake_minimum_required(VERSION 3.20)
 add_library(engine STATIC
     src/order_book.cpp
     src/game_state.cpp
+    src/scoring_engine.cpp
 )
 
 target_include_directories(engine PUBLIC include)
@@ -49,7 +50,17 @@ target_link_libraries(game_state_tests PRIVATE
 # registers each TEST_CASE as a separate CTest entry so ctest --output-on-failure
 # reports individual test names, not just a binary pass/fail.
 # The root CMakeLists already calls enable_testing(); these includes extend it.
+add_executable(scoring_engine_tests
+    tests/scoring_engine_tests.cpp
+)
+
+target_link_libraries(scoring_engine_tests PRIVATE
+    engine
+    Catch2::Catch2WithMain
+)
+
 include(CTest)
 include(Catch)
 catch_discover_tests(engine_tests)
 catch_discover_tests(game_state_tests)
+catch_discover_tests(scoring_engine_tests)

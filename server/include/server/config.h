@@ -45,11 +45,23 @@ struct ServerConfig {
     // AGENT-CTX: Lobby seam — player_count is hardcoded here for Slice 3.
     // Replaced by LobbyConfig in the lobby slice.
     struct GameConfig {
-        int                  player_count;       // slots to wait for (e.g. 5)
-        int                  total_cards;        // sum of card_distribution (40)
-        std::array<int, 4>   card_distribution;  // counts per suit, randomly assigned each deal
-        int                  countdown_seconds;  // delay before round_start fires (3)
+        int                  player_count;
+        int                  total_cards;
+        std::array<int, 4>   card_distribution;
+        int                  countdown_seconds;
+        int                  round_duration_seconds;
     } game;
+
+    // AGENT-CTX: ScoringConfig is the server-side view of scoring constants.
+    // It mirrors engine::ScoringConfig (buy_in, points_per_card) but adds
+    // starting_balance, which is server-only state — the engine receives
+    // pre-buyin balances as a vector and never tracks balances across rounds.
+    // Keeping it here (not in the engine) maintains the engine's I/O-free invariant.
+    struct ScoringConfig {
+        int starting_balance;
+        int buy_in;
+        int points_per_card;
+    } scoring;
 };
 
 // Load and parse a JSON config file.

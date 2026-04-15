@@ -6,6 +6,7 @@ export type { HandCounts }
 interface HandPanelProps {
   hand: HandCounts | null
   initialHand?: HandCounts | null
+  balance?: number | null
 }
 
 const SUITS = [
@@ -17,7 +18,7 @@ const SUITS = [
 
 // AGENT-CTX: Shows only counts, not ranks — cards are fungible within a suit
 // until a future scoring slice requires rank-level display (Slice 3 resolution 7).
-export function HandPanel({ hand, initialHand }: HandPanelProps) {
+export function HandPanel({ hand, initialHand, balance = null }: HandPanelProps) {
   if (!hand) {
     return (
       <div className="hand-panel hand-panel--waiting">
@@ -29,6 +30,11 @@ export function HandPanel({ hand, initialHand }: HandPanelProps) {
   return (
     <div className="hand-panel">
       <h3 className="hand-panel__title">My Hand</h3>
+      {balance !== null && (
+        <div className="hand-panel__balance">
+          Balance <strong>{balance}</strong>
+        </div>
+      )}
       <ul className="hand-panel__list">
         {SUITS.map(({ key, label, symbol, color }) => {
           const delta = (initialHand != null) ? hand[key] - initialHand[key] : 0

@@ -33,12 +33,13 @@ Database (PostgreSQL, port 5433) — added in Slice 5, accessed by Server only.
 
 **Role:** Pure game logic. No network, no JSON, no file I/O. Returns structured events; callers own dispatch.
 
-**Current modules (Slice 3):**
+**Current modules (Slice 4):**
 - `OrderBook` — price-time priority limit order matching. Operations: submit, nudge (best±1), cancel, wipe (global clear). Returns a vector of typed events per operation.
-- `GameState` — deals deck, derives goal suit, tracks per-player hand counts. `suit.h` provides the `Suit` enum and color helpers reused by future modules. Order books are held by the server layer until Slice 6 unifies them here under `GameSession`.
+- `GameState` — deals deck, derives goal suit, tracks per-player hand counts. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules. Order books are held by the server layer until Slice 6 unifies them here under `GameSession`.
+- `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, pre-buyin balances, and `ScoringConfig`. Computes pot, per-card payout, majority/plurality bonus, and new balances. No I/O; server owns dispatch of `RoundResult`.
 
 **Planned modules (future slices):**
-- `RoundTimer` + `ScoringEngine` (Slice 4) — round lifecycle state machine, payout calculation
+- `RoundTimer` (Slice 4 server-layer) — already implemented as a thread in the server; moves into the engine under `GameSession` in Slice 6
 - `GameSession` (Slice 7) — multi-round orchestrator, buy-in collection, end-vote tally; also wraps engine in a thread-safe boundary (Slice 6 threading change)
 - `BotAgent` (Slice 10) — strategy implementations connecting via the same WS interface as human players
 - `EvalModule` / `EvalRunner` (Slice 11) — plugin-style analysis running on a separate thread, read-only game state snapshots
@@ -50,14 +51,16 @@ Database (PostgreSQL, port 5433) — added in Slice 5, accessed by Server only.
 
 **Role:** Owns the WebSocket connection lifecycle, JSON serialization, config, logging, and game loop. Translates between wire protocol and engine calls.
 
-**Current responsibilities (Slice 2-3):**
-- Accept WS connections; assign player IDs
+**Current responsibilities (Slice 2-4):**
+- Accept WS connections; assign player slots; maintain per-slot balance (initialized to `scoring.starting_balance`)
 - Deserialize inbound JSON to typed commands
 - Call engine; iterate returned events
 - Serialize events to JSON; route to correct recipient(s)
 - Broadcast book state after every engine operation
 - HTTP POST `/api/log` — receives frontend log batches, writes to `logs/frontend_logs.txt`
 - Heartbeat loop (configurable interval)
+- `RoundPhase` state machine (`Waiting → Active → Scoring → Ended`); gates order commands to Active only (`ROUND_NOT_ACTIVE` otherwise)
+- Round expiry timer: on fire → wipe all books → call `score_round()` → deduct buy-in → dispatch per-player `round_end` (skipping disconnected slots) → transition to Ended
 
 **Planned additions:**
 - Crow HTTP server for REST endpoints (Slice 5+): auth, lobbies, player stats, replay API
@@ -78,9 +81,12 @@ Database (PostgreSQL, port 5433) — added in Slice 5, accessed by Server only.
 ```
 App
 ├── ConnectionBanner       — connection status indicator
+├── RoundCountdown         — pre-deal lobby countdown; switches to active-round MM:SS timer after round_start (goes red in final 30 s)
 ├── SuitPanel (×N)         — per-suit order form + best bid/ask display
+├── HandPanel              — per-suit card counts for the local player
 ├── MyOrders               — resting orders list + cancel buttons
-└── TradeFeed              — recent trade history, newest first
+├── TradeFeed              — recent trade history, newest first
+└── RoundEndModal          — shown on round_end: goal suit reveal, per-player standings, own payout + new balance; dismiss on click
 ```
 
 **Hooks:**
@@ -141,9 +147,35 @@ N connections reach the server (N = game.player_count in config)
     → distributes cards round-robin to player slots (one slot gets remainder if uneven)
 
   Server routes:
-    per-player round_start { player_slot, hand } → sent to that player's WS only
+    per-player round_start { player_slot, hand, round_end_at } → sent to that player's WS only
     goal_suit → withheld until round end (only in engine log)
     suit_totals → withheld (Slice 3 resolution 6: suit counts are private)
+
+  Server starts round expiry timer (round_duration_seconds). See Data Flow: Round End.
+```
+
+## Data Flow: Round End (Slice 4+)
+
+```
+Round expiry timer fires
+  → server transitions RoundPhase: Active → Scoring
+  → apply_global_wipe() — all active books wiped; null book_update broadcast to all
+
+  score_round(hands, goal_suit, balances, disconnected, ScoringConfig)
+    → pot      = player_count × buy_in
+    → per-card = points_per_card × goal_cards_held (per player)
+    → bonus_pool = pot − (points_per_card × total_goal_cards_in_deck)
+    → majority threshold = total_goal_cards / 2 + 1 (strict)
+        if exactly one player holds ≥ threshold → they receive full bonus_pool
+        else → bonus split evenly among player(s) holding the most goal cards (integer division)
+    → new_balance = balance_before_buyin − buy_in + payout
+    → disconnected players: payout computed and marked, but not delivered (held for future reconnect)
+
+  Server routes:
+    per-player round_end { goal_suit, results[] } → sent to each connected slot's WS only
+    disconnected slots → skipped (round_end not sent; balance updated in server state)
+
+  → RoundPhase transitions to Ended; new orders rejected with ROUND_NOT_ACTIVE
 ```
 
 ## Wire Protocol Summary
@@ -157,8 +189,8 @@ All messages are JSON objects with a `type` string discriminator.
 | Order lifecycle | `order_ack`, `order_cancel_ack`, `error` |
 | Market data | `book_update` |
 | Trade | `trade` |
-| Round (Slice 3+) | `round_starting`, `round_start` |
-| Round end (Slice 4+) | `round_end`, `timer_tick` |
+| Round (Slice 3+) | `round_starting`, `round_start` (includes `round_end_at`) |
+| Round end (Slice 4+) | `round_end` |
 | Lobby (Slice 6+) | `player_joined`, `player_left`, `lobby_started` |
 | Game lifecycle (Slice 7+) | `round_transition`, `game_ended` |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
@@ -170,14 +202,16 @@ All messages are JSON objects with a `type` string discriminator.
 | Game (Slice 7+) | `vote_to_end` |
 | Subscription (Slice 17+) | `subscribe`, `unsubscribe` |
 
-**Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`
+**Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`
 
 ## Configuration Surface
 
 All tuneable values live in `config/default.json`. Key sections:
 - `server` — host, port, heartbeat/ping intervals
 - `order_book` — price range, nudge seed prices, active suits
-- Future: `round` (timer, buy-in), `scoring` (points per card), `lobby` (min players), `rate_limit`
+- `game` — player count, card distribution, countdown, round duration
+- `scoring` — starting balance, buy-in, points per card
+- Future: `lobby` (min players), `rate_limit`
 
 ## When to Update This Document
 
