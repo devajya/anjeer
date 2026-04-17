@@ -192,6 +192,33 @@ static constexpr int WS_DISCONN_PORT = 19005;
 // to Ended phase. Used exclusively by "order rejected after round ends" — needs its
 // own port because Ended phase is terminal (no new rounds start on this server).
 static constexpr int WS_ENDED_PORT   = 19006;
+static constexpr int WS_WIPE_PORT    = 19014;
+
+// Base config shared across all test servers. Callers override only what differs.
+// player_count=2, countdown_seconds=0, round_duration_seconds=3600 are the
+// round-server defaults; ensure_server_running overrides the first two.
+static ServerConfig make_test_server_config(int port) {
+    ServerConfig cfg;
+    cfg.host                  = "127.0.0.1";
+    cfg.port                  = port;
+    cfg.heartbeat_interval_ms = 60000;  // suppress noise during tests
+    cfg.ping_interval_ms      = 1000;
+    cfg.ping_timeout_ms       = 8000;
+    cfg.order_book.min_price               = 1;
+    cfg.order_book.max_price               = 99;
+    cfg.order_book.nudge_initial_buy_price  = 1;
+    cfg.order_book.nudge_initial_sell_price = 99;
+    cfg.order_book.active_suits             = { "clubs" };
+    cfg.game.player_count           = 2;
+    cfg.game.total_cards            = 40;
+    cfg.game.card_distribution      = {12, 10, 10, 8};
+    cfg.game.countdown_seconds      = 0;
+    cfg.game.round_duration_seconds = 3600;
+    cfg.scoring.starting_balance    = 100;
+    cfg.scoring.buy_in              = 50;
+    cfg.scoring.points_per_card     = 20;
+    return cfg;
+}
 
 static void ensure_server_running() {
     static std::atomic<bool> started{false};
@@ -211,27 +238,11 @@ static void ensure_server_running() {
         throw std::runtime_error("test server did not become ready in time");
     }
 
-    ServerConfig cfg;
-    cfg.host                  = "127.0.0.1";
-    cfg.port                  = WS_TEST_PORT;
-    cfg.heartbeat_interval_ms = 60000;  // suppress noise during tests
-    cfg.ping_interval_ms      = 1000;
-    cfg.ping_timeout_ms       = 8000;
-    cfg.order_book.min_price               = 1;
-    cfg.order_book.max_price               = 99;
-    cfg.order_book.nudge_initial_buy_price  = 1;
-    cfg.order_book.nudge_initial_sell_price = 99;
-    cfg.order_book.active_suits             = { "clubs" };
-    // AGENT-CTX: player_count=99 prevents any round from starting during tests
-    // (tests connect 1-2 clients, never reaching 99).
-    cfg.game.player_count           = 99;
-    cfg.game.total_cards            = 40;
-    cfg.game.card_distribution      = {12, 10, 10, 8};
-    cfg.game.countdown_seconds      = 3;
-    cfg.game.round_duration_seconds = 3600;
-    cfg.scoring.starting_balance    = 100;
-    cfg.scoring.buy_in              = 50;
-    cfg.scoring.points_per_card     = 20;
+    // AGENT-CTX: player_count=99 prevents any round from starting (tests never
+    // connect 99 clients). countdown_seconds=3 is unused but non-zero.
+    ServerConfig cfg       = make_test_server_config(WS_TEST_PORT);
+    cfg.game.player_count  = 99;
+    cfg.game.countdown_seconds = 3;
 
     std::thread([cfg]() {
         WsServer srv(cfg);
@@ -275,28 +286,10 @@ static void ensure_round_server_running() {
         throw std::runtime_error("round test server did not become ready in time");
     }
 
-    ServerConfig cfg;
-    cfg.host                  = "127.0.0.1";
-    cfg.port                  = WS_ROUND_PORT;
-    cfg.heartbeat_interval_ms = 60000;
-    cfg.ping_interval_ms      = 1000;
-    cfg.ping_timeout_ms       = 8000;
-    cfg.order_book.min_price               = 1;
-    cfg.order_book.max_price               = 99;
-    cfg.order_book.nudge_initial_buy_price  = 1;
-    cfg.order_book.nudge_initial_sell_price = 99;
-    cfg.order_book.active_suits             = { "clubs" };
-    // AGENT-CTX: player_count=2, countdown_seconds=0 so the primer (two
-    // dummy clients) triggers an immediate deal. After primer disconnects,
-    // the server stays in Active phase for all order-related tests.
-    cfg.game.player_count           = 2;
-    cfg.game.total_cards            = 40;
-    cfg.game.card_distribution      = {12, 10, 10, 8};
-    cfg.game.countdown_seconds      = 0;
-    cfg.game.round_duration_seconds = 3600;
-    cfg.scoring.starting_balance    = 100;
-    cfg.scoring.buy_in              = 50;
-    cfg.scoring.points_per_card     = 20;
+    // AGENT-CTX: player_count=2, countdown_seconds=0 so the primer (two dummy
+    // clients) triggers an immediate deal. After primer disconnects the server
+    // stays in Active phase for all order-related tests.
+    const ServerConfig cfg = make_test_server_config(WS_ROUND_PORT);
 
     std::thread([cfg]() {
         WsServer srv(cfg);
@@ -459,6 +452,18 @@ TEST_CASE("WS server — nudge rejected before round is active", "[ws_server][ph
     REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
 }
 
+TEST_CASE("WS server — cancel_order rejected before round is active", "[ws_server][phase]") {
+    ensure_server_running();
+    WsTestClient client(WS_TEST_PORT);
+
+    client.recv_of_type("player_hello");
+
+    client.send_json({ {"type","cancel_order"}, {"order_id",1} });
+
+    const auto err = client.recv_of_type("error");
+    REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Round timer tests — Slice 4
 //
@@ -469,25 +474,8 @@ TEST_CASE("WS server — nudge rejected before round is active", "[ws_server][ph
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void start_server_on_port(int port) {
-    ServerConfig cfg;
-    cfg.host                        = "127.0.0.1";
-    cfg.port                        = port;
-    cfg.heartbeat_interval_ms       = 60000;
-    cfg.ping_interval_ms            = 1000;
-    cfg.ping_timeout_ms             = 8000;
-    cfg.order_book.min_price               = 1;
-    cfg.order_book.max_price               = 99;
-    cfg.order_book.nudge_initial_buy_price  = 1;
-    cfg.order_book.nudge_initial_sell_price = 99;
-    cfg.order_book.active_suits             = { "clubs" };
-    cfg.game.player_count           = 2;
-    cfg.game.total_cards            = 40;
-    cfg.game.card_distribution      = {12, 10, 10, 8};
-    cfg.game.countdown_seconds      = 0;
-    cfg.game.round_duration_seconds = 1;
-    cfg.scoring.starting_balance    = 100;
-    cfg.scoring.buy_in              = 50;
-    cfg.scoring.points_per_card     = 20;
+    ServerConfig cfg                 = make_test_server_config(port);
+    cfg.game.round_duration_seconds  = 1;  // timer tests need fast expiry
 
     std::thread([cfg]() { WsServer srv(cfg); srv.run(); }).detach();
 
@@ -555,10 +543,10 @@ TEST_CASE("WS server — books wiped when round expires", "[ws_server][timer]") 
     // round_end. Because Catch2 does not guarantee test ordering, this test
     // is self-contained and starts its own server at a new port if needed.
     static std::atomic<bool> started{false};
-    if (!started.exchange(true)) start_server_on_port(WS_TIMER_PORT + 10);
+    if (!started.exchange(true)) start_server_on_port(WS_WIPE_PORT);
 
-    WsTestClient c0(WS_TIMER_PORT + 10);
-    WsTestClient c1(WS_TIMER_PORT + 10);
+    WsTestClient c0(WS_WIPE_PORT);
+    WsTestClient c1(WS_WIPE_PORT);
 
     c0.recv_of_type("player_hello");
     c1.recv_of_type("player_hello");

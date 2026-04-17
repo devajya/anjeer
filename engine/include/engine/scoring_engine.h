@@ -14,7 +14,6 @@ struct PlayerResult {
     int  player_slot;
     int  goal_cards_held;
     int  payout;
-    int  new_balance;
     bool disconnected;
 };
 
@@ -25,7 +24,7 @@ struct RoundResult {
     std::vector<PlayerResult> player_results;
 };
 
-// Pure function, no I/O.
+// Pure function, no I/O. Returns payouts only — the server owns all balance mutations.
 //
 // Majority bonus rule:
 //   threshold = total_goal_cards / 2 + 1  (strict majority)
@@ -34,13 +33,12 @@ struct RoundResult {
 //
 // Bonus split uses integer division — leftover coins are dropped.
 // total_goal_cards is derived from hands (sum of goal-suit counts across all players).
-// Balances are pre-buyin. Precondition: hands.size() == balances.size() == disconnected.size().
+// Precondition: hands.size() == disconnected.size().
 //
 // [[nodiscard]]: caller must dispatch or log the result.
 [[nodiscard]] RoundResult score_round(
     const std::vector<PlayerHand>& hands,
     Suit                           goal_suit,
-    const std::vector<int>&        balances,
     const std::vector<bool>&       disconnected,
     const ScoringConfig&           cfg
 );

@@ -381,8 +381,8 @@ describe('useWebSocket — round lifecycle', () => {
         type: 'round_end',
         goal_suit: 'hearts',
         results: [
-          { player_slot: 0, goal_cards_held: 3, payout: 60, new_balance: 110, disconnected: false },
-          { player_slot: 1, goal_cards_held: 1, payout: 20, new_balance: 70,  disconnected: false },
+          { player_slot: 0, goal_cards_held: 3, payout: 60, balance: 110, disconnected: false },
+          { player_slot: 1, goal_cards_held: 1, payout: 20, balance: 70,  disconnected: false },
         ],
       })
     })

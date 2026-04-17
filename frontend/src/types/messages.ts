@@ -113,8 +113,21 @@ export interface PlayerRoundResult {
   player_slot: number
   goal_cards_held: number
   payout: number
-  new_balance: number
+  /** available_cash after payout is applied — server-owned state, not engine-computed. */
+  balance: number
   disconnected: boolean
+}
+
+/**
+ * Sent to buyer and seller after each executed trade.
+ * Reflects available_cash after the price has been debited/credited.
+ * AGENT-CTX: Single source of balance truth mid-round; replaces the round_start
+ * value. When Slice 8 adds server-side balance persistence, only the server
+ * write path changes — this message shape stays the same.
+ */
+export interface BalanceUpdateMessage {
+  type: 'balance_update'
+  balance: number
 }
 
 /**
@@ -144,6 +157,7 @@ export type ServerMessage =
   | RoundStartingMessage
   | RoundStartMessage
   | RoundEndMessage
+  | BalanceUpdateMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)

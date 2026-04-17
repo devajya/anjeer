@@ -11,9 +11,9 @@ const ROUND_END: RoundEndMessage = {
   type: 'round_end',
   goal_suit: 'hearts',
   results: [
-    { player_slot: 0, goal_cards_held: 3, payout: 60,  new_balance: 110, disconnected: false },
-    { player_slot: 1, goal_cards_held: 1, payout: 20,  new_balance: 70,  disconnected: false },
-    { player_slot: 2, goal_cards_held: 0, payout: 0,   new_balance: 50,  disconnected: true  },
+    { player_slot: 0, goal_cards_held: 3, payout: 60,  balance: 110, disconnected: false },
+    { player_slot: 1, goal_cards_held: 1, payout: 20,  balance: 70,  disconnected: false },
+    { player_slot: 2, goal_cards_held: 0, payout: 0,   balance: 50,  disconnected: true  },
   ],
 }
 
@@ -127,9 +127,9 @@ describe('RoundEndModal — own row highlighting', () => {
 // ---------------------------------------------------------------------------
 
 describe('RoundEndModal — own summary', () => {
-  test('shows own payout and new balance', () => {
+  test('shows own payout and balance', () => {
     renderModal({ playerSlot: 0 })
-    // Player 0: payout=60, new_balance=110
+    // Player 0: payout=60, balance=110
     const summary = document.querySelector('.round-end-modal__own-summary')
     expect(summary).toBeTruthy()
     expect(summary?.textContent).toContain('60')

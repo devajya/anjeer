@@ -63,7 +63,7 @@ export function RoundEndModal({ roundEnd, playerSlot, onDismiss }: RoundEndModal
               Payout: <strong>{ownResult.payout}</strong>
             </span>
             <span>
-              New balance: <strong>{ownResult.new_balance}</strong>
+              New balance: <strong>{ownResult.balance}</strong>
             </span>
           </div>
         )}
@@ -97,7 +97,7 @@ export function RoundEndModal({ roundEnd, playerSlot, onDismiss }: RoundEndModal
                 </td>
                 <td>{r.goal_cards_held}</td>
                 <td>{r.payout}</td>
-                <td>{r.new_balance}</td>
+                <td>{r.balance}</td>
               </tr>
             ))}
           </tbody>

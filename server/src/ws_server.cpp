@@ -1,5 +1,6 @@
 #include "server/ws_server.h"
 #include "server/logger.h"
+#include "server/game_session.h"
 
 // AGENT-CTX: engine/ is the only non-server dependency here. The coupling is
 // intentional (server owns the books in Slice 2). In Slice 6+, when each lobby
@@ -182,14 +183,19 @@ static void trade(
     }
 }
 
-static std::string round_end_payload(const engine::RoundResult& result) {
+// available_cash is read after payouts are applied so each entry reflects
+// the post-payout balance. The engine's PlayerResult carries payout only;
+// the server owns all balance state and passes it here for serialisation.
+static std::string round_end_payload(
+        const engine::RoundResult& result,
+        const std::vector<int>&    available_cash) {
     auto arr = nlohmann::json::array();
     for (const auto& pr : result.player_results) {
         arr.push_back({
             {"player_slot",     pr.player_slot},
             {"goal_cards_held", pr.goal_cards_held},
             {"payout",          pr.payout},
-            {"new_balance",     pr.new_balance},
+            {"balance",         available_cash[pr.player_slot]},
             {"disconnected",    pr.disconnected},
         });
     }
@@ -200,17 +206,31 @@ static std::string round_end_payload(const engine::RoundResult& result) {
     }.dump();
 }
 
-} // namespace serialise
+// AGENT-CTX: balance is the effective post-buyin value (pre-buyin minus buy_in).
+// It is the maximum price the player may bid this round. The server does NOT yet
+// enforce this as a hard limit — KNOWN_BUG: a player can submit a buy order above
+// their effective balance. Fix: add price > available guard in handle_submit (see
+// WsErrorCode::InsufficientBalance which is already wired and ready to use).
+static std::string round_start_payload(
+        int                      slot,
+        const engine::PlayerHand& hand,
+        const std::string&        round_end_at,
+        int                       effective_balance) {
+    return nlohmann::json{
+        {"type",         "round_start"},
+        {"player_slot",  slot},
+        {"round_end_at", round_end_at},
+        {"balance",      effective_balance},
+        {"hand", {
+            {"clubs",    hand.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
+            {"diamonds", hand.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},
+            {"hearts",   hand.suit_counts[engine::suit_index(engine::Suit::Hearts)]},
+            {"spades",   hand.suit_counts[engine::suit_index(engine::Suit::Spades)]},
+        }},
+    }.dump();
+}
 
-// ═══════════════════════════════════════════════════════════════════════════
-// RoundPhase — server-side round lifecycle state machine
-//
-// AGENT-CTX: Only Waiting and Active are used in Slices 1–4. Scoring and
-// Ended are introduced in Task 8 (round-end flow). Lives here (not in the
-// engine) because it describes which protocol messages are accepted — pure
-// server-layer policy, not game logic.
-// ═══════════════════════════════════════════════════════════════════════════
-enum class RoundPhase { Waiting, Active, Scoring, Ended };
+} // namespace serialise
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GameSession — all mutable game state owned by the event-loop thread
@@ -228,7 +248,7 @@ struct GameSession {
 
     // AGENT-CTX: Slot-based tracking — lobby seam: moves to LobbyManager in Slice 6.
     std::vector<WsHandle> player_slots;
-    std::vector<int>      balances;
+    std::vector<int>      available_cash;
     int                   connected_count       = 0;
     bool                  countdown_in_progress = false;
     bool                  round_started         = false;
@@ -246,10 +266,10 @@ struct GameSession {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // AGENT-CTX: Serialises engine events and sends them to the appropriate sockets.
-// No game-state mutation — it does not clear books. Returns had_trade so the
-// caller can decide whether to apply the global wipe via apply_global_wipe().
-// BookUpdateEvent is suppressed when a trade occurred in the same batch
-// because the caller will broadcast null book_updates after the wipe instead.
+// No game-state mutation — it does not clear books. Returns had_trade so
+// apply_engine_events can decide whether to wipe. BookUpdateEvent is suppressed
+// when a trade occurred in the same batch because the wipe broadcasts null
+// book_updates immediately after.
 static bool dispatch_events(
         WsHandle                               ws,
         const std::set<WsHandle>&              conns,
@@ -371,6 +391,286 @@ static void apply_card_transfers(
                       " suit="   + t->suit);
         }
     }
+}
+
+// Settle cash for a trade: deduct price from buyer, credit seller, send
+// balance_update to each so the client's balance display stays current.
+static void apply_trade_settlements(
+        GameSession&                           session,
+        const std::vector<engine::OrderEvent>& events,
+        Logger&                                slog,
+        Logger&                                elog) {
+    for (const auto& ev : events) {
+        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
+            session.available_cash[t->buyer_id]  -= t->price;
+            session.available_cash[t->seller_id] += t->price;
+            elog.info("trade_settlement",
+                      "buyer="   + std::to_string(t->buyer_id)  +
+                      " cash-=" + std::to_string(t->price) +
+                      " seller=" + std::to_string(t->seller_id) +
+                      " cash+=" + std::to_string(t->price));
+            for (int party : {t->buyer_id, t->seller_id}) {
+                if (auto* ws = session.player_slots[party]) {
+                    const std::string payload = nlohmann::json{
+                        {"type",    "balance_update"},
+                        {"balance", session.available_cash[party]},
+                    }.dump();
+                    ws->send(payload, uWS::OpCode::TEXT);
+                    slog.info("send",
+                              "player=" + std::to_string(party) +
+                              " type=balance_update balance=" +
+                              std::to_string(session.available_cash[party]));
+                }
+            }
+        }
+    }
+}
+
+// Dispatch events, transfer cards, settle cash, and wipe books — in that order.
+// Transfers and settlements must precede wipes so state is updated before next round.
+static void apply_engine_events(
+        WsHandle                               ws,
+        GameSession&                           session,
+        const std::vector<engine::OrderEvent>& events,
+        Logger&                                slog,
+        Logger&                                elog) {
+    const bool had_trade = dispatch_events(ws, session.connections, events, slog, elog);
+    apply_card_transfers(session, events, elog);
+    apply_trade_settlements(session, events, slog, elog);
+    if (had_trade) apply_global_wipe(session, slog, elog);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Round lifecycle handlers — event-loop callbacks for timer-driven transitions
+//
+// AGENT-CTX: These are the seams LobbyManager will call in Slice 6 when each
+// lobby runs its own thread. Keeping them as named free functions (rather than
+// closures) means the timer thread reduces to: sleep → check running → defer.
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct ScoringInputs {
+    std::vector<engine::PlayerHand> hands;
+    std::vector<bool>               disconnected;
+};
+
+// Maps live session state to the vectors score_round expects.
+// Extracted so inter-round scoring preview and end-game summary (Slice 7)
+// share the same collection logic rather than duplicating it.
+static ScoringInputs collect_scoring_inputs(const GameSession& session, int player_count) {
+    ScoringInputs in;
+    in.hands.reserve(player_count);
+    in.disconnected.reserve(player_count);
+    for (int p = 0; p < player_count; ++p) {
+        in.hands.push_back(session.game_state->hand(p));
+        in.disconnected.push_back(session.player_slots[p] == nullptr);
+    }
+    return in;
+}
+
+// Scoring, balance update, and round_end dispatch — deferred onto the event loop
+// by the round_timer_thread after round_duration_seconds elapse.
+static void handle_round_expiry(
+        GameSession&        session,
+        const ServerConfig& cfg,
+        Logger&             server_log,
+        Logger&             engine_log) {
+    // AGENT-CTX: Null is impossible today (timer only fires after deal), but
+    // Slice 6 lobby handoff can destroy game_state between timer start and fire.
+    if (!session.game_state) {
+        server_log.error("round_expiry", "game_state is null — expiry handler aborted");
+        return;
+    }
+
+    session.round_phase = RoundPhase::Scoring;
+
+    apply_global_wipe(session, server_log, engine_log);
+
+    const auto in = collect_scoring_inputs(session, cfg.game.player_count);
+
+    const engine::ScoringConfig sc{
+        cfg.scoring.buy_in,
+        cfg.scoring.points_per_card,
+    };
+    const auto result = engine::score_round(
+        in.hands,
+        session.game_state->goal_suit(),
+        in.disconnected,
+        sc
+    );
+
+    engine_log.info("score_round",
+        "goal_suit=" + std::string(engine::suit_name(result.goal_suit)) +
+        " pot="        + std::to_string(result.pot) +
+        " bonus_pool=" + std::to_string(result.bonus_pool));
+
+    // Apply payouts — server owns all balance mutations.
+    for (int p = 0; p < cfg.game.player_count; ++p)
+        session.available_cash[p] += result.player_results[p].payout;
+
+    const std::string re_payload = serialise::round_end_payload(result, session.available_cash);
+    for (int p = 0; p < cfg.game.player_count; ++p) {
+        WsHandle ws = session.player_slots[p];
+        if (!ws) {
+            server_log.warn("round_end",
+                "slot=" + std::to_string(p) + " disconnected — round_end not sent");
+            continue;
+        }
+        ws->send(re_payload, uWS::OpCode::TEXT);
+        server_log.info("send",
+            "player=" + std::to_string(p) + " type=round_end" +
+            " payout="   + std::to_string(result.player_results[p].payout) +
+            " balance=" + std::to_string(session.available_cash[p]));
+    }
+
+    session.round_phase = RoundPhase::Ended;
+    server_log.info("round", "round ended");
+}
+
+// Deal, per-player round_start dispatch, and round_timer_thread spawn —
+// deferred onto the event loop by the countdown_thread after countdown_seconds.
+static void handle_deal_and_start(
+        GameSession&                session,
+        const ServerConfig&         cfg,
+        std::mt19937&               rng,
+        uWS::Loop*                  loop,
+        std::optional<std::thread>& round_timer_thread,
+        std::atomic<bool>&          running,
+        Logger&                     server_log,
+        Logger&                     engine_log) {
+    if (!running || session.round_started) return;
+    session.round_started = true;
+    session.round_phase   = RoundPhase::Active;
+
+    engine::GameState::Config gs_cfg{
+        cfg.game.player_count,
+        cfg.game.total_cards,
+        cfg.game.card_distribution,
+    };
+    session.game_state = std::make_unique<engine::GameState>(gs_cfg);
+    auto deal = session.game_state->deal(rng);
+
+    // AGENT-CTX: grep `has_extra_card` to find and disable this log when the
+    // EV module supersedes it.
+    if (deal.uneven_deal) {
+        for (int p = 0; p < static_cast<int>(deal.hands.size()); ++p) {
+            if (deal.hands[p].has_extra_card) {
+                server_log.warn("round",
+                    "UNEVEN_DEAL slot=" + std::to_string(p) +
+                    " has informational edge — see future EV module.");
+            }
+        }
+    }
+
+    // goal_suit logged but never sent to clients (withheld until round end).
+    engine_log.info("deal",
+        "goal_suit=" + std::string(engine::suit_name(deal.goal_suit)) +
+        " totals[clubs="    + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Clubs)])    +
+        " diamonds=" + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Diamonds)]) +
+        " hearts="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Hearts)])   +
+        " spades="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Spades)])   + "]");
+
+    // Compute round_end_at once; same value sent to all players so clients
+    // derive the same deadline without clock-skew between messages.
+    auto re_now = std::chrono::system_clock::now();
+    auto re_at  = re_now + std::chrono::seconds(cfg.game.round_duration_seconds);
+    auto re_t   = std::chrono::system_clock::to_time_t(re_at);
+    std::tm re_gmt{};
+    gmtime_r(&re_t, &re_gmt);
+    char re_buf[32];
+    std::strftime(re_buf, sizeof(re_buf), "%Y-%m-%dT%H:%M:%S.000Z", &re_gmt);
+    const std::string round_end_at_str(re_buf);
+
+    for (int slot = 0; slot < cfg.game.player_count; ++slot) {
+        WsHandle ws = session.player_slots[slot];
+        if (!ws) {
+            server_log.warn("round",
+                "slot=" + std::to_string(slot) +
+                " disconnected during countdown — hand not sent");
+            continue;
+        }
+        const auto& h = deal.hands[slot];
+        if (session.available_cash[slot] < cfg.scoring.buy_in) {
+            server_log.warn("round",
+                "slot=" + std::to_string(slot) + " insufficient balance for buy-in" +
+                " (available=" + std::to_string(session.available_cash[slot]) +
+                " buy_in=" + std::to_string(cfg.scoring.buy_in) + ")");
+        }
+        session.available_cash[slot] -= cfg.scoring.buy_in;
+        ws->send(serialise::round_start_payload(slot, h, round_end_at_str, session.available_cash[slot]),
+                 uWS::OpCode::TEXT);
+        server_log.info("send",
+            "player=" + std::to_string(slot) + " type=round_start" +
+            " round_end_at=" + round_end_at_str +
+            " clubs="    + std::to_string(h.suit_counts[0]) +
+            " diamonds=" + std::to_string(h.suit_counts[1]) +
+            " hearts="   + std::to_string(h.suit_counts[2]) +
+            " spades="   + std::to_string(h.suit_counts[3]));
+    }
+
+    server_log.info("round",
+        "round started — goal_suit=" +
+        std::string(engine::suit_name(deal.goal_suit)) +
+        " round_end_at=" + round_end_at_str +
+        " (goal_suit withheld from clients until round end)");
+
+    round_timer_thread.emplace(
+            [&session, &cfg, loop, &running, &server_log, &engine_log]() {
+        std::this_thread::sleep_for(
+            std::chrono::seconds(cfg.game.round_duration_seconds));
+        if (!running) return;
+        loop->defer([&session, &cfg, &server_log, &engine_log]() {
+            handle_round_expiry(session, cfg, server_log, engine_log);
+        });
+    });
+}
+
+// Broadcasts round_starting, then spawns the countdown_thread that defers
+// handle_deal_and_start onto the event loop after countdown_seconds.
+static void begin_countdown(
+        GameSession&                session,
+        const ServerConfig&         cfg,
+        std::mt19937&               rng,
+        uWS::Loop*                  loop,
+        std::optional<std::thread>& countdown_thread,
+        std::optional<std::thread>& round_timer_thread,
+        std::atomic<bool>&          running,
+        Logger&                     server_log,
+        Logger&                     engine_log) {
+    session.countdown_in_progress = true;
+
+    // Compute absolute fire time as ISO 8601 UTC string.
+    // AGENT-CTX: Absolute timestamp so API clients can compute remaining time
+    // regardless of when they receive the message (one message, client timer).
+    auto now     = std::chrono::system_clock::now();
+    auto fire_at = now + std::chrono::seconds(cfg.game.countdown_seconds);
+    auto fire_t  = std::chrono::system_clock::to_time_t(fire_at);
+    std::tm gmt{};
+    gmtime_r(&fire_t, &gmt);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000Z", &gmt);
+    const std::string starts_at_str(buf);
+
+    const std::string payload = nlohmann::json{
+        {"type",         "round_starting"},
+        {"starts_at",    starts_at_str},
+        {"player_count", cfg.game.player_count},
+    }.dump();
+    for (WsHandle ws : session.connections)
+        ws->send(payload, uWS::OpCode::TEXT);
+    server_log.info("round",
+                    "round_starting broadcast starts_at=" + starts_at_str +
+                    " player_count=" + std::to_string(cfg.game.player_count));
+
+    countdown_thread.emplace(
+            [&session, &cfg, &rng, loop, &round_timer_thread, &running, &server_log, &engine_log]() {
+        std::this_thread::sleep_for(std::chrono::seconds(cfg.game.countdown_seconds));
+        if (!running) return;
+        loop->defer([&session, &cfg, &rng, loop, &round_timer_thread, &running,
+                     &server_log, &engine_log]() {
+            handle_deal_and_start(session, cfg, rng, loop, round_timer_thread,
+                                  running, server_log, engine_log);
+        });
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -504,6 +804,15 @@ static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_s
         ws, session.active_suits, fields->suit, fields->side, "submit_order", slog, elog);
     if (!validated) return;
 
+    if (validated->side == engine::Side::Buy &&
+        fields->price > session.available_cash[player_slot]) {
+        serialise::error(ws, WsErrorCode::InsufficientBalance,
+                         "insufficient balance: have " +
+                         std::to_string(session.available_cash[player_slot]) +
+                         ", need " + std::to_string(fields->price), slog);
+        return;
+    }
+
     elog.debug("submit_order",
                "calling engine — suit=" + fields->suit +
                " player=" + std::to_string(player_slot) +
@@ -514,9 +823,7 @@ static void handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_s
     elog.info("submit_order",
               "engine returned " + std::to_string(events.size()) + " event(s)");
 
-    const bool had_trade = dispatch_events(ws, session.connections, events, slog, elog);
-    apply_card_transfers(session, events, elog);
-    if (had_trade) apply_global_wipe(session, slog, elog);
+    apply_engine_events(ws, session, events, slog, elog);
 }
 
 static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
@@ -549,13 +856,16 @@ static void handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_sl
     elog.info("nudge",
               "engine returned " + std::to_string(events.size()) + " event(s)");
 
-    const bool had_trade = dispatch_events(ws, session.connections, events, slog, elog);
-    apply_card_transfers(session, events, elog);
-    if (had_trade) apply_global_wipe(session, slog, elog);
+    apply_engine_events(ws, session, events, slog, elog);
 }
 
 static void handle_cancel(WsHandle ws, const nlohmann::json& j, int32_t player_slot,
                           GameSession& session, Logger& slog, Logger& elog) {
+    if (session.round_phase != RoundPhase::Active) {
+        serialise::error(ws, WsErrorCode::RoundNotActive, "round is not active", slog);
+        return;
+    }
+
     const auto fields = parse::cancel_order(j);
     if (!fields) {
         slog.error("cancel_order",
@@ -642,7 +952,7 @@ void WsServer::run() {
     session.player_slots.resize(cfg_.game.player_count, nullptr);
     // AGENT-CTX: Balances are initialized once at session start, not on each
     // connect/disconnect, so a balance survives a player leaving and rejoining.
-    session.balances.resize(cfg_.game.player_count, cfg_.scoring.starting_balance);
+    session.available_cash.resize(cfg_.game.player_count, cfg_.scoring.starting_balance);
 
     // AGENT-CTX: Seeded once per process from OS entropy. Single instance shared
     // across all deals in this process lifetime (safe — all engine calls are on
@@ -657,200 +967,6 @@ void WsServer::run() {
     // destroyed — the thread captures session, loggers, rng by reference.
     std::optional<std::thread> countdown_thread;
     std::optional<std::thread> round_timer_thread;
-
-    // ── begin_countdown ───────────────────────────────────────────────────────
-    // Broadcasts round_starting, then spawns a thread that sleeps countdown_seconds
-    // and defers the deal + per-player round_start to the event-loop thread.
-    auto begin_countdown = [&]() {
-        session.countdown_in_progress = true;
-
-        // Compute absolute fire time as ISO 8601 UTC string.
-        // AGENT-CTX: Absolute timestamp so API clients can compute remaining time
-        // regardless of when they receive the message (one message, client timer).
-        auto now     = std::chrono::system_clock::now();
-        auto fire_at = now + std::chrono::seconds(cfg_.game.countdown_seconds);
-        auto fire_t  = std::chrono::system_clock::to_time_t(fire_at);
-        std::tm gmt{};
-        gmtime_r(&fire_t, &gmt);
-        char buf[32];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000Z", &gmt);
-        const std::string starts_at_str(buf);
-
-        const std::string payload = nlohmann::json{
-            {"type",         "round_starting"},
-            {"starts_at",    starts_at_str},
-            {"player_count", cfg_.game.player_count},
-        }.dump();
-        for (WsHandle ws : session.connections)
-            ws->send(payload, uWS::OpCode::TEXT);
-        server_log.info("round",
-                        "round_starting broadcast starts_at=" + starts_at_str +
-                        " player_count=" + std::to_string(cfg_.game.player_count));
-
-        countdown_thread.emplace([&]() {
-            std::this_thread::sleep_for(
-                std::chrono::seconds(cfg_.game.countdown_seconds));
-
-            loop->defer([&]() {
-                // AGENT-CTX: Guard against double-fire and post-shutdown access.
-                if (!running || session.round_started) return;
-                session.round_started = true;
-                session.round_phase   = RoundPhase::Active;
-
-                engine::GameState::Config gs_cfg{
-                    cfg_.game.player_count,
-                    cfg_.game.total_cards,
-                    cfg_.game.card_distribution,
-                };
-                session.game_state = std::make_unique<engine::GameState>(gs_cfg);
-                auto deal = session.game_state->deal(rng);
-
-                // AGENT-CTX: grep `has_extra_card` to find and disable this log
-                // when the EV module supersedes it.
-                if (deal.uneven_deal) {
-                    for (int p = 0; p < static_cast<int>(deal.hands.size()); ++p) {
-                        if (deal.hands[p].has_extra_card) {
-                            server_log.warn("round",
-                                "UNEVEN_DEAL slot=" + std::to_string(p) +
-                                " has informational edge — see future EV module.");
-                        }
-                    }
-                }
-
-                // goal_suit logged but never sent to clients (withheld until round end).
-                engine_log.info("deal",
-                    "goal_suit=" + std::string(engine::suit_name(deal.goal_suit)) +
-                    " totals[clubs="    + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Clubs)])    +
-                    " diamonds=" + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Diamonds)]) +
-                    " hearts="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Hearts)])   +
-                    " spades="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Spades)])   + "]");
-
-                // Compute round_end_at for clients (absolute ISO 8601 UTC).
-                // AGENT-CTX: Same timestamp sent to every player so all clients
-                // derive the same deadline without clock-skew between messages.
-                {
-                    auto re_now = std::chrono::system_clock::now();
-                    auto re_at  = re_now + std::chrono::seconds(cfg_.game.round_duration_seconds);
-                    auto re_t   = std::chrono::system_clock::to_time_t(re_at);
-                    std::tm re_gmt{};
-                    gmtime_r(&re_t, &re_gmt);
-                    char re_buf[32];
-                    std::strftime(re_buf, sizeof(re_buf), "%Y-%m-%dT%H:%M:%S.000Z", &re_gmt);
-                    const std::string round_end_at_str(re_buf);
-
-                    // Send each player only their own hand.
-                    for (int slot = 0; slot < cfg_.game.player_count; ++slot) {
-                        WsHandle ws = session.player_slots[slot];
-                        if (!ws) {
-                            server_log.warn("round",
-                                "slot=" + std::to_string(slot) +
-                                " disconnected during countdown — hand not sent");
-                            continue;
-                        }
-                        const auto& h = deal.hands[slot];
-                        // AGENT-CTX: balance sent is the effective post-buyin balance
-                        // (pre-buyin balance minus buy_in). This is the maximum price
-                        // the player may bid this round. The server does NOT yet enforce
-                        // this as a hard limit — KNOWN_BUG: a player can submit a buy
-                        // order above their effective balance. Fix: add price > available
-                        // guard in handle_submit (see WsErrorCode::InsufficientBalance
-                        // which is already wired and ready to use).
-                        const int effective_balance = session.balances[slot] - cfg_.scoring.buy_in;
-                        const std::string hand_payload = nlohmann::json{
-                            {"type",         "round_start"},
-                            {"player_slot",  slot},
-                            {"round_end_at", round_end_at_str},
-                            {"balance",      effective_balance},
-                            {"hand", {
-                                {"clubs",    h.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
-                                {"diamonds", h.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},
-                                {"hearts",   h.suit_counts[engine::suit_index(engine::Suit::Hearts)]},
-                                {"spades",   h.suit_counts[engine::suit_index(engine::Suit::Spades)]},
-                            }},
-                        }.dump();
-                        ws->send(hand_payload, uWS::OpCode::TEXT);
-                        server_log.info("send",
-                            "player=" + std::to_string(slot) + " type=round_start" +
-                            " round_end_at=" + round_end_at_str +
-                            " clubs="    + std::to_string(h.suit_counts[0]) +
-                            " diamonds=" + std::to_string(h.suit_counts[1]) +
-                            " hearts="   + std::to_string(h.suit_counts[2]) +
-                            " spades="   + std::to_string(h.suit_counts[3]));
-                    }
-
-                    server_log.info("round",
-                        "round started — goal_suit=" +
-                        std::string(engine::suit_name(deal.goal_suit)) +
-                        " round_end_at=" + round_end_at_str +
-                        " (goal_suit withheld from clients until round end)");
-                }
-
-                // Start round expiry timer.
-                round_timer_thread.emplace([&]() {
-                    std::this_thread::sleep_for(
-                        std::chrono::seconds(cfg_.game.round_duration_seconds));
-                    loop->defer([&]() {
-                        if (!running) return;
-                        session.round_phase = RoundPhase::Scoring;
-
-                        apply_global_wipe(session, server_log, engine_log);
-
-                        // Collect scoring inputs. session.balances are pre-buyin —
-                        // score_round deducts buy_in and returns new_balance.
-                        std::vector<engine::PlayerHand> hands;
-                        std::vector<int>                balances_snap;
-                        std::vector<bool>               disc;
-                        hands.reserve(cfg_.game.player_count);
-                        balances_snap.reserve(cfg_.game.player_count);
-                        disc.reserve(cfg_.game.player_count);
-                        for (int p = 0; p < cfg_.game.player_count; ++p) {
-                            hands.push_back(session.game_state->hand(p));
-                            balances_snap.push_back(session.balances[p]);
-                            disc.push_back(session.player_slots[p] == nullptr);
-                        }
-
-                        const engine::ScoringConfig sc{
-                            cfg_.scoring.buy_in,
-                            cfg_.scoring.points_per_card,
-                        };
-                        const auto result = engine::score_round(
-                            hands,
-                            session.game_state->goal_suit(),
-                            balances_snap,
-                            disc,
-                            sc
-                        );
-
-                        engine_log.info("score_round",
-                            "goal_suit=" + std::string(engine::suit_name(result.goal_suit)) +
-                            " pot="        + std::to_string(result.pot) +
-                            " bonus_pool=" + std::to_string(result.bonus_pool));
-
-                        // Dispatch privately; skip disconnected slots.
-                        const std::string re_payload = serialise::round_end_payload(result);
-                        for (int p = 0; p < cfg_.game.player_count; ++p) {
-                            session.balances[p] = result.player_results[p].new_balance;
-                            WsHandle ws = session.player_slots[p];
-                            if (!ws) {
-                                server_log.warn("round_end",
-                                    "slot=" + std::to_string(p) +
-                                    " disconnected — round_end not sent");
-                                continue;
-                            }
-                            ws->send(re_payload, uWS::OpCode::TEXT);
-                            server_log.info("send",
-                                "player=" + std::to_string(p) + " type=round_end" +
-                                " payout="      + std::to_string(result.player_results[p].payout) +
-                                " new_balance=" + std::to_string(result.player_results[p].new_balance));
-                        }
-
-                        session.round_phase = RoundPhase::Ended;
-                        server_log.info("round", "round ended");
-                    });
-                });
-            });
-        });
-    };
 
     // ── WebSocket handler ─────────────────────────────────────────────────
     app.ws<PerSocketData>("/ws", {
@@ -904,7 +1020,8 @@ void WsServer::run() {
             // Trigger countdown once all slots are filled (exactly once).
             if (!session.countdown_in_progress &&
                 session.connected_count == cfg_.game.player_count) {
-                begin_countdown();
+                begin_countdown(session, cfg_, rng, loop, countdown_thread,
+                                round_timer_thread, running, server_log, engine_log);
             }
         },
 

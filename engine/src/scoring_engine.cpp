@@ -7,11 +7,9 @@ namespace anjeer::engine {
 RoundResult score_round(
     const std::vector<PlayerHand>& hands,
     Suit                           goal_suit,
-    const std::vector<int>&        balances,
     const std::vector<bool>&       disconnected,
     const ScoringConfig&           cfg)
 {
-    assert(hands.size() == balances.size());
     assert(hands.size() == disconnected.size());
 
     const int N      = static_cast<int>(hands.size());
@@ -73,7 +71,6 @@ RoundResult score_round(
             i,
             goal_cards,
             payout,
-            balances[i] - cfg.buy_in + payout,
             disconnected[i],
         });
     }

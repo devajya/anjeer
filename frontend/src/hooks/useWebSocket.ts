@@ -87,7 +87,7 @@ export interface WsState {
   roundEndAt: string | null
   /** Last round_end payload. null until first round completes. */
   roundEnd: RoundEndMessage | null
-  /** Effective post-buyin balance for the current round. null until first round_start. */
+  /** Available cash. Updated on round_start (after buy-in deducted), balance_update (after trade), and round_end (after payout). null until first round_start. */
   balance: number | null
 }
 
@@ -119,10 +119,6 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
   // outside the effect) can call ws.send() without being recreated on every render.
   const wsRef = useRef<WebSocket | null>(null)
-  // AGENT-CTX: balanceRef mirrors state.balance so sendOrder (a stable useCallback)
-  // can read the latest balance without closing over a stale state value. Pattern
-  // mirrors wsRef — update both whenever balance changes.
-  const balanceRef = useRef<number | null>(null)
   // Local counter for TradeEntry.id — never reset, guarantees unique React keys.
   const tradeSeqRef = useRef(0)
   // Tracks which suit the most-recently sent command targeted, so that an
@@ -268,7 +264,6 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
 
         case 'round_start':
           logger.info('ws/recv', `round_start player_slot=${msg.player_slot} round_end_at=${msg.round_end_at} balance=${msg.balance}`)
-          balanceRef.current = msg.balance
           setState(s => ({
             ...s,
             hand: msg.hand,
@@ -284,12 +279,14 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
         case 'round_end':
           logger.info('ws/recv', `round_end goal_suit=${msg.goal_suit} results=${msg.results.length}`)
           setState(s => {
-            // Update balance from own result so it reflects the new balance
-            // (post-payout) between rounds.
             const own = msg.results.find(r => r.player_slot === s.playerSlot) ?? null
-            if (own !== null) balanceRef.current = own.new_balance
-            return { ...s, roundEndAt: null, roundEnd: msg, balance: own?.new_balance ?? s.balance }
+            return { ...s, roundEndAt: null, roundEnd: msg, balance: own?.balance ?? s.balance }
           })
+          break
+
+        case 'balance_update':
+          logger.info('ws/recv', `balance_update balance=${msg.balance}`)
+          setState(s => ({ ...s, balance: msg.balance }))
           break
 
         default: {
@@ -334,5 +331,17 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
     }
   }, [])
 
-  return { ...state, sendMessage }
+  // Derived per-suit self-trade guards. When the server adds best_bid_player /
+  // best_ask_player fields (Slice 8), replace this derivation in one place here.
+  const ownsBestBidBySuit: Record<string, boolean> = {}
+  const ownsBestAskBySuit: Record<string, boolean> = {}
+  for (const [suit, book] of Object.entries(state.books)) {
+    const orders = state.myOrders.filter(o => o.suit === suit)
+    ownsBestBidBySuit[suit] = book.best_bid !== null &&
+      orders.some(o => o.side === 'buy'  && o.price === book.best_bid)
+    ownsBestAskBySuit[suit] = book.best_ask !== null &&
+      orders.some(o => o.side === 'sell' && o.price === book.best_ask)
+  }
+
+  return { ...state, sendMessage, ownsBestBidBySuit, ownsBestAskBySuit }
 }

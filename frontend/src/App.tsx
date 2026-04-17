@@ -28,6 +28,8 @@ function App() {
     playerSlot,
     roundEnd,
     balance,
+    ownsBestBidBySuit,
+    ownsBestAskBySuit,
   } = useWebSocket('/ws')
 
   // AGENT-CTX: Local dismissed flag so the modal can be closed without mutating
@@ -75,32 +77,21 @@ function App() {
           {activeSuits.length === 0 ? (
             <p className="app__waiting">Waiting for book data…</p>
           ) : (
-            activeSuits.map(suit => {
-              // AGENT-CTX: Makeshift self-trade guard — derive ownsBestBid/ownsBestAsk
-              // from myOrders since the server does not yet send best_bid_player /
-              // best_ask_player. When those fields arrive (future slice), replace this
-              // derivation with the server-provided values and remove myOrdersForSuit.
-              const suitOrders = myOrders.filter(o => o.suit === suit)
-              const bestBid = books[suit].best_bid
-              const bestAsk = books[suit].best_ask
-              const ownsBestBid = bestBid !== null && suitOrders.some(o => o.side === 'buy'  && o.price === bestBid)
-              const ownsBestAsk = bestAsk !== null && suitOrders.some(o => o.side === 'sell' && o.price === bestAsk)
-              return (
-                <SuitPanel
-                  key={suit}
-                  suit={suit}
-                  book={books[suit]}
-                  playerId={playerId}
-                  error={errors[suit] ?? null}
-                  lastTradePrice={lastTradePrices[suit] ?? null}
-                  suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
-                  isOwnBestBid={ownsBestBid}
-                  isOwnBestAsk={ownsBestAsk}
-                  myOrdersForSuit={suitOrders}
-                  onSendMessage={sendMessage}
-                />
-              )
-            })
+            activeSuits.map(suit => (
+              <SuitPanel
+                key={suit}
+                suit={suit}
+                book={books[suit]}
+                playerId={playerId}
+                error={errors[suit] ?? null}
+                lastTradePrice={lastTradePrices[suit] ?? null}
+                suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
+                isOwnBestBid={ownsBestBidBySuit[suit] ?? false}
+                isOwnBestAsk={ownsBestAskBySuit[suit] ?? false}
+                myOrdersForSuit={myOrders.filter(o => o.suit === suit)}
+                onSendMessage={sendMessage}
+              />
+            ))
           )}
         </section>
 
