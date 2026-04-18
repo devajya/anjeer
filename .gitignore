@@ -1,5 +1,6 @@
 # ── Hidden/dot directories ─────────────────────────────────────────────────
 .claude/
+memory/
 .deps/
 .vscode/*
 !.vscode/extensions.json
@@ -46,6 +47,7 @@ venv/
 # ── Config overrides — never commit local config ────────────────────────────
 config/dev.json
 config/local.json
+config/default.json
 *.env
 .env.*
 

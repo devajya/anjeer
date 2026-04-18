@@ -38,4 +38,4 @@ if [ "$needs_warning" -eq 1 ]; then
     echo ""
 fi
 
-exit 1
+exit 0

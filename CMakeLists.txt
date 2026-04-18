@@ -56,6 +56,86 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json Catch2 uwebsockets)
 
 # ---------------------------------------------------------------------------
+# System dependencies (must be installed on the build machine)
+# ---------------------------------------------------------------------------
+# AGENT-CTX: These are NOT FetchContent deps — they are system packages that must
+# be present before cmake configure runs. Run `make install-deps` on Ubuntu/Debian.
+# libpq (PostgreSQL C client) is required at configure time because libpqxx links
+# against it. libcurl is used by the OAuth provider implementations to exchange
+# authorization codes with GitHub/Google/LinkedIn APIs.
+# If either find_package fails: run `make install-deps`, then `make clean build`.
+find_package(PostgreSQL REQUIRED)
+find_package(CURL       REQUIRED)
+
+# ---------------------------------------------------------------------------
+# Crow v1.2.0 — async C++ HTTP/REST server (Slice 5+)
+# ---------------------------------------------------------------------------
+# AGENT-CTX: Crow is header-only; target is Crow::Crow (INTERFACE).
+# Crow does NOT bundle Asio — it calls find_package(asio) at configure time.
+# We fetch standalone Asio below and set ASIO_INCLUDE_DIR before crow's
+# FetchContent_MakeAvailable runs so Crow's Findasio.cmake resolves it without
+# requiring a system package. CROW_ENABLE_SSL is OFF: TLS termination is nginx's
+# job in production (Slice 16).
+FetchContent_Declare(
+  crow
+  GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
+  GIT_TAG        v1.2.0
+  GIT_SHALLOW    TRUE
+)
+set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CROW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(CROW_ENABLE_SSL     OFF CACHE BOOL "" FORCE)
+
+# standalone Asio — required by Crow; not bundled, not Boost
+# AGENT-CTX: Must be declared and made available BEFORE crow's FetchContent_MakeAvailable.
+# ASIO_INCLUDE_DIR points to the directory containing asio.hpp (asio/include/).
+# Crow's Findasio.cmake uses find_path(ASIO_INCLUDE_DIR NAMES asio.hpp ...) and
+# will find it there. No Boost, no system asio package required.
+FetchContent_Declare(
+  asio
+  GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
+  GIT_TAG        asio-1-28-2
+  GIT_SHALLOW    TRUE
+)
+
+# jwt-cpp v0.7.0 — header-only JWT signing/validation (Slice 5+)
+# AGENT-CTX: jwt-cpp uses its own bundled picojson internally. We leave
+# JWT_DISABLE_PICOJSON OFF to keep jwt-cpp self-contained — coupling its
+# internals to nlohmann adds complexity with no benefit. Server auth code
+# uses OpenSSL-backed HMAC-SHA256 via jwt-cpp. Target: jwt-cpp::jwt-cpp.
+FetchContent_Declare(
+  jwt_cpp
+  GIT_REPOSITORY https://github.com/Thalhammer/jwt-cpp.git
+  GIT_TAG        v0.7.0
+  GIT_SHALLOW    TRUE
+)
+set(JWT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+# libpqxx v7.9.2 — C++ PostgreSQL client (Slice 5+)
+# AGENT-CTX: libpqxx wraps the system libpq C driver located via find_package(PostgreSQL).
+# It is processed in its own FetchContent_MakeAvailable call with BUILD_TESTING temporarily
+# OFF to suppress libpqxx's own test suite (which requires a live DB connection and would
+# fail in CI). BUILD_TESTING is restored to ON immediately after so our Catch2 tests
+# are unaffected. Target is libpqxx::pqxx (alias in libpqxx CMakeLists).
+# If a version upgrade renames the alias, update target_link_libraries in server/CMakeLists.txt.
+FetchContent_Declare(
+  libpqxx
+  GIT_REPOSITORY https://github.com/jtv/libpqxx.git
+  GIT_TAG        7.9.2
+  GIT_SHALLOW    TRUE
+)
+set(PQXX_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(PQXX_INSTALL      OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(asio)
+set(ASIO_INCLUDE_DIR "${asio_SOURCE_DIR}/asio/include" CACHE PATH "" FORCE)
+FetchContent_MakeAvailable(crow jwt_cpp)
+
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(libpqxx)
+set(BUILD_TESTING ON  CACHE BOOL "" FORCE)
+
+# ---------------------------------------------------------------------------
 # uSockets — built from the copy bundled inside uWebSockets
 # ---------------------------------------------------------------------------
 # AGENT-CTX: uSockets has no CMakeLists.txt; we compile it manually.

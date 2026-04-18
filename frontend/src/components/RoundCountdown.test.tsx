@@ -6,10 +6,6 @@ import { RoundCountdown } from './RoundCountdown'
 // AC: Active-round countdown — MM:SS format, expiring class, priority logic
 // ---------------------------------------------------------------------------
 
-function futureISO(offsetMs: number): string {
-  return new Date(Date.now() + offsetMs).toISOString()
-}
-
 describe('RoundCountdown — null renders nothing', () => {
   test('renders nothing when both props are null', () => {
     const { container } = render(<RoundCountdown startsAt={null} roundEndAt={null} />)

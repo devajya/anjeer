@@ -85,6 +85,40 @@ ServerConfig load_config(const std::string& path) {
                 " starting_balance=" + std::to_string(cfg.scoring.starting_balance));
         }
 
+        cfg.http_port   = srv.at("http_port").get<int>();
+        cfg.cors_origin = srv.at("cors_origin").get<std::string>();
+
+        const auto& db = j.at("db");
+        cfg.db.connection_string = db.at("connection_string").get<std::string>();
+        cfg.db.pool_size         = db.at("pool_size").get<int>();
+        cfg.db.migrations_dir    = db.at("migrations_dir").get<std::string>();
+
+        const auto& au = j.at("auth");
+        cfg.auth.jwt_secret = au.at("jwt_secret").get<std::string>();
+        if (cfg.auth.jwt_secret.size() < 32) {
+            throw std::runtime_error(
+                "auth.jwt_secret must be >= 32 bytes for HMAC-SHA256 security; got " +
+                std::to_string(cfg.auth.jwt_secret.size()) + " bytes");
+        }
+        cfg.auth.access_token_ttl_seconds    = au.at("access_token_ttl_seconds").get<int>();
+        cfg.auth.refresh_token_ttl_seconds   = au.at("refresh_token_ttl_seconds").get<int>();
+        cfg.auth.secure_cookies              = au.at("secure_cookies").get<bool>();
+
+        // AGENT-CTX: OAuth provider parsing is identical for both providers.
+        // A future slice could make providers a map<string, OAuthProviderConfig> to
+        // support dynamic provider registration, but two hard-coded providers is
+        // sufficient through Slice 9 (API mode). Do not generalise prematurely.
+        auto parse_provider = [](const nlohmann::json& j)
+            -> ServerConfig::AuthConfig::OAuthProviderConfig {
+            return {
+                j.at("client_id").get<std::string>(),
+                j.at("client_secret").get<std::string>(),
+                j.at("redirect_uri").get<std::string>()
+            };
+        };
+        cfg.auth.github  = parse_provider(au.at("github"));
+        cfg.auth.google  = parse_provider(au.at("google"));
+
         return cfg;
     } catch (const nlohmann::json::exception& e) {
         throw std::runtime_error(

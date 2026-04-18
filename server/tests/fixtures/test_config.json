@@ -2,6 +2,8 @@
   "server": {
     "host": "127.0.0.1",
     "port": 9999,
+    "http_port": 18080,
+    "cors_origin": "http://localhost:5173",
     "heartbeat_interval_ms": 500,
     "ping_interval_ms": 500,
     "ping_timeout_ms": 8000
@@ -24,5 +26,18 @@
     "starting_balance": 100,
     "buy_in": 50,
     "points_per_card": 20
+  },
+  "db": {
+    "connection_string": "postgresql:///anjeer_test",
+    "pool_size": 2,
+    "migrations_dir": "db/migrations"
+  },
+  "auth": {
+    "jwt_secret": "test-secret-do-not-use-in-prod-xx",
+    "access_token_ttl_seconds": 60,
+    "refresh_token_ttl_seconds": 300,
+    "secure_cookies": false,
+    "github": { "client_id": "test_gh_id", "client_secret": "test_gh_secret", "redirect_uri": "http://localhost:18080/auth/github/callback" },
+    "google": { "client_id": "test_go_id", "client_secret": "test_go_secret", "redirect_uri": "http://localhost:18080/auth/google/callback" }
   }
 }

@@ -1,0 +1,21 @@
+title = "Anjeer gitleaks config"
+
+[[rules]]
+  description = "Generic secret key"
+  id = "generic-secret-key"
+  regex = '''(?i)(client_secret|jwt_secret|api_key|private_key)\s*[=:]\s*["']([^"']{8,})["']'''
+  tags = ["secret"]
+
+[allowlist]
+  description = "Test fixture placeholder values"
+  regexes = [
+    '''test[_-](gh|go)_(id|secret)''',
+    '''test-secret-do-not-use-in-prod''',
+    '''test_user_\d+''',
+    '''test_secret''',
+  ]
+  paths = [
+    '''server/tests/fixtures/.*''',
+    '''db/seeds/.*''',
+    '''config/default\.example\.json''',
+  ]

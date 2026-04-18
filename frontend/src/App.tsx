@@ -1,118 +1,27 @@
-import { useState, useEffect } from 'react'
-import { useWebSocket } from './hooks/useWebSocket'
-import { ConnectionBanner } from './components/ConnectionBanner'
-import { RoundCountdown } from './components/RoundCountdown'
-import { HandPanel } from './components/HandPanel'
-import { SuitPanel } from './components/SuitPanel'
-import { TradeFeed } from './components/TradeFeed'
-import { MyOrders } from './components/MyOrders'
-import { RoundEndModal } from './components/RoundEndModal'
-import './App.css'
+import { Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import { ProtectedRoute } from './components/ProtectedRoute'
+import { Login } from './pages/Login'
+import { Game } from './pages/Game'
 
-// Canonical suit order matching the engine's Suit enum declaration order.
-const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
-
-function App() {
-  const {
-    connected,
-    playerId,
-    books,
-    trades,
-    myOrders,
-    errors,
-    sendMessage,
-    startsAt,
-    roundEndAt,
-    hand,
-    initialHand,
-    playerSlot,
-    roundEnd,
-    balance,
-    ownsBestBidBySuit,
-    ownsBestAskBySuit,
-  } = useWebSocket('/ws')
-
-  // AGENT-CTX: Local dismissed flag so the modal can be closed without mutating
-  // hook state. Reset whenever a new round_end payload arrives (round_end changes
-  // referential identity each time because useWebSocket creates a new object).
-  const [roundEndDismissed, setRoundEndDismissed] = useState(false)
-  useEffect(() => {
-    if (roundEnd) setRoundEndDismissed(false)
-  }, [roundEnd])
-
-  const showRoundEnd = roundEnd !== null && !roundEndDismissed
-
-  const activeSuits = SUIT_ORDER.filter(s => s in books)
-
-  // Most recent trade price per suit — used by SuitPanel to show last-traded price.
-  // trades is newest-first, so the first match for each suit is the latest.
-  const lastTradePrices: Record<string, number> = {}
-  for (const t of trades) {
-    if (!(t.suit in lastTradePrices)) lastTradePrices[t.suit] = t.price
-  }
-
-  function handleCancel(orderId: number) {
-    sendMessage({ type: 'cancel_order', order_id: orderId })
-  }
-
+// AGENT-CTX: App.tsx is now purely a route map. All game UI lives in pages/Game.tsx.
+// AuthProvider wraps everything so any route can access auth state.
+// BrowserRouter is in main.tsx, not here, so this tree is testable without a router.
+// Slice 6 adds a /lobby route and a /lobby/:id route between /login and /game.
+export default function App() {
   return (
-    <>
-    {showRoundEnd && (
-      <RoundEndModal
-        roundEnd={roundEnd!}
-        playerSlot={playerSlot}
-        onDismiss={() => setRoundEndDismissed(true)}
-      />
-    )}
-    <main className="app">
-      <header className="app__header">
-        <h1 className="app__title">Anjeer</h1>
-        <ConnectionBanner connected={connected} />
-        <RoundCountdown startsAt={startsAt} roundEndAt={roundEndAt} />
-      </header>
-
-      <div className="app__layout">
-        {/* ── Column 1: one SuitPanel per active suit ── */}
-        <section className="app__suits">
-          {activeSuits.length === 0 ? (
-            <p className="app__waiting">Waiting for book data…</p>
-          ) : (
-            activeSuits.map(suit => (
-              <SuitPanel
-                key={suit}
-                suit={suit}
-                book={books[suit]}
-                playerId={playerId}
-                error={errors[suit] ?? null}
-                lastTradePrice={lastTradePrices[suit] ?? null}
-                suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
-                isOwnBestBid={ownsBestBidBySuit[suit] ?? false}
-                isOwnBestAsk={ownsBestAskBySuit[suit] ?? false}
-                myOrdersForSuit={myOrders.filter(o => o.suit === suit)}
-                onSendMessage={sendMessage}
-              />
-            ))
-          )}
-        </section>
-
-        {/* ── Column 2: Hand + My Orders + Trade feed ── */}
-        <section className="app__right">
-          <HandPanel hand={hand} initialHand={initialHand} balance={balance} />
-          <MyOrders orders={myOrders} onCancel={handleCancel} />
-          <TradeFeed trades={trades} />
-        </section>
-
-        {/* ── Column 3: Placeholder for future widgets ──
-            AGENT-CTX: Reserved for eval engine, position tracker, chat panel etc.
-            Slice 8 will populate this with a configurable drag-and-resize widget
-            system. The column is hidden below 900px to keep the layout clean on
-            smaller screens. */}
-        <aside className="app__future" aria-label="Future widgets panel">
-        </aside>
-      </div>
-    </main>
-    </>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <Game />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </AuthProvider>
   )
 }
-
-export default App

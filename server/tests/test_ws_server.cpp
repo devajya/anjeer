@@ -309,7 +309,7 @@ static void ensure_round_server_running() {
         if (i == 199) throw std::runtime_error("round server failed to start");
     }
 
-    // Primer: connect two clients to trigger begin_countdown → immediate deal.
+    // Primer: connect two clients, send start_game, wait for round_start.
     // Both clients wait for round_start before disconnecting so the server is
     // definitely in Active phase when this function returns.
     {
@@ -317,7 +317,7 @@ static void ensure_round_server_running() {
         c0.recv_of_type("player_hello");
         WsTestClient c1(WS_ROUND_PORT);
         c1.recv_of_type("player_hello");
-        // countdown_seconds=0 → round_starting arrives immediately after c1 joins
+        c0.send_json({ {"type","start_game"} });
         c0.recv_of_type("round_starting");
         c1.recv_of_type("round_starting");
         // deal fires on next loop iteration
@@ -467,6 +467,41 @@ TEST_CASE("WS server — cancel_order rejected before round is active", "[ws_ser
 // ═══════════════════════════════════════════════════════════════════════════
 // Round timer tests — Slice 4
 //
+TEST_CASE("WS server — waiting_for_start broadcast on connect, no auto-start", "[ws_server][start_game]") {
+    ensure_server_running();
+    WsTestClient client(WS_TEST_PORT);
+
+    client.recv_of_type("player_hello");
+    const auto wfs = client.recv_of_type("waiting_for_start");
+    REQUIRE(wfs.contains("connected"));
+    REQUIRE(wfs.contains("required"));
+    CHECK(wfs["connected"].get<int>() >= 1);
+    CHECK(wfs["required"].get<int>() == 99);  // WS_TEST_PORT uses player_count=99
+}
+
+TEST_CASE("WS server — start_game ignored when not enough players", "[ws_server][start_game]") {
+    ensure_server_running();
+    WsTestClient client(WS_TEST_PORT);
+
+    client.recv_of_type("player_hello");
+    client.recv_of_type("waiting_for_start");
+
+    // Send start_game with only 1/99 players — server should NOT start.
+    // We verify by confirming no round_starting arrives within the frame window.
+    client.send_json({ {"type","start_game"} });
+
+    // With player_count=99 the server logs a warning and does nothing.
+    // Drain a few frames — should only see waiting_for_start, never round_starting.
+    bool got_round_starting = false;
+    for (int i = 0; i < 5; ++i) {
+        try {
+            const auto msg = client.recv_json();
+            if (msg.value("type","") == "round_starting") got_round_starting = true;
+        } catch (...) { break; }
+    }
+    CHECK(!got_round_starting);
+}
+
 // AGENT-CTX: Each timer test gets its own server port (WS_TIMER_PORT /
 // WS_DISCONN_PORT) because after the round expires the server transitions to
 // Ended and cannot host a second round. Sharing a port across tests would
@@ -502,8 +537,7 @@ TEST_CASE("WS server — round_start includes round_end_at and round_end receive
 
     c0.recv_of_type("player_hello");
     c1.recv_of_type("player_hello");
-
-    // countdown=0 → round_starting fires immediately; deal follows on next loop tick
+    c0.send_json({ {"type","start_game"} });
     c0.recv_of_type("round_starting");
     c1.recv_of_type("round_starting");
 
@@ -550,6 +584,7 @@ TEST_CASE("WS server — books wiped when round expires", "[ws_server][timer]") 
 
     c0.recv_of_type("player_hello");
     c1.recv_of_type("player_hello");
+    c0.send_json({ {"type","start_game"} });
     c0.recv_of_type("round_starting");
     c1.recv_of_type("round_starting");
     c0.recv_of_type("round_start");
@@ -584,6 +619,7 @@ TEST_CASE("WS server — order rejected after round ends (Ended phase)", "[ws_se
 
     c0.recv_of_type("player_hello");
     c1.recv_of_type("player_hello");
+    c0.send_json({ {"type","start_game"} });
     c0.recv_of_type("round_starting");
     c1.recv_of_type("round_starting");
     c0.recv_of_type("round_start");
@@ -608,6 +644,7 @@ TEST_CASE("WS server — disconnected player excluded from round_end delivery", 
 
         c0.recv_of_type("player_hello");
         c1.recv_of_type("player_hello");
+        c0.send_json({ {"type","start_game"} });
         c0.recv_of_type("round_starting");
         c1.recv_of_type("round_starting");
         c0.recv_of_type("round_start");

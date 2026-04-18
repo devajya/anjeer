@@ -7,6 +7,7 @@ import type {
   RoundEndMessage,
   ClientCommand,
   HandCounts,
+  WaitingForStartMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -89,6 +90,13 @@ export interface WsState {
   roundEnd: RoundEndMessage | null
   /** Available cash. Updated on round_start (after buy-in deducted), balance_update (after trade), and round_end (after payout). null until first round_start. */
   balance: number | null
+  /**
+   * Current lobby fill state. Non-null while phase == Waiting (before countdown).
+   * Null once round_starting arrives. Frontend shows Start Game button when
+   * connected === required.
+   * AGENT-CTX: Slice 6 replaces this with a per-lobby lobby_joined/left feed.
+   */
+  waitingForStart: WaitingForStartMessage | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -99,7 +107,18 @@ const MAX_TRADE_HISTORY = 20
 // The hook constructs an absolute ws:// or wss:// URL from window.location so
 // the same code works in dev (Vite proxy) and production (nginx proxy).
 // Do NOT pass a hardcoded absolute URL — that breaks the proxy abstraction.
-export function useWebSocket(url: string): WsState & { sendMessage: (cmd: ClientCommand) => void } {
+// AGENT-CTX: ownsBestBidBySuit / ownsBestAskBySuit are derived per-render from
+// state.books and state.myOrders. They are not stored in WsState (they would
+// need to be recomputed on every books or myOrders change anyway). Exposed in
+// the return type so App.tsx can pass them to SuitPanel without prop-drilling
+// through an intermediate component.
+export type UseWebSocketReturn = WsState & {
+  sendMessage:        (cmd: ClientCommand) => void
+  ownsBestBidBySuit:  Record<string, boolean>
+  ownsBestAskBySuit:  Record<string, boolean>
+}
+
+export function useWebSocket(url: string): UseWebSocketReturn {
   const [state, setState] = useState<WsState>({
     connected: false,
     playerId: null,
@@ -114,6 +133,7 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
     roundEndAt: null,
     roundEnd: null,
     balance: null,
+    waitingForStart: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -256,10 +276,19 @@ export function useWebSocket(url: string): WsState & { sendMessage: (cmd: Client
           break
         }
 
+        case 'waiting_for_start': {
+          const w: WaitingForStartMessage = msg
+          logger.info('ws/recv',
+            `waiting_for_start connected=${w.connected} required=${w.required}`)
+          setState(s => ({ ...s, waitingForStart: w }))
+          break
+        }
+
         case 'round_starting':
           logger.info('ws/recv',
             `round_starting starts_at=${msg.starts_at} player_count=${msg.player_count}`)
-          setState(s => ({ ...s, startsAt: msg.starts_at }))
+          // Clear waiting state — countdown has begun.
+          setState(s => ({ ...s, startsAt: msg.starts_at, waitingForStart: null }))
           break
 
         case 'round_start':

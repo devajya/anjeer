@@ -73,3 +73,29 @@
   color: #555;
   font-size: 0.875rem;
 }
+
+.app__lobby {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.app__lobby-status {
+  font-size: 0.875rem;
+  color: #aaa;
+}
+
+.app__start-btn {
+  padding: 0.35rem 0.9rem;
+  background: #3a7bd5;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.app__start-btn:hover {
+  background: #2f6abf;
+}

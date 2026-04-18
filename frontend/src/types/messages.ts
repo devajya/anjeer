@@ -142,6 +142,20 @@ export interface RoundEndMessage {
 }
 
 /**
+ * Broadcast to all connected clients when a player connects or disconnects
+ * before a round has started. Replaced by round_starting once countdown begins.
+ *
+ * AGENT-CTX: Slice 6 replaces this with lobby_joined / lobby_left events
+ * scoped to a specific lobby. Until then this is a server-wide broadcast.
+ * The frontend shows a Start Game button only when connected === required.
+ */
+export interface WaitingForStartMessage {
+  type: 'waiting_for_start'
+  connected: number
+  required: number
+}
+
+/**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
  * useWebSocket.ts is exhaustive — TypeScript will error on unhandled variants
@@ -158,6 +172,7 @@ export type ServerMessage =
   | RoundStartMessage
   | RoundEndMessage
   | BalanceUpdateMessage
+  | WaitingForStartMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
@@ -183,4 +198,14 @@ export interface CancelOrderCommand {
   order_id: number
 }
 
-export type ClientCommand = SubmitOrderCommand | NudgeCommand | CancelOrderCommand
+/**
+ * Sent by any connected client to trigger the game countdown.
+ * Server accepts this only when all slots are filled and no countdown is active.
+ * AGENT-CTX: No auth on who can trigger this in Slice 5 — any connected player
+ * can start. Slice 6 adds lobby owner enforcement via lobby REST API.
+ */
+export interface StartGameCommand {
+  type: 'start_game'
+}
+
+export type ClientCommand = SubmitOrderCommand | NudgeCommand | CancelOrderCommand | StartGameCommand

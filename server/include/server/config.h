@@ -62,6 +62,40 @@ struct ServerConfig {
         int buy_in;
         int points_per_card;
     } scoring;
+
+    // AGENT-CTX: http_port is the Crow REST server port (8080); port above is the
+    // uWebSockets game port (9001). Both run in the same process on separate threads.
+    // cors_origin is the single allowed CORS origin — single-origin for now since
+    // the frontend is always served from one place. Extend to vector in Slice 15 if
+    // a CDN origin is added.
+    int         http_port;
+    std::string cors_origin;
+
+    struct DbConfig {
+        std::string connection_string;
+        int         pool_size;
+        std::string migrations_dir;
+    } db;
+
+    // AGENT-CTX: OAuthProviderConfig holds credentials for a single OAuth2 provider.
+    // client_id and client_secret come from the provider's developer console — they
+    // must NOT be committed; set them in config/dev.json (gitignored) at dev time
+    // and in AWS SSM Parameter Store at production time (Slice 16).
+    // redirect_uri must exactly match what is registered in the provider's app settings.
+    struct AuthConfig {
+        std::string jwt_secret;
+        int         access_token_ttl_seconds;
+        int         refresh_token_ttl_seconds;
+        bool        secure_cookies;
+
+        struct OAuthProviderConfig {
+            std::string client_id;
+            std::string client_secret;
+            std::string redirect_uri;
+        };
+        OAuthProviderConfig github;
+        OAuthProviderConfig google;
+    } auth;
 };
 
 // Load and parse a JSON config file.

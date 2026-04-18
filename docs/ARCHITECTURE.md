@@ -11,22 +11,26 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 ```
 ┌─────────────────────────────────┐
 │  Frontend  (React + TypeScript) │  Browser, port 5173 (dev) / CDN (prod)
-└────────────────┬────────────────┘
-                 │ WebSocket (/ws)  JSON messages, discriminated on `type`
-                 │ HTTP (/api)      Logging, auth (future)
-┌────────────────▼────────────────┐
-│  Server    (C++ / uWebSockets)  │  Port 9001
-│  Owns: protocol, serialization, │
-│  connection state, game loop    │
-└────────────────┬────────────────┘
-                 │ C++ function calls (same process, same thread in Slice 2-5)
-┌────────────────▼────────────────┐
+└──────┬───────────────┬──────────┘
+       │ WebSocket /ws │ HTTP /auth /players /api
+       │               │
+┌──────▼──────┐  ┌─────▼────────────────────────┐
+│  WsServer   │  │  HttpServer  (Crow async)     │
+│  uWS :9001  │  │  :8080                        │
+│  game loop  │  │  OAuth, JWT, REST endpoints   │
+└──────┬──────┘  └─────┬────────────────────────┘
+       │               │
+       │    shared: DbPool, ServerConfig
+       │               │
+       │         ┌─────▼─────────┐
+       │         │  PostgreSQL   │  port 5432 (local dev) / Neon / RDS (prod)
+       │         └───────────────┘
+       │
+┌──────▼──────────────────────────┐
 │  Engine    (C++ / pure logic)   │  Static library, no I/O
 │  Owns: matching, game state,    │
 │  scoring, all game rules        │
 └─────────────────────────────────┘
-
-Database (PostgreSQL, port 5433) — added in Slice 5, accessed by Server only.
 ```
 
 ## Engine Layer
@@ -51,20 +55,32 @@ Database (PostgreSQL, port 5433) — added in Slice 5, accessed by Server only.
 
 **Role:** Owns the WebSocket connection lifecycle, JSON serialization, config, logging, and game loop. Translates between wire protocol and engine calls.
 
-**Current responsibilities (Slice 2-4):**
-- Accept WS connections; assign player slots; maintain per-slot balance (initialized to `scoring.starting_balance`)
-- Deserialize inbound JSON to typed commands
-- Call engine; iterate returned events
-- Serialize events to JSON; route to correct recipient(s)
-- Broadcast book state after every engine operation
-- HTTP POST `/api/log` — receives frontend log batches, writes to `logs/frontend_logs.txt`
+**Current responsibilities (Slice 5):**
+
+`WsServer` (uWS, port 9001):
+- Accept WS connections; assign player slots; maintain per-slot balance
+- Deserialize inbound JSON; call `GameSession`; route returned events to recipients
+- HTTP POST `/api/log` — frontend log batches → `logs/frontend_logs.txt`
 - Heartbeat loop (configurable interval)
-- `RoundPhase` state machine (`Waiting → Active → Scoring → Ended`); gates order commands to Active only (`ROUND_NOT_ACTIVE` otherwise)
-- Round expiry timer: on fire → wipe all books → call `score_round()` → deduct buy-in → dispatch per-player `round_end` (skipping disconnected slots) → transition to Ended
+
+`GameSession` (extracted from WsServer in Slice 5):
+- `RoundPhase` state machine (`Waiting → Active → Scoring → Ended`)
+- Manual `start_game` trigger (replaces N-connection auto-start); gates orders to Active only
+- Round expiry timer: wipe books → `score_round()` → deduct buy-in → dispatch `round_end`
+
+`HttpServer` (Crow async, port 8080):
+- `GET /auth/{provider}` — redirect to OAuth provider with CSRF state nonce
+- `GET /auth/{provider}/callback` — exchange code → `AuthService::find_or_create` → JWT cookies → redirect frontend
+- `POST /auth/refresh` — validate refresh token cookie → issue new access token cookie
+- `POST /auth/logout` — clear cookies
+- `GET /players/me` — JWT middleware → `PlayerRepo::find_by_id` → profile JSON
+
+`DbPool` + `DbMigrator` (shared):
+- libpqxx connection pool (configurable size); RAII acquire handle
+- `DbMigrator::run()` on server start — applies unapplied SQL files from `db/migrations/` in version order
 
 **Planned additions:**
-- Crow HTTP server for REST endpoints (Slice 5+): auth, lobbies, player stats, replay API
-- JWT validation middleware (Slice 5)
+- Lobby REST routes on `HttpServer` (Slice 6): `/lobbies/*`; WS auth via JWT on upgrade
 - Rate limiter (Slice 9)
 - DB writer thread + async event queue (Slice 12)
 - Background job queue for analysis (Slice 14)
@@ -191,6 +207,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Trade | `trade` |
 | Round (Slice 3+) | `round_starting`, `round_start` (includes `round_end_at`) |
 | Round end (Slice 4+) | `round_end` |
+| Auth (Slice 5+) | `waiting_for_start` (WS broadcast); auth via HTTP cookies, not WS |
 | Lobby (Slice 6+) | `player_joined`, `player_left`, `lobby_started` |
 | Game lifecycle (Slice 7+) | `round_transition`, `game_ended` |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
@@ -207,10 +224,12 @@ All messages are JSON objects with a `type` string discriminator.
 ## Configuration Surface
 
 All tuneable values live in `config/default.json`. Key sections:
-- `server` — host, port, heartbeat/ping intervals
+- `server` — host, WS port (9001), HTTP port (8080), heartbeat/ping intervals, CORS origin
 - `order_book` — price range, nudge seed prices, active suits
 - `game` — player count, card distribution, countdown, round duration
 - `scoring` — starting balance, buy-in, points per card
+- `db` — connection string, pool size, migrations dir
+- `auth` — JWT secret, access/refresh TTLs, secure_cookies flag, per-provider OAuth client_id/secret/redirect_uri
 - Future: `lobby` (min players), `rate_limit`
 
 ## When to Update This Document
