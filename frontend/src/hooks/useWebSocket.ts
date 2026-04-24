@@ -8,6 +8,8 @@ import type {
   ClientCommand,
   HandCounts,
   WaitingForStartMessage,
+  LobbyStateMessage,
+  LobbyStartedMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -97,6 +99,19 @@ export interface WsState {
    * AGENT-CTX: Slice 6 replaces this with a per-lobby lobby_joined/left feed.
    */
   waitingForStart: WaitingForStartMessage | null
+  /**
+   * Full lobby snapshot. Set on lobby_state; players array is updated
+   * incrementally by player_joined / player_left without a full re-fetch.
+   * AGENT-CTX: Null when not subscribed to any lobby (e.g. on the Game page).
+   */
+  lobbyState: LobbyStateMessage | null
+  /**
+   * Set when lobby_started arrives. LobbyRoom watches this in a useEffect
+   * and navigates to /game?lobby_id=... when lobby_id matches current lobby.
+   * AGENT-CTX: Never cleared by the hook — cleared implicitly on next WS reconnect.
+   * The lobby_id guard in LobbyRoom prevents spurious re-navigation.
+   */
+  lobbyStarted: LobbyStartedMessage | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -116,6 +131,10 @@ export type UseWebSocketReturn = WsState & {
   sendMessage:        (cmd: ClientCommand) => void
   ownsBestBidBySuit:  Record<string, boolean>
   ownsBestAskBySuit:  Record<string, boolean>
+  /** Sends subscribe_lobby over the open WS. No-op if socket not open. */
+  subscribeLobby:     (lobby_id: string) => void
+  /** Sends unsubscribe_lobby. Called by LobbyRoom cleanup effect on unmount. */
+  unsubscribeLobby:   (lobby_id: string) => void
 }
 
 export function useWebSocket(url: string): UseWebSocketReturn {
@@ -134,6 +153,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     roundEnd: null,
     balance: null,
     waitingForStart: null,
+    lobbyState: null,
+    lobbyStarted: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -318,6 +339,54 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({ ...s, balance: msg.balance }))
           break
 
+        case 'lobby_state':
+          logger.info('ws/recv', `lobby_state lobby_id=${msg.lobby_id} status=${msg.status} players=${msg.players.length}`)
+          setState(s => ({ ...s, lobbyState: msg }))
+          break
+
+        case 'player_joined': {
+          logger.info('ws/recv', `player_joined lobby_id=${msg.lobby_id} player_id=${msg.player_id} username=${msg.username}`)
+          const joined = msg
+          setState(s => {
+            if (!s.lobbyState || s.lobbyState.lobby_id !== joined.lobby_id) return s
+            // AGENT-CTX: Guard duplicate join — server may send player_joined for the
+            // subscribing client itself after the initial lobby_state snapshot.
+            if (s.lobbyState.players.some(p => p.player_id === joined.player_id)) return s
+            return {
+              ...s,
+              lobbyState: {
+                ...s.lobbyState,
+                players: [
+                  ...s.lobbyState.players,
+                  { player_id: joined.player_id, username: joined.username, joined_at: joined.joined_at },
+                ],
+              },
+            }
+          })
+          break
+        }
+
+        case 'player_left': {
+          logger.info('ws/recv', `player_left lobby_id=${msg.lobby_id} player_id=${msg.player_id} username=${msg.username}`)
+          const left = msg
+          setState(s => {
+            if (!s.lobbyState || s.lobbyState.lobby_id !== left.lobby_id) return s
+            return {
+              ...s,
+              lobbyState: {
+                ...s.lobbyState,
+                players: s.lobbyState.players.filter(p => p.player_id !== left.player_id),
+              },
+            }
+          })
+          break
+        }
+
+        case 'lobby_started':
+          logger.info('ws/recv', `lobby_started lobby_id=${msg.lobby_id} code=${msg.code}`)
+          setState(s => ({ ...s, lobbyStarted: msg }))
+          break
+
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new
           // ServerMessage variant is added but not handled above.
@@ -360,6 +429,17 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     }
   }, [])
 
+  // AGENT-CTX: subscribeLobby/unsubscribeLobby are thin wrappers so callers do not
+  // need to import SubscribeLobbyCommand / UnsubscribeLobbyCommand from messages.ts.
+  // sendMessage is stable (empty-dep useCallback), so these are also stable.
+  const subscribeLobby = useCallback((lobby_id: string) => {
+    sendMessage({ type: 'subscribe_lobby', lobby_id })
+  }, [sendMessage])
+
+  const unsubscribeLobby = useCallback((lobby_id: string) => {
+    sendMessage({ type: 'unsubscribe_lobby', lobby_id })
+  }, [sendMessage])
+
   // Derived per-suit self-trade guards. When the server adds best_bid_player /
   // best_ask_player fields (Slice 8), replace this derivation in one place here.
   const ownsBestBidBySuit: Record<string, boolean> = {}
@@ -372,5 +452,5 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       orders.some(o => o.side === 'sell' && o.price === book.best_ask)
   }
 
-  return { ...state, sendMessage, ownsBestBidBySuit, ownsBestAskBySuit }
+  return { ...state, sendMessage, ownsBestBidBySuit, ownsBestAskBySuit, subscribeLobby, unsubscribeLobby }
 }

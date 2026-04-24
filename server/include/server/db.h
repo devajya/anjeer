@@ -91,4 +91,10 @@ private:
     std::string       migrations_dir_;
 };
 
+// AGENT-CTX: DbTxn is the repo-layer transaction abstraction. All repo methods
+// take DbTxn& instead of pqxx::transaction_base& directly so the pqxx coupling
+// is contained here. pqxx::work (and any other pqxx::transaction_base subclass)
+// satisfies DbTxn& — no cast needed at call sites.
+using DbTxn = pqxx::transaction_base;
+
 } // namespace anjeer::server

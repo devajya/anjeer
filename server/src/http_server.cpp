@@ -7,16 +7,12 @@
 #include <string>
 #include <variant>
 
+#include "server/lobby_repo.h"
+
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
 
-// AGENT-CTX: crow.h is included ONLY in this .cpp file. The header deliberately
-// keeps Crow out of its include list. Crow is header-only and large (~4000 lines
-// across its subheaders); localising it here prevents it from being recompiled
-// into every TU that includes http_server.h.
-// crow/middlewares/cors.h is NOT included by crow.h — it must be explicitly
-// included to get crow::CORSHandler. This is a Crow design choice: middlewares
-// are opt-in to avoid pulling in headers that not all users need.
+// crow/middlewares/cors.h is not included by crow.h — it must be explicitly included.
 #include <crow.h>
 #include <crow/middlewares/cors.h>
 
@@ -28,14 +24,8 @@ namespace anjeer::server {
 
 namespace {
 
-// AGENT-CTX: read_cookie parses the raw "Cookie: name=val; name2=val2" header.
-// We do NOT use Crow's CookieParser middleware context because:
-//   (a) accessing middleware context inside a CROW_ROUTE lambda requires
-//       passing the typed app reference into the lambda and calling
-//       app.get_context<CookieParser>(req), which leaks the Crow type into
-//       the header (we explicitly avoid this — see http_server.h comment).
-//   (b) the parsing logic here is trivial and avoids the dependency.
-// Returns an empty string if the cookie is absent.
+// Crow's CookieParser requires passing the typed app ref into lambdas, which
+// leaks crow::App<CORSHandler> into the header — so we parse cookies manually.
 std::string read_cookie(const crow::request& req, std::string_view name)
 {
     const std::string header = req.get_header_value("Cookie");
@@ -57,13 +47,32 @@ std::string read_cookie(const crow::request& req, std::string_view name)
     return {};
 }
 
-crow::response unauthorized(const std::string& error_code)
+crow::response make_error(int http_code, const std::string& error_code)
 {
     nlohmann::json j;
     j["error"] = error_code;
-    crow::response res(401, j.dump());
+    crow::response res(http_code, j.dump());
     res.set_header("Content-Type", "application/json");
     return res;
+}
+
+crow::response unauthorized(const std::string& error_code)
+{
+    return make_error(401, error_code);
+}
+
+nlohmann::json lobby_view_json(const LobbyView& lv)
+{
+    nlohmann::json j;
+    j["id"]           = lv.lobby.id;
+    j["code"]         = lv.lobby.code;
+    j["owner_id"]     = lv.lobby.owner_id;
+    j["status"]       = lobby_status_string(lv.lobby.status);
+    j["min_players"]  = lv.lobby.min_players;
+    j["max_players"]  = lv.lobby.max_players;
+    j["player_count"] = lv.player_count;
+    j["created_at"]   = lv.lobby.created_at;
+    return j;
 }
 
 std::variant<Player, crow::response> require_auth(
@@ -92,10 +101,14 @@ std::variant<Player, crow::response> require_auth(
 HttpServer::HttpServer(const ServerConfig& config,
                        AuthService&        auth_service,
                        PlayerRepo&         player_repo,
+                       LobbyRepo&          lobby_repo,
+                       IEventBus&          event_bus,
                        DbPool&             db_pool)
     : config_      (config)
     , auth_service_(auth_service)
     , player_repo_ (player_repo)
+    , lobby_repo_  (lobby_repo)
+    , event_bus_   (event_bus)
     , db_pool_     (db_pool)
     , http_log_    ("logs/http_logs.txt")
 {
@@ -103,22 +116,12 @@ HttpServer::HttpServer(const ServerConfig& config,
     providers_["google"] = std::make_unique<GoogleOAuthProvider>(config.auth.google);
 }
 
-// ---------------------------------------------------------------------------
-// run — constructs Crow app, registers all routes, blocks until shutdown
-// ---------------------------------------------------------------------------
-
 void HttpServer::run()
 {
-    // AGENT-CTX: CORSHandler is the only Crow middleware used. CookieParser
-    // is deliberately excluded — see read_cookie() above for the rationale.
     crow::App<crow::CORSHandler> app;
 
-    // AGENT-CTX: allow_credentials() is required so the browser attaches
-    // httpOnly cookies on cross-origin requests (frontend :5173 → server :8080).
-    // Without it, the browser strips credentials on cross-origin fetch, and
-    // the access_token cookie is never sent to /players/me.
-    // origin() must be a specific origin (not "*") when allow_credentials() is
-    // set — browsers reject "Access-Control-Allow-Origin: *" with credentials.
+    // origin() must be a specific value (not "*") when allow_credentials() is set —
+    // browsers reject "Access-Control-Allow-Origin: *" with credentials.
     auto& cors = app.get_middleware<crow::CORSHandler>();
     cors.global()
         .origin(config_.cors_origin)
@@ -128,12 +131,18 @@ void HttpServer::run()
         .headers("Content-Type", "Cookie")
         .allow_credentials();
 
-    // =========================================================================
-    // Auth routes — GET /auth/<provider>
-    // Generates a CSRF-proof state nonce and redirects the browser to the
-    // OAuth provider's authorization page.
-    // =========================================================================
+    register_auth_routes(app);
+    register_player_routes(app);
+    register_lobby_routes(app);
 
+    app.loglevel(crow::LogLevel::Warning);
+    http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
+    app.port(config_.http_port).run();
+}
+
+template<typename App>
+void HttpServer::register_auth_routes(App& app)
+{
     CROW_ROUTE(app, "/auth/github")
     ([this](const crow::request&, crow::response& res) {
         const auto state = generate_state();
@@ -152,14 +161,6 @@ void HttpServer::run()
         res.end();
     });
 
-    // =========================================================================
-    // Auth route — GET /auth/callback
-    // Single unified callback for all OAuth providers. The provider is
-    // identified from the state nonce (stored at authorization time), not the
-    // URL, so all three providers can share one redirect URI registered in each
-    // OAuth app dashboard as http://localhost:8080/auth/callback.
-    // =========================================================================
-
     CROW_ROUTE(app, "/auth/callback")
     ([this](const crow::request& req, crow::response& res) {
         const char* code_param  = req.url_params.get("code");
@@ -176,10 +177,7 @@ void HttpServer::run()
 
         std::string provider_name;
         if (!consume_state(state_param, provider_name)) {
-            // AGENT-CTX: expired or unknown state. This covers:
-            //   - Replayed callbacks (nonce already consumed)
-            //   - CSRF attempts with a forged state
-            //   - Flows that took > kStateTtlSeconds (10 min)
+            // expired or unknown state — covers CSRF attempts and replayed callbacks
             http_log_.warn("callback", "invalid or expired state nonce");
             res.code = 302;
             res.add_header("Location",
@@ -224,13 +222,6 @@ void HttpServer::run()
         res.end();
     });
 
-    // =========================================================================
-    // POST /auth/refresh
-    // Reads the refresh_token httpOnly cookie, validates it, and issues a
-    // new access_token cookie. Stateless — no DB lookup for the token itself,
-    // only for the player after validation succeeds.
-    // =========================================================================
-
     CROW_ROUTE(app, "/auth/refresh").methods(crow::HTTPMethod::Post)
     ([this](const crow::request& req, crow::response& res) {
         const auto refresh_token = read_cookie(req, "refresh_token");
@@ -253,10 +244,7 @@ void HttpServer::run()
             return;
         }
 
-        // AGENT-CTX: On refresh we look up the player to confirm the account
-        // still exists. A deleted account's refresh token would otherwise
-        // issue a new access token indefinitely until the refresh token expires.
-        // This is the cost of stateless refresh: one extra DB read per refresh.
+        // Confirm account still exists; a deleted account should not refresh indefinitely.
         auto handle = db_pool_.acquire();
         pqxx::work txn(handle.get());
         const auto player = player_repo_.find_by_id(txn, *player_id);
@@ -275,31 +263,19 @@ void HttpServer::run()
         res.end();
     });
 
-    // =========================================================================
-    // POST /auth/logout
-    // Clears both cookies by setting Max-Age=0. No token blacklist — logout
-    // is client-side until Slice 6 introduces session tracking.
-    // =========================================================================
-
     CROW_ROUTE(app, "/auth/logout").methods(crow::HTTPMethod::Post)
     ([this](const crow::request&, crow::response& res) {
-        // AGENT-CTX: Logout is intentionally stateless (no DB write). The
-        // access token remains valid until its TTL expires (default 15 min).
-        // A full server-side revocation list is out of scope until Slice 9
-        // introduces the API key / session management layer. The practical
-        // risk window (15 min) is acceptable for this game's threat model.
+        // Stateless logout; access token valid until TTL (15 min). Revocation list deferred to Slice 9.
         res.add_header("Set-Cookie", make_clear_cookie("access_token",  "/"));
         res.add_header("Set-Cookie", make_clear_cookie("refresh_token", "/auth/refresh"));
         res.code = 204;
         res.end();
     });
+}
 
-    // =========================================================================
-    // GET /players/me
-    // Returns the authenticated player's profile. Access token validated from
-    // the httpOnly cookie before any DB access.
-    // =========================================================================
-
+template<typename App>
+void HttpServer::register_player_routes(App& app)
+{
     CROW_ROUTE(app, "/players/me")
     ([this](const crow::request& req) -> crow::response {
         auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
@@ -316,15 +292,189 @@ void HttpServer::run()
         res.set_header("Content-Type", "application/json");
         return res;
     });
+}
 
-    // =========================================================================
-    // Start
-    // =========================================================================
+template<typename App>
+void HttpServer::register_lobby_routes(App& app)
+{
+    CROW_ROUTE(app, "/lobbies").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
 
-    app.loglevel(crow::LogLevel::Warning);
-    http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
 
-    app.port(config_.http_port).run();
+            const Lobby lobby = lobby_repo_.create(
+                txn, player.id,
+                config_.lobby.min_players,
+                config_.lobby.max_players
+            );
+
+            lobby_repo_.add_player(txn, lobby.id, player.id);
+
+            const int count = lobby_repo_.player_count(txn, lobby.id);
+            txn.commit();
+
+            LobbyView lv{ lobby, count };
+            crow::response res(201, lobby_view_json(lv).dump());
+            res.set_header("Content-Type", "application/json");
+            http_log_.info("lobbies", "created lobby " + lobby.id +
+                           " code=" + lobby.code +
+                           " owner=" + std::to_string(player.id));
+            return res;
+        } catch (const pqxx::unique_violation&) {
+            http_log_.warn("lobbies", "owner " + std::to_string(player.id) +
+                           " already has an open lobby");
+            return make_error(409, "LOBBY_ALREADY_EXISTS");
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("create failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    CROW_ROUTE(app, "/lobbies")
+    ([this](const crow::request& req) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            const auto views = lobby_repo_.list_waiting(txn);
+            txn.commit();
+
+            nlohmann::json j;
+            j["lobbies"] = nlohmann::json::array();
+            for (const auto& lv : views)
+                j["lobbies"].push_back(lobby_view_json(lv));
+
+            crow::response res(200, j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("list failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    CROW_ROUTE(app, "/lobbies/<string>/join").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            if (!lobby_opt)
+                return make_error(404, "LOBBY_NOT_FOUND");
+
+            const Lobby& lobby = *lobby_opt;
+            if (lobby.status != LobbyStatus::Waiting)
+                return make_error(409, "GAME_ALREADY_STARTED");
+
+            const auto joined_at = lobby_repo_.add_player(txn, lobby_id, player.id);
+            if (!joined_at) {
+                // ALREADY_JOINED must be checked before LOBBY_FULL: a player
+                // already in a full lobby would otherwise return LOBBY_FULL.
+                const auto existing = lobby_repo_.list_players(txn, lobby_id);
+                for (const auto& p : existing)
+                    if (p.player_id == player.id)
+                        return make_error(409, "ALREADY_JOINED");
+                return make_error(409, "LOBBY_FULL");
+            }
+
+            const int count = lobby_repo_.player_count(txn, lobby_id);
+            txn.commit();
+
+            // Publish after commit so subscribers see consistent DB state.
+            nlohmann::json ev;
+            ev["type"]         = "player_joined";
+            ev["lobby_id"]     = lobby_id;
+            ev["player_id"]    = player.id;
+            ev["username"]     = player.username;
+            ev["player_count"] = count;
+            ev["joined_at"]    = *joined_at;
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
+            http_log_.info("lobbies", "player " + std::to_string(player.id) +
+                           " joined lobby " + lobby_id);
+
+            nlohmann::json res_j;
+            res_j["lobby_id"] = lobby_id;
+            res_j["code"]     = lobby.code;
+            crow::response res(200, res_j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("join failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    // transition_status is CAS; false → a concurrent start already won.
+    CROW_ROUTE(app, "/lobbies/<string>/start").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            if (!lobby_opt)
+                return make_error(404, "LOBBY_NOT_FOUND");
+
+            const Lobby& lobby = *lobby_opt;
+            if (lobby.owner_id != player.id)
+                return make_error(403, "NOT_LOBBY_OWNER");
+
+            if (lobby.status != LobbyStatus::Waiting)
+                return make_error(409, "GAME_ALREADY_STARTED");
+
+            const int count = lobby_repo_.player_count(txn, lobby_id);
+            if (count < lobby.min_players)
+                return make_error(409, "INSUFFICIENT_PLAYERS");
+
+            const bool ok = lobby_repo_.transition_status(
+                txn, lobby_id, LobbyStatus::Waiting, LobbyStatus::Starting);
+            if (!ok)
+                return make_error(409, "GAME_ALREADY_STARTED");
+
+            txn.commit();
+
+            // Publish after commit so WsServer sees updated status in DB.
+            nlohmann::json ev;
+            ev["type"]     = "lobby_started";
+            ev["lobby_id"] = lobby_id;
+            ev["code"]     = lobby.code;
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
+            http_log_.info("lobbies", "lobby " + lobby_id +
+                           " started by player " + std::to_string(player.id));
+
+            nlohmann::json res_j;
+            res_j["lobby_id"] = lobby_id;
+            res_j["status"]   = "starting";
+            crow::response res(200, res_j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("start failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -334,11 +484,7 @@ void HttpServer::run()
 std::string HttpServer::generate_state()
 {
     unsigned char buf[16];
-    // AGENT-CTX: RAND_bytes returns 1 on success, 0 or -1 on failure. Failure
-    // means the OS entropy source is unavailable — this is catastrophic and
-    // should never happen on a normal Linux/WSL system. Throwing here is the
-    // right choice: it surfaces the problem immediately rather than issuing
-    // a weak nonce that could be brute-forced to enable CSRF.
+    // RAND_bytes failure means entropy source is unavailable — throw rather than issue a weak nonce.
     if (RAND_bytes(buf, static_cast<int>(sizeof(buf))) != 1) {
         throw std::runtime_error("OpenSSL RAND_bytes failed — entropy source unavailable");
     }
@@ -358,11 +504,7 @@ bool HttpServer::consume_state(const std::string& nonce, std::string& out_provid
 {
     std::lock_guard<std::mutex> lock(states_mu_);
 
-    // Opportunistic purge of expired entries on every consume call.
-    // AGENT-CTX: Purge-on-lookup bounds map growth to at most
-    // (concurrent_oauth_flows × kStateTtlSeconds) entries — negligible.
-    // A background timer would be more thorough but adds a thread for no
-    // meaningful gain at this scale.
+    // Purge-on-lookup bounds map growth to active OAuth flows only.
     const auto now = std::chrono::steady_clock::now();
     for (auto it = pending_states_.begin(); it != pending_states_.end(); ) {
         const auto age_s = std::chrono::duration_cast<std::chrono::seconds>(
@@ -391,10 +533,7 @@ std::string HttpServer::make_access_cookie(const std::string& value) const
 
 std::string HttpServer::make_refresh_cookie(const std::string& value) const
 {
-    // AGENT-CTX: Path=/auth/refresh restricts the browser to sending the
-    // refresh_token cookie only to that single endpoint. It is never sent
-    // to /players/me, the game WS, or any other route. This minimises
-    // exposure of the long-lived token.
+    // Path=/auth/refresh prevents the browser from sending refresh_token to other endpoints.
     std::string s = "refresh_token=" + value +
                     "; HttpOnly; SameSite=Lax; Path=/auth/refresh";
     if (config_.auth.secure_cookies) s += "; Secure";
@@ -404,9 +543,7 @@ std::string HttpServer::make_refresh_cookie(const std::string& value) const
 std::string HttpServer::make_clear_cookie(const std::string& name,
                                            const std::string& path) const
 {
-    // AGENT-CTX: Max-Age=0 instructs the browser to delete the cookie
-    // immediately. The Expires=epoch alternative is less reliable on some
-    // older browsers; Max-Age takes precedence when both are present (RFC 6265).
+    // Max-Age=0 deletes the cookie immediately; takes precedence over Expires per RFC 6265.
     std::string s = name + "=; Max-Age=0; HttpOnly; SameSite=Lax; Path=" + path;
     if (config_.auth.secure_cookies) s += "; Secure";
     return s;

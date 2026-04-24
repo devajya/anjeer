@@ -1,23 +1,19 @@
 #pragma once
 
 #include "server/config.h"
+#include "server/lobby_gateway.h"
 
 namespace anjeer::server {
 
-// AGENT-CTX: WsServer owns the uWebSockets event loop for the lifetime of the process.
-// run() blocks until SIGINT terminates the process. All WebSocket callbacks and the
-// heartbeat defer run on the same event-loop thread — no locking needed for the
-// connections set. Do not call run() from more than one thread.
+// Owns the uWebSockets event loop. run() blocks until SIGINT.
 class WsServer {
 public:
-    explicit WsServer(const ServerConfig& cfg);
-
-    // Blocks. Starts listening, heartbeat thread, and runs the uWS event loop.
-    // Returns only when the process receives SIGINT/SIGTERM.
+    explicit WsServer(const ServerConfig& cfg, LobbyGateway& lobby_gateway);
     void run();
 
 private:
-    ServerConfig cfg_;
+    ServerConfig  cfg_;
+    LobbyGateway& lobby_gateway_;
 };
 
 } // namespace anjeer::server

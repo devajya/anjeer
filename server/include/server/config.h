@@ -96,6 +96,13 @@ struct ServerConfig {
         OAuthProviderConfig github;
         OAuthProviderConfig google;
     } auth;
+
+    struct LobbyConfig {
+        int min_players;
+        int max_players;
+    } lobby;
+
+    std::string event_bus;  // "local" | "redis" (redis = Slice 16)
 };
 
 // Load and parse a JSON config file.

@@ -2,10 +2,6 @@
 #include "server/game_session.h"
 #include "server/logger.h"
 
-// AGENT-CTX: nlohmann/json is used here only for the /api/log endpoint body
-// parsing and the CORS responses. All game-message serialisation lives in
-// game_session.cpp. If /api/log moves to the Crow HTTP server (Slice 5+),
-// this include can be removed.
 #include <nlohmann/json.hpp>
 
 #include <random>
@@ -14,19 +10,18 @@
 
 namespace anjeer::server {
 
-WsServer::WsServer(const ServerConfig& cfg) : cfg_(cfg) {}
+WsServer::WsServer(const ServerConfig& cfg, LobbyGateway& lobby_gateway)
+    : cfg_(cfg)
+    , lobby_gateway_(lobby_gateway)
+{}
 
 void WsServer::run() {
-    // AGENT-CTX: Log files live in logs/ relative to the process working
-    // directory. `make dev` runs from the project root so logs appear at
-    // <project_root>/logs/. Logger creates the directory if absent.
     Logger server_log("logs/server_logs.txt");
     Logger engine_log("logs/engine_logs.txt");
     Logger frontend_log("logs/frontend_logs.txt");
 
     server_log.info("startup", "server starting — config loaded");
 
-    // Build all 4 books with identical price config; each gets its own suit name.
     auto make_book = [&](engine::Suit s) {
         return engine::OrderBook{engine::OrderBook::Config{
             cfg_.order_book.min_price,
@@ -53,25 +48,15 @@ void WsServer::run() {
         server_log.info("startup", "registered suit: " + suit_str);
     }
 
-    // AGENT-CTX: Seeded once per process from OS entropy. Single instance
-    // shared across all deals in this process lifetime (safe — all engine
-    // calls are on the event-loop thread, no concurrent access).
+    // Shared across all deals; safe — all engine calls run on the event-loop thread.
     std::mt19937 rng{std::random_device{}()};
 
     uWS::App   app;
     uWS::Loop* loop = uWS::Loop::get();
 
-    // AGENT-CTX: GameSession owns all game state and its own timer threads.
-    // WsServer::run() is the factory that creates it and holds it for the
-    // lifetime of the event loop. shutdown() is called after app.run() returns
-    // (on SIGINT) to join threads before stack locals are destroyed.
     GameSession session(std::move(books_arr), active_arr, cfg_,
                         server_log, engine_log, loop, rng);
 
-    // ── WebSocket handler ─────────────────────────────────────────────────
-    // AGENT-CTX: All game logic is delegated to session. These lambdas are
-    // intentionally thin — they are the seam LobbyManager will replace in
-    // Slice 6 with lobby-scoped session lookups.
     app.ws<PerSocketData>("/ws", {
         .idleTimeout            = static_cast<unsigned short>(cfg_.ping_timeout_ms / 1000),
         .sendPingsAutomatically = true,
@@ -81,25 +66,42 @@ void WsServer::run() {
         },
 
         .message = [&](WsHandle ws, std::string_view msg, uWS::OpCode op) {
+            try {
+                const auto j    = nlohmann::json::parse(msg);
+                const auto type = j.value("type", "");
+                if (type == "subscribe_lobby") {
+                    lobby_gateway_.handle_subscribe(ws, j.value("lobby_id", ""), loop, server_log);
+                    return;
+                }
+                if (type == "unsubscribe_lobby") {
+                    lobby_gateway_.handle_unsubscribe(ws);
+                    return;
+                }
+            } catch (const nlohmann::json::exception&) {
+                // JSON parse failure — fall through to session for proper error
+            }
             session.on_message(ws, msg, op);
         },
 
         .close = [&](WsHandle ws, int code, std::string_view reason) {
+            lobby_gateway_.cleanup(ws);
             session.on_close(ws, code, reason);
         },
     });
 
-    // ── HTTP: POST /api/log — accepts frontend log entries ────────────────
-    // AGENT-CTX: Frontend logger POSTs JSON arrays of log entries here.
-    // uWS HTTP bodies arrive in chunks; accumulated in a per-request string.
-    // This endpoint is dev-only — no auth, no rate limiting, no size cap.
-    // TODO(slice5): move this to the Crow HTTP server so it can be gated
-    // behind the same middleware as other /api/* routes.
-    app.post("/api/log", [&](auto* res, auto* /*req*/) {
+    // POST /api/log: body arrives in chunks; CORS gated to cors_origin.
+    app.post("/api/log", [&](auto* res, auto* req) {
+        const std::string allowed_origin = cfg_.cors_origin;
+        std::string_view origin = req->getHeader("origin");
+        if (origin != allowed_origin) {
+            res->writeStatus("403 Forbidden")->end("");
+            return;
+        }
+
         auto body_buf = std::make_shared<std::string>();
         body_buf->reserve(4096);
 
-        res->onData([res, body_buf, &frontend_log](std::string_view chunk, bool last) {
+        res->onData([res, body_buf, allowed_origin, &frontend_log](std::string_view chunk, bool last) {
             constexpr std::size_t kMaxBody = 1 * 1024 * 1024;
             if (body_buf->size() + chunk.size() > kMaxBody) {
                 res->close();
@@ -127,9 +129,9 @@ void WsServer::run() {
                 frontend_log.warn("/api/log", std::string("parse error: ") + ex.what());
             }
 
-            res->cork([res]() {
+            res->cork([res, allowed_origin]() {
                 res->writeHeader("Content-Type", "text/plain")
-                   ->writeHeader("Access-Control-Allow-Origin", "*")
+                   ->writeHeader("Access-Control-Allow-Origin", allowed_origin)
                    ->end("ok");
             });
         });
@@ -137,9 +139,13 @@ void WsServer::run() {
         res->onAborted([body_buf]() {});
     });
 
-    // ── OPTIONS /api/log — CORS preflight ─────────────────────────────────
-    app.options("/api/log", [](auto* res, auto* /*req*/) {
-        res->writeHeader("Access-Control-Allow-Origin", "*")
+    app.options("/api/log", [&](auto* res, auto* req) {
+        std::string_view origin = req->getHeader("origin");
+        if (origin != cfg_.cors_origin) {
+            res->writeStatus("403 Forbidden")->end("");
+            return;
+        }
+        res->writeHeader("Access-Control-Allow-Origin", cfg_.cors_origin)
            ->writeHeader("Access-Control-Allow-Methods", "POST, OPTIONS")
            ->writeHeader("Access-Control-Allow-Headers", "Content-Type")
            ->end("");
@@ -165,9 +171,7 @@ void WsServer::run() {
 
     app.run();
 
-    // AGENT-CTX: shutdown() joins timer threads before stack locals
-    // (server_log, engine_log, rng) are destroyed. Order matters.
-    session.shutdown();
+    session.shutdown();  // join timer threads before stack locals are destroyed
     server_log.info("shutdown", "server stopped");
 }
 

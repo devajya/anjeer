@@ -1,6 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "server/ws_server.h"
 #include "server/config.h"
+#include "server/db.h"
+#include "server/event_bus.h"
+#include "server/lobby_gateway.h"
+#include "server/lobby_repo.h"
 
 // POSIX networking
 #include <arpa/inet.h>
@@ -19,15 +23,33 @@
 using anjeer::server::ServerConfig;
 using anjeer::server::WsServer;
 
+// Shared singletons — pool_size=1 keeps the test DB connection count minimal.
+static anjeer::server::DbPool& test_db_pool() {
+    static anjeer::server::DbPool pool(TEST_DB_CONN, 1);
+    return pool;
+}
+static anjeer::server::LobbyRepo& test_lobby_repo() {
+    static anjeer::server::LobbyRepo repo;
+    return repo;
+}
+static anjeer::server::LocalEventBus& test_event_bus() {
+    static anjeer::server::LocalEventBus bus;
+    return bus;
+}
+static anjeer::server::LobbyGateway& test_lobby_gateway() {
+    static anjeer::server::LobbyGateway gw(test_db_pool(), test_lobby_repo(), test_event_bus());
+    return gw;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // WsTestClient — minimal RFC 6455 text-frame WebSocket client
-// ═══════════════════════════════════════════════════════════════════════════
 //
-// AGENT-CTX: Implements just enough of the protocol for smoke tests:
+// Implements just enough of the protocol for smoke tests:
 // - TCP connect + HTTP Upgrade handshake
 // - Sending masked text frames (required for client→server by RFC 6455 §5.3)
 // - Receiving unmasked server frames, auto-responding to pings
 // No TLS — the test server runs plain HTTP.
+// ═══════════════════════════════════════════════════════════════════════════
 
 class WsTestClient {
 public:
@@ -178,25 +200,19 @@ private:
 // ═══════════════════════════════════════════════════════════════════════════
 // Test server — started once per process, shared by all TEST_CASEs
 // ═══════════════════════════════════════════════════════════════════════════
-//
-// AGENT-CTX: WsServer::run() blocks indefinitely. We detach it in a background
-// thread and let the process exit naturally when Catch2 finishes — the OS reclaims
-// the thread. The static atomic ensures only one server instance binds the port,
-// even if multiple TEST_CASEs call ensure_server_running() concurrently.
 
 static constexpr int WS_TEST_PORT    = 19002;
+static constexpr int WS_LOBBY_PORT   = 19007;
 static constexpr int WS_ROUND_PORT   = 19003;
 static constexpr int WS_TIMER_PORT   = 19004;
 static constexpr int WS_DISCONN_PORT = 19005;
-// AGENT-CTX: WS_ENDED_PORT hosts a server that expires after 1 s and transitions
-// to Ended phase. Used exclusively by "order rejected after round ends" — needs its
-// own port because Ended phase is terminal (no new rounds start on this server).
+// WS_ENDED_PORT hosts a server that expires after 1 s and transitions to Ended phase.
+// Used exclusively by "order rejected after round ends" — needs its own port because
+// Ended phase is terminal (no new rounds start on this server).
 static constexpr int WS_ENDED_PORT   = 19006;
 static constexpr int WS_WIPE_PORT    = 19014;
 
 // Base config shared across all test servers. Callers override only what differs.
-// player_count=2, countdown_seconds=0, round_duration_seconds=3600 are the
-// round-server defaults; ensure_server_running overrides the first two.
 static ServerConfig make_test_server_config(int port) {
     ServerConfig cfg;
     cfg.host                  = "127.0.0.1";
@@ -217,6 +233,8 @@ static ServerConfig make_test_server_config(int port) {
     cfg.scoring.starting_balance    = 100;
     cfg.scoring.buy_in              = 50;
     cfg.scoring.points_per_card     = 20;
+    cfg.db.connection_string        = TEST_DB_CONN;
+    cfg.db.pool_size                = 1;
     return cfg;
 }
 
@@ -238,14 +256,13 @@ static void ensure_server_running() {
         throw std::runtime_error("test server did not become ready in time");
     }
 
-    // AGENT-CTX: player_count=99 prevents any round from starting (tests never
-    // connect 99 clients). countdown_seconds=3 is unused but non-zero.
+    // player_count=99 prevents any round from starting (tests never connect 99 clients).
     ServerConfig cfg       = make_test_server_config(WS_TEST_PORT);
     cfg.game.player_count  = 99;
     cfg.game.countdown_seconds = 3;
 
     std::thread([cfg]() {
-        WsServer srv(cfg);
+        WsServer srv(cfg, test_lobby_gateway());
         srv.run();  // blocks; detached — OS cleans up on process exit
     }).detach();
 
@@ -263,12 +280,9 @@ static void ensure_server_running() {
     throw std::runtime_error("test server failed to start");
 }
 
-// AGENT-CTX: ensure_round_server_running starts a second server (port 19003)
-// with player_count=2 and countdown_seconds=0. Two primer clients connect to
-// trigger the round immediately, then disconnect. Subsequent test clients
-// connect into an already-Active server and can place orders freely.
-// Tests that need Active phase must use WS_ROUND_PORT, not WS_TEST_PORT.
-// Tests that need Waiting phase (ROUND_NOT_ACTIVE checks) use WS_TEST_PORT.
+// ensure_round_server_running starts a second server (port 19003) with player_count=2
+// and countdown_seconds=0. Two primer clients connect to trigger the round immediately,
+// then disconnect. Subsequent test clients connect into an already-Active server.
 static void ensure_round_server_running() {
     static std::atomic<bool> started{false};
     if (started.exchange(true)) {
@@ -286,13 +300,10 @@ static void ensure_round_server_running() {
         throw std::runtime_error("round test server did not become ready in time");
     }
 
-    // AGENT-CTX: player_count=2, countdown_seconds=0 so the primer (two dummy
-    // clients) triggers an immediate deal. After primer disconnects the server
-    // stays in Active phase for all order-related tests.
     const ServerConfig cfg = make_test_server_config(WS_ROUND_PORT);
 
     std::thread([cfg]() {
-        WsServer srv(cfg);
+        WsServer srv(cfg, test_lobby_gateway());
         srv.run();
     }).detach();
 
@@ -383,8 +394,6 @@ TEST_CASE("WS server — unknown suit returns UNKNOWN_SUIT error", "[ws_server]"
 }
 
 TEST_CASE("WS server — crossing orders produce trade then global book wipe", "[ws_server]") {
-    // AGENT-CTX: This test is order-sensitive and should run last in the file.
-    // A trade triggers a global wipe of all books, leaving a clean state.
     ensure_round_server_running();
 
     WsTestClient buyer(WS_ROUND_PORT);
@@ -424,8 +433,8 @@ TEST_CASE("WS server — crossing orders produce trade then global book wipe", "
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase gate tests — Slice 4 bug fix
-// AGENT-CTX: These tests use the Waiting-phase server (WS_TEST_PORT,
-// player_count=99) so the round never starts and orders must be rejected.
+// Tests use the Waiting-phase server (WS_TEST_PORT, player_count=99) so the
+// round never starts and orders must be rejected.
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE("WS server — submit_order rejected before round is active", "[ws_server][phase]") {
@@ -502,17 +511,18 @@ TEST_CASE("WS server — start_game ignored when not enough players", "[ws_serve
     CHECK(!got_round_starting);
 }
 
-// AGENT-CTX: Each timer test gets its own server port (WS_TIMER_PORT /
-// WS_DISCONN_PORT) because after the round expires the server transitions to
-// Ended and cannot host a second round. Sharing a port across tests would
-// leave the second test connecting into an Ended-phase server.
+// Each timer test gets its own server port because after the round expires the
+// server transitions to Ended and cannot host a second round.
 // ═══════════════════════════════════════════════════════════════════════════
 
 static void start_server_on_port(int port) {
     ServerConfig cfg                 = make_test_server_config(port);
     cfg.game.round_duration_seconds  = 1;  // timer tests need fast expiry
 
-    std::thread([cfg]() { WsServer srv(cfg); srv.run(); }).detach();
+    std::thread([cfg]() {
+        WsServer srv(cfg, test_lobby_gateway());
+        srv.run();
+    }).detach();
 
     for (int i = 0; i < 200; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -569,13 +579,6 @@ TEST_CASE("WS server — round_start includes round_end_at and round_end receive
 }
 
 TEST_CASE("WS server — books wiped when round expires", "[ws_server][timer]") {
-    // AGENT-CTX: Connects to the same WS_TIMER_PORT server after the round has
-    // already started (and likely already ended). We verify that the round_end
-    // sequence includes book_update messages with null bid/ask (from the wipe)
-    // by reusing the client that triggers the round in the previous test.
-    // This test is a structural check on the order of messages: wipe before
-    // round_end. Because Catch2 does not guarantee test ordering, this test
-    // is self-contained and starts its own server at a new port if needed.
     static std::atomic<bool> started{false};
     if (!started.exchange(true)) start_server_on_port(WS_WIPE_PORT);
 
@@ -605,11 +608,9 @@ TEST_CASE("WS server — books wiped when round expires", "[ws_server][timer]") 
     REQUIRE(c0.recv_of_type("round_end").contains("goal_suit"));
 }
 
-// AGENT-CTX: Scoring phase is entered and exited in microseconds (score_round +
-// dispatch are synchronous on the event-loop thread). Testing the Scoring phase
-// directly would require injecting a delay inside score_round, which is impractical.
-// Instead we test the Ended phase immediately after round_end — both phases use the
-// same guard (round_phase != Active) so the rejection code path is identical.
+// Scoring phase executes synchronously on the event-loop thread (microseconds).
+// Testing it directly is impractical; Ended phase uses the same guard (phase != Active),
+// so ROUND_NOT_ACTIVE rejection is identical — we verify via Ended phase here.
 TEST_CASE("WS server — order rejected after round ends (Ended phase)", "[ws_server][phase]") {
     static std::atomic<bool> started{false};
     if (!started.exchange(true)) start_server_on_port(WS_ENDED_PORT);
@@ -632,6 +633,128 @@ TEST_CASE("WS server — order rejected after round ends (Ended phase)", "[ws_se
     c0.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
     const auto err = c0.recv_of_type("error");
     REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Lobby subscription tests — subscribe_lobby / event forwarding
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct LobbySetup { int64_t player_id; std::string lobby_id; };
+
+// Insert a player (idempotent via ON CONFLICT) and create a fresh lobby via
+// LobbyRepo so the 6-char code is generated correctly. Runs migrations so the
+// test binary is self-contained even on a fresh anjeer_test DB.
+static LobbySetup setup_lobby_in_db() {
+    pqxx::connection conn(TEST_DB_CONN);
+    anjeer::server::DbMigrator m(conn, TEST_MIGRATIONS_DIR);
+    m.run();
+
+    int64_t player_id;
+    {
+        pqxx::work txn(conn);
+        auto r = txn.exec(
+            "INSERT INTO players (username, oauth_provider, oauth_id) "
+            "VALUES ('ws_sub_tester','github','gh_ws_sub_1') "
+            "ON CONFLICT (oauth_provider, oauth_id) "
+            "DO UPDATE SET username = excluded.username "
+            "RETURNING id");
+        player_id = r[0][0].as<int64_t>();
+        txn.commit();
+    }
+
+    std::string lobby_id;
+    {
+        pqxx::work txn(conn);
+        // Remove any leftover waiting lobby from a prior test run for this player.
+        txn.exec_params(
+            "DELETE FROM lobbies WHERE owner_id = $1 AND status = 'waiting'",
+            player_id
+        );
+        const auto lobby = test_lobby_repo().create(txn, player_id, 2, 8);
+        test_lobby_repo().add_player(txn, lobby.id, player_id);
+        lobby_id = lobby.id;
+        txn.commit();
+    }
+    return { player_id, lobby_id };
+}
+
+static void ensure_lobby_sub_server_running() {
+    static std::atomic<bool> started{false};
+    if (started.exchange(true)) {
+        for (int i = 0; i < 200; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            sockaddr_in addr{}; addr.sin_family = AF_INET;
+            addr.sin_port = htons(WS_LOBBY_PORT);
+            ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+            bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+            ::close(fd);
+            if (ok) return;
+        }
+        throw std::runtime_error("WS lobby sub server did not become ready");
+    }
+
+    ServerConfig cfg    = make_test_server_config(WS_LOBBY_PORT);
+    cfg.game.player_count   = 99;
+    cfg.game.countdown_seconds = 3;
+
+    std::thread([cfg]() {
+        WsServer srv(cfg, test_lobby_gateway());
+        srv.run();
+    }).detach();
+
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{}; addr.sin_family = AF_INET;
+        addr.sin_port = htons(WS_LOBBY_PORT);
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+        ::close(fd);
+        if (ok) return;
+    }
+    throw std::runtime_error("WS lobby sub server failed to start");
+}
+
+TEST_CASE("WS server — subscribe_lobby returns lobby_state snapshot", "[ws_server][lobby]") {
+    ensure_lobby_sub_server_running();
+    const auto setup = setup_lobby_in_db();
+
+    WsTestClient client(WS_LOBBY_PORT);
+    client.recv_of_type("player_hello");
+
+    client.send_json({ {"type","subscribe_lobby"}, {"lobby_id", setup.lobby_id} });
+
+    const auto msg = client.recv_of_type("lobby_state");
+    REQUIRE(msg.value("lobby_id", "") == setup.lobby_id);
+    REQUIRE(msg.contains("code"));
+    REQUIRE(msg["players"].is_array());
+    CHECK(msg["players"].size() == 1);  // one player added in setup
+}
+
+TEST_CASE("WS server — subscribed client receives event_bus messages", "[ws_server][lobby]") {
+    ensure_lobby_sub_server_running();
+    const auto setup = setup_lobby_in_db();
+
+    WsTestClient client(WS_LOBBY_PORT);
+    client.recv_of_type("player_hello");
+
+    client.send_json({ {"type","subscribe_lobby"}, {"lobby_id", setup.lobby_id} });
+    client.recv_of_type("lobby_state");  // consume the initial snapshot
+
+    // Publish directly to the shared event bus; recv_of_type waits up to 3 s.
+    nlohmann::json ev;
+    ev["type"]         = "player_joined";
+    ev["lobby_id"]     = setup.lobby_id;
+    ev["player_id"]    = setup.player_id;
+    ev["username"]     = "ws_sub_tester";
+    ev["player_count"] = 1;
+    ev["joined_at"]    = "2026-04-23T00:00:00Z";
+    test_event_bus().publish("lobby:" + setup.lobby_id, ev.dump());
+
+    const auto fwd = client.recv_of_type("player_joined");
+    CHECK(fwd.value("lobby_id",  "") == setup.lobby_id);
+    CHECK(fwd.value("player_id", -1) == static_cast<int>(setup.player_id));
 }
 
 TEST_CASE("WS server — disconnected player excluded from round_end delivery", "[ws_server][round_end]") {

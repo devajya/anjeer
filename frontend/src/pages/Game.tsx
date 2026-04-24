@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { ConnectionBanner } from '../components/ConnectionBanner'
@@ -17,12 +18,28 @@ import '../App.css'
 const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 
 export function Game() {
+  const [searchParams] = useSearchParams()
   const { user, logout } = useAuth()
   const {
     connected, playerId, books, trades, myOrders, errors, sendMessage,
     startsAt, roundEndAt, hand, initialHand, playerSlot, roundEnd, balance,
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
   } = useWebSocket('/ws')
+
+  // AGENT-CTX: fromLobby is true when the player arrived via LobbyRoom after
+  // lobby_started fired. When true, start_game is sent automatically as soon
+  // as all required players are connected — no button press needed in the game
+  // room. Without lobby_id (direct /game navigation), the manual Start Game
+  // button remains so the flow still works in dev/testing without a lobby.
+  const fromLobby     = searchParams.get('lobby_id') !== null
+  const autoStartedRef = useRef(false)
+  useEffect(() => {
+    if (!fromLobby || !waitingForStart) return
+    if (waitingForStart.connected !== waitingForStart.required) return
+    if (autoStartedRef.current) return
+    autoStartedRef.current = true
+    sendMessage({ type: 'start_game' })
+  }, [fromLobby, waitingForStart, sendMessage])
 
   // AGENT-CTX: Local dismissed flag so the modal can be closed without mutating
   // hook state. Reset whenever a new round_end payload arrives (round_end changes

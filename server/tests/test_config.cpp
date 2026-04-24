@@ -51,6 +51,10 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     CHECK(cfg.scoring.starting_balance           == 100);
     CHECK(cfg.scoring.buy_in                     == 50);
     CHECK(cfg.scoring.points_per_card            == 20);
+
+    CHECK(cfg.lobby.min_players                  == 2);
+    CHECK(cfg.lobby.max_players                  == 8);
+    CHECK(cfg.event_bus                          == "local");
 }
 
 TEST_CASE("load_config throws on missing file", "[config]") {

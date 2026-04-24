@@ -55,13 +55,14 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 
 **Role:** Owns the WebSocket connection lifecycle, JSON serialization, config, logging, and game loop. Translates between wire protocol and engine calls.
 
-**Current responsibilities (Slice 5):**
+**Current responsibilities (Slice 6):**
 
 `WsServer` (uWS, port 9001):
 - Accept WS connections; assign player slots; maintain per-slot balance
 - Deserialize inbound JSON; call `GameSession`; route returned events to recipients
 - HTTP POST `/api/log` — frontend log batches → `logs/frontend_logs.txt`
 - Heartbeat loop (configurable interval)
+- `subscribe_lobby` / `unsubscribe_lobby` commands — per-connection lobby subscriptions backed by `IEventBus`; cleanup on close
 
 `GameSession` (extracted from WsServer in Slice 5):
 - `RoundPhase` state machine (`Waiting → Active → Scoring → Ended`)
@@ -74,16 +75,27 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - `POST /auth/refresh` — validate refresh token cookie → issue new access token cookie
 - `POST /auth/logout` — clear cookies
 - `GET /players/me` — JWT middleware → `PlayerRepo::find_by_id` → profile JSON
+- `POST /lobbies` — create lobby; returns 201 LobbyView JSON
+- `GET /lobbies` — list waiting lobbies with player counts
+- `POST /lobbies/:id/join` — add authenticated player; 409 on full/duplicate/not-waiting
+- `POST /lobbies/:id/start` — owner-only; transitions status `waiting → starting`; publishes `lobby_started` to `IEventBus`
+
+`LobbyRepo` (Slice 6):
+- CRUD over `lobbies` + `lobby_players` tables; CAS-style `transition_status`; unique 6-char code generation via OpenSSL
+
+`IEventBus` / `LocalEventBus` (Slice 6):
+- In-process publish/subscribe over named channels; synchronous delivery on publish thread
+- `RedisEventBus` stub present; activated in Slice 16 (Upstash Redis PUBLISH/SUBSCRIBE)
 
 `DbPool` + `DbMigrator` (shared):
 - libpqxx connection pool (configurable size); RAII acquire handle
 - `DbMigrator::run()` on server start — applies unapplied SQL files from `db/migrations/` in version order
 
 **Planned additions:**
-- Lobby REST routes on `HttpServer` (Slice 6): `/lobbies/*`; WS auth via JWT on upgrade
 - Rate limiter (Slice 9)
 - DB writer thread + async event queue (Slice 12)
 - Background job queue for analysis (Slice 14)
+- `RedisEventBus` (Slice 16) — swap `LocalEventBus` for multi-node deployments
 
 **Threading model (Slices 1-5):** Single uWS event loop thread. No locks. Engine calls happen synchronously on the event loop. Heartbeat runs on a second thread but does not touch engine state.
 
@@ -96,17 +108,22 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 **Component tree:**
 ```
 App
-├── ConnectionBanner       — connection status indicator
-├── RoundCountdown         — pre-deal lobby countdown; switches to active-round MM:SS timer after round_start (goes red in final 30 s)
-├── SuitPanel (×N)         — per-suit order form + best bid/ask display
-├── HandPanel              — per-suit card counts for the local player
-├── MyOrders               — resting orders list + cancel buttons
-├── TradeFeed              — recent trade history, newest first
-└── RoundEndModal          — shown on round_end: goal suit reveal, per-player standings, own payout + new balance; dismiss on click
+├── /login      → Login
+├── /lobby      → LobbyBrowser   — list waiting lobbies; create; join by code
+├── /lobby/:code → LobbyRoom     — player roster; WS lobby_state/player_joined/left;
+│                                   Start button (owner + count ≥ min_players only)
+└── /game       → Game           — reads lobby_id from ?lobby_id= query param (Slice 6+)
+                    ├── ConnectionBanner   — connection status indicator
+                    ├── RoundCountdown     — pre-deal countdown; MM:SS timer during round (red in final 30 s)
+                    ├── SuitPanel (×N)     — per-suit order form + best bid/ask display
+                    ├── HandPanel          — per-suit card counts for the local player
+                    ├── MyOrders           — resting orders list + cancel buttons
+                    ├── TradeFeed          — recent trade history, newest first
+                    └── RoundEndModal      — goal suit reveal, standings, payout + new balance; dismiss on click
 ```
 
 **Hooks:**
-- `useWebSocket` — single WS connection, message type dispatch, all game state
+- `useWebSocket` — single WS connection, message type dispatch, all game state; handles `lobby_state`, `player_joined`, `player_left`, `lobby_started` in addition to game messages
 - `useOrderForm` — form state for order submission
 
 **Wire protocol types:** `frontend/src/types/messages.ts` — discriminated unions, single source of truth. Any protocol change must update this file.
@@ -208,7 +225,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Round (Slice 3+) | `round_starting`, `round_start` (includes `round_end_at`) |
 | Round end (Slice 4+) | `round_end` |
 | Auth (Slice 5+) | `waiting_for_start` (WS broadcast); auth via HTTP cookies, not WS |
-| Lobby (Slice 6+) | `player_joined`, `player_left`, `lobby_started` |
+| Lobby (Slice 6+) | `lobby_state` (snapshot on subscribe), `player_joined`, `player_left`, `lobby_started` |
 | Game lifecycle (Slice 7+) | `round_transition`, `game_ended` |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
 
@@ -216,10 +233,11 @@ All messages are JSON objects with a `type` string discriminator.
 | Category | Messages |
 |---|---|
 | Trading | `submit_order`, `nudge`, `cancel_order` |
+| Lobby (Slice 6+) | `subscribe_lobby`, `unsubscribe_lobby` |
 | Game (Slice 7+) | `vote_to_end` |
 | Subscription (Slice 17+) | `subscribe`, `unsubscribe` |
 
-**Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`
+**Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`, `NOT_LOBBY_OWNER`, `INSUFFICIENT_PLAYERS`, `GAME_ALREADY_STARTED`, `LOBBY_NOT_FOUND`, `LOBBY_FULL`, `ALREADY_JOINED`
 
 ## Configuration Surface
 
@@ -230,7 +248,9 @@ All tuneable values live in `config/default.json`. Key sections:
 - `scoring` — starting balance, buy-in, points per card
 - `db` — connection string, pool size, migrations dir
 - `auth` — JWT secret, access/refresh TTLs, secure_cookies flag, per-provider OAuth client_id/secret/redirect_uri
-- Future: `lobby` (min players), `rate_limit`
+- `lobby` — `min_players`, `max_players` (Slice 6+)
+- `event_bus` — `"local"` (in-process) or `"redis"` (Upstash, Slice 16+)
+- Future: `rate_limit`
 
 ## When to Update This Document
 

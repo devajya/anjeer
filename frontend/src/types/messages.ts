@@ -155,6 +155,49 @@ export interface WaitingForStartMessage {
   required: number
 }
 
+/** Full snapshot of a lobby, sent on subscribe_lobby and after reconnect. */
+export interface LobbyStateMessage {
+  type: 'lobby_state'
+  lobby_id: string
+  code: string
+  owner_id: number
+  status: 'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
+  min_players: number
+  max_players: number
+  players: Array<{ player_id: number; username: string; joined_at: string }>
+}
+
+/** Broadcast to all subscribers of lobby:{id} when a player joins. */
+export interface PlayerJoinedMessage {
+  type: 'player_joined'
+  lobby_id: string
+  player_id: number
+  username: string
+  joined_at: string
+  player_count: number
+}
+
+/** Broadcast to all subscribers of lobby:{id} when a player leaves. */
+export interface PlayerLeftMessage {
+  type: 'player_left'
+  lobby_id: string
+  player_id: number
+  username: string
+  player_count: number
+}
+
+/**
+ * Broadcast to all subscribers of lobby:{id} when the owner starts the game.
+ * AGENT-CTX: On receipt, LobbyRoom navigates to /game?lobby_id=... so the
+ * Game page can join the correct GameSession. The code field allows the WS
+ * game server to be reached even if the client only stored lobby_id locally.
+ */
+export interface LobbyStartedMessage {
+  type: 'lobby_started'
+  lobby_id: string
+  code: string
+}
+
 /**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
@@ -173,6 +216,10 @@ export type ServerMessage =
   | RoundEndMessage
   | BalanceUpdateMessage
   | WaitingForStartMessage
+  | LobbyStateMessage
+  | PlayerJoinedMessage
+  | PlayerLeftMessage
+  | LobbyStartedMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
@@ -208,4 +255,22 @@ export interface StartGameCommand {
   type: 'start_game'
 }
 
-export type ClientCommand = SubmitOrderCommand | NudgeCommand | CancelOrderCommand | StartGameCommand
+/** Subscribe to real-time lobby events (player_joined, player_left, lobby_started). */
+export interface SubscribeLobbyCommand {
+  type: 'subscribe_lobby'
+  lobby_id: string
+}
+
+/** Stop receiving lobby events for this connection. */
+export interface UnsubscribeLobbyCommand {
+  type: 'unsubscribe_lobby'
+  lobby_id: string
+}
+
+export type ClientCommand =
+  | SubmitOrderCommand
+  | NudgeCommand
+  | CancelOrderCommand
+  | StartGameCommand
+  | SubscribeLobbyCommand
+  | UnsubscribeLobbyCommand

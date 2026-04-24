@@ -39,5 +39,10 @@
     "secure_cookies": false,
     "github": { "client_id": "test_gh_id", "client_secret": "test_gh_secret", "redirect_uri": "http://localhost:18080/auth/github/callback" },
     "google": { "client_id": "test_go_id", "client_secret": "test_go_secret", "redirect_uri": "http://localhost:18080/auth/google/callback" }
-  }
+  },
+  "lobby": {
+    "min_players": 2,
+    "max_players": 8
+  },
+  "event_bus": "local"
 }

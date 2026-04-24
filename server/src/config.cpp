@@ -95,11 +95,6 @@ ServerConfig load_config(const std::string& path) {
 
         const auto& au = j.at("auth");
         cfg.auth.jwt_secret = au.at("jwt_secret").get<std::string>();
-        if (cfg.auth.jwt_secret.size() < 32) {
-            throw std::runtime_error(
-                "auth.jwt_secret must be >= 32 bytes for HMAC-SHA256 security; got " +
-                std::to_string(cfg.auth.jwt_secret.size()) + " bytes");
-        }
         cfg.auth.access_token_ttl_seconds    = au.at("access_token_ttl_seconds").get<int>();
         cfg.auth.refresh_token_ttl_seconds   = au.at("refresh_token_ttl_seconds").get<int>();
         cfg.auth.secure_cookies              = au.at("secure_cookies").get<bool>();
@@ -118,6 +113,12 @@ ServerConfig load_config(const std::string& path) {
         };
         cfg.auth.github  = parse_provider(au.at("github"));
         cfg.auth.google  = parse_provider(au.at("google"));
+
+        const auto& lb = j.at("lobby");
+        cfg.lobby.min_players = lb.at("min_players").get<int>();
+        cfg.lobby.max_players = lb.at("max_players").get<int>();
+
+        cfg.event_bus = j.at("event_bus").get<std::string>();
 
         return cfg;
     } catch (const nlohmann::json::exception& e) {

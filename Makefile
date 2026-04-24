@@ -72,6 +72,7 @@ dev-frontend:
 # manually-interrupted previous run never causes the same problem.
 dev: build-server
 	@fuser -k 9001/tcp 2>/dev/null || true; \
+	fuser -k 10000/tcp 2>/dev/null || true; \
 	trap 'kill $$server_pid $$vite_pid 2>/dev/null; exit 0' INT TERM; \
 	./$(BUILD_DIR)/server/server --config $(CONFIG) & server_pid=$$!; \
 	npm run dev --prefix frontend & vite_pid=$$!; \
@@ -90,6 +91,13 @@ test-unit: $(BUILD_DIR)/Makefile
 	cmake --build $(BUILD_DIR) --target server_tests --parallel
 	cmake --build $(BUILD_DIR) --target ws_server_tests --parallel
 	cmake --build $(BUILD_DIR) --target auth_integration_tests --parallel
+	cmake --build $(BUILD_DIR) --target event_bus_tests --parallel
+	cmake --build $(BUILD_DIR) --target lobby_tests --parallel
+	cmake --build $(BUILD_DIR) --target http_lobby_tests --parallel
+	# AGENT-CTX: NTFS (/mnt/c/) does not reliably preserve the execute bit on
+	# newly linked ELF binaries. chmod after every build so ctest can run them
+	# regardless of which targets were just rebuilt.
+	find $(BUILD_DIR) -maxdepth 2 -name '*_tests' -exec chmod +x {} +
 	cd $(BUILD_DIR) && ctest --output-on-failure
 
 test-frontend:
