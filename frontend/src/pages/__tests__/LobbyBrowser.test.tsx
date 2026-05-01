@@ -21,7 +21,7 @@ vi.mock('../../hooks/useAuth', () => ({
 const LOBBY_ABC: LobbyView = {
   id: 'lobby-uuid-1',
   code: 'ABC123',
-  owner_id: 2,
+  creator_id: 2,
   status: 'waiting',
   min_players: 2,
   max_players: 8,
@@ -48,7 +48,7 @@ function makeFetch(overrides: {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(overrides.createResult ?? {
-          ...LOBBY_ABC, id: 'new-uuid', code: 'NEW999', owner_id: 1, player_count: 1,
+          ...LOBBY_ABC, id: 'new-uuid', code: 'NEW999', creator_id: 1, player_count: 1,
         }),
       })
     }
@@ -152,5 +152,47 @@ describe('LobbyBrowser — join by code', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent(/Lobby not found/i)
     expect(mockNavigate).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Task 9: Active tab ───────────────────────────────────────────────────────
+
+describe('LobbyBrowser — Active tab', () => {
+  const ACTIVE_LOBBY: LobbyView = {
+    ...LOBBY_ABC,
+    id: 'lobby-uuid-2',
+    code: 'XYZ999',
+    status: 'in_game',
+    player_count: 4,
+  }
+
+  test('Active tab shows in-progress lobbies with disabled In Progress button', async () => {
+    vi.stubGlobal('fetch', makeFetch({ list: [LOBBY_ABC, ACTIVE_LOBBY] }))
+    renderBrowser()
+
+    await waitFor(() => screen.getByText('ABC123'))
+
+    fireEvent.click(screen.getByText(/^Active/))
+
+    await waitFor(() => {
+      // Active tab card title renders as "Game {code}"
+      expect(screen.getByText(/XYZ999/)).toBeInTheDocument()
+    })
+
+    const inProgressBtn = screen.getByRole('button', { name: /In Progress/i })
+    expect(inProgressBtn).toBeDisabled()
+  })
+
+  test('Active tab shows empty state when no games in progress', async () => {
+    vi.stubGlobal('fetch', makeFetch({ list: [LOBBY_ABC] }))
+    renderBrowser()
+
+    await waitFor(() => screen.getByText('ABC123'))
+
+    fireEvent.click(screen.getByText(/^Active/))
+
+    await waitFor(() => {
+      expect(screen.getByText(/No active games right now/i)).toBeInTheDocument()
+    })
   })
 })

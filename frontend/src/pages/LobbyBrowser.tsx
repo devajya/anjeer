@@ -161,7 +161,7 @@ export function LobbyBrowser() {
                 )}
 
                 {waitingLobbies.map(lobby => {
-                  const isOwn     = user?.id === lobby.owner_id
+                  const isOwn     = user?.id === lobby.creator_id
                   const isJoining = joining === lobby.id
                   return (
                     <div key={lobby.id} className="lp__card">
@@ -221,7 +221,12 @@ export function LobbyBrowser() {
                         {lobby.player_count} players
                       </span>
                     </div>
-                    {/* No join button for in-progress games in Slice 6 */}
+                    {/* AGENT-CTX: Disabled button signals the lobby exists but
+                        is not joinable. Matches the card layout of waiting lobbies
+                        so the two tabs feel consistent. Spectator join is deferred. */}
+                    <button className="lp__join-btn" disabled>
+                      In Progress
+                    </button>
                   </div>
                 ))}
               </>

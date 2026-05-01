@@ -5,7 +5,7 @@
 export interface LobbyView {
   id:          string
   code:        string
-  owner_id:    number
+  creator_id:  number
   status:      'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
   min_players: number
   max_players: number

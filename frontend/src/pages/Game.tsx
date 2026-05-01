@@ -9,6 +9,9 @@ import { SuitPanel } from '../components/SuitPanel'
 import { TradeFeed } from '../components/TradeFeed'
 import { MyOrders } from '../components/MyOrders'
 import { RoundEndModal } from '../components/RoundEndModal'
+import { InterRoundScreen } from '../components/InterRoundScreen'
+import { GameEndScreen } from '../components/GameEndScreen'
+import { SessionError } from '../components/SessionError'
 import { PlayerBadge } from '../components/PlayerBadge'
 import '../App.css'
 
@@ -24,6 +27,7 @@ export function Game() {
     connected, playerId, books, trades, myOrders, errors, sendMessage,
     startsAt, roundEndAt, hand, initialHand, playerSlot, roundEnd, balance,
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
+    interRound, voteTally, gameEnded, sessionError,
   } = useWebSocket('/ws')
 
   // AGENT-CTX: fromLobby is true when the player arrived via LobbyRoom after
@@ -49,7 +53,45 @@ export function Game() {
     if (roundEnd) setRoundEndDismissed(false)
   }, [roundEnd])
 
-  const showRoundEnd = roundEnd !== null && !roundEndDismissed
+  // AGENT-CTX: interRoundDismissed is set true either by onCountdownExpired
+  // (timer fires on the client) or implicitly when interRound becomes null
+  // (hook clears it on round_start). Reset on every new interRound so the
+  // overlay reappears for each subsequent round.
+  const [interRoundDismissed, setInterRoundDismissed] = useState(false)
+  // AGENT-CTX: hasVotedToEnd prevents duplicate vote_to_end commands within
+  // a single inter-round window. Reset with interRoundDismissed on each new round.
+  const [hasVotedToEnd, setHasVotedToEnd] = useState(false)
+  useEffect(() => {
+    if (interRound) {
+      setInterRoundDismissed(false)
+      setHasVotedToEnd(false)
+    }
+  }, [interRound])
+
+  // AGENT-CTX: voteTally messages supersede the initial vote_count/votes_required
+  // snapshot in interRound. Fall back to interRound values on first render
+  // (before any vote_tally arrives) so the tally is never empty.
+  const liveVotes         = voteTally?.votes          ?? interRound?.vote_count      ?? 0
+  const liveVotesRequired = voteTally?.required       ?? interRound?.votes_required  ?? 0
+
+  function handleVoteToEnd() {
+    setHasVotedToEnd(true)
+    sendMessage({ type: 'vote_to_end' })
+  }
+
+  // AGENT-CTX: sessionError and gameEnded are terminal states — the session is
+  // over and there is no game to show beneath. Return early so the full game
+  // layout (books, orders, timers) is never rendered in these states.
+  // sessionError takes priority over gameEnded in case both arrive in one
+  // render cycle (e.g. crash fires after game_ended; shouldn't happen but safe).
+  if (sessionError) return <SessionError sessionError={sessionError} />
+  if (gameEnded)    return <GameEndScreen gameEnded={gameEnded} playerSlot={playerSlot} />
+
+  const showRoundEnd    = roundEnd !== null && !roundEndDismissed
+  // AGENT-CTX: InterRoundScreen is shown while interRound is set AND not locally
+  // dismissed. It does not suppress the game layout beneath it — players can see
+  // (but not interact with) the board through the semi-transparent backdrop.
+  const showInterRound  = interRound !== null && !interRoundDismissed
   const activeSuits  = SUIT_ORDER.filter(s => s in books)
 
   const lastTradePrices: Record<string, number> = {}
@@ -70,6 +112,17 @@ export function Game() {
           roundEnd={roundEnd!}
           playerSlot={playerSlot}
           onDismiss={() => setRoundEndDismissed(true)}
+        />
+      )}
+      {showInterRound && (
+        <InterRoundScreen
+          interRound={interRound!}
+          liveVotes={liveVotes}
+          liveVotesRequired={liveVotesRequired}
+          playerSlot={playerSlot}
+          hasVoted={hasVotedToEnd}
+          onVoteToEnd={handleVoteToEnd}
+          onCountdownExpired={() => setInterRoundDismissed(true)}
         />
       )}
       <main className="app">

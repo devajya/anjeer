@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { LobbyRoom } from '../LobbyRoom'
@@ -35,7 +35,7 @@ const BASE_LOBBY_STATE: LobbyStateMessage = {
   type: 'lobby_state',
   lobby_id: 'lobby-uuid-1',
   code: 'ABC123',
-  owner_id: 1,            // matches user.id=1 → this user is the owner
+  creator_id: 1,            // matches user.id=1 → this user is the owner
   status: 'waiting',
   min_players: 2,
   max_players: 8,
@@ -63,6 +63,11 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     waitingForStart:   null,
     lobbyState:        BASE_LOBBY_STATE,
     lobbyStarted:      null,
+    interRound:        null,
+    voteTally:         null,
+    gameEnded:         null,
+    sessionError:      null,
+    departedSlots:     [],
     sendMessage:       mockSendMsg,
     subscribeLobby:    mockSubscribe,
     unsubscribeLobby:  mockUnsub,
@@ -80,7 +85,7 @@ function setupFetch() {
       lobbies: [{
         id:           'lobby-uuid-1',
         code:         'ABC123',
-        owner_id:     1,
+        creator_id:     1,
         status:       'waiting',
         min_players:  2,
         max_players:  8,
@@ -107,6 +112,45 @@ beforeEach(() => {
   vi.mocked(useWebSocket).mockReturnValue(makeWsReturn())
 })
 
+// ─── Task 9: leave_lobby on back-nav ─────────────────────────────────────────
+
+describe('LobbyRoom — leave_lobby on back-nav', () => {
+  test('back button sends leave_lobby then navigates to /lobby', async () => {
+    renderRoom()
+
+    // Wait for lobbyId resolution (fetch) and lobby state render
+    await waitFor(() => screen.getByText('← Lobbies'))
+
+    fireEvent.click(screen.getByText('← Lobbies'))
+
+    expect(mockSendMsg).toHaveBeenCalledWith({
+      type: 'leave_lobby',
+      lobby_id: 'lobby-uuid-1',
+    })
+    expect(mockNavigate).toHaveBeenCalledWith('/lobby')
+  })
+
+  test('lobby_started navigation does not send leave_lobby', async () => {
+    // AGENT-CTX: When lobby_started fires, navigatedToGameRef is set to true so
+    // neither handleBack nor the unmount cleanup sends leave_lobby.
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyStarted: { type: 'lobby_started', lobby_id: 'lobby-uuid-1', code: 'ABC123' },
+    }))
+
+    const { unmount } = renderRoom()
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/game?lobby_id=lobby-uuid-1')
+    })
+
+    unmount()
+
+    expect(mockSendMsg).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave_lobby' })
+    )
+  })
+})
+
 // ─── AC4: Start button visibility ────────────────────────────────────────────
 
 describe('LobbyRoom — start button', () => {
@@ -122,7 +166,7 @@ describe('LobbyRoom — start button', () => {
   test('start button hidden for non-owner', async () => {
     // owner_id=99 — does not match user.id=1
     vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
-      lobbyState: { ...BASE_LOBBY_STATE, owner_id: 99 },
+      lobbyState: { ...BASE_LOBBY_STATE, creator_id: 99 },
     }))
 
     renderRoom()

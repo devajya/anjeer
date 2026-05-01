@@ -14,7 +14,7 @@ Lobby LobbyRepo::row_to_lobby(const pqxx::row& row) {
     return Lobby{
         row["id"].as<std::string>(),
         row["code"].as<std::string>(),
-        row["owner_id"].as<int64_t>(),
+        row["creator_id"].as<int64_t>(),
         parse_status(row["status"].as<std::string>()),
         row["min_players"].as<int>(),
         row["max_players"].as<int>(),
@@ -71,7 +71,7 @@ std::string LobbyRepo::generate_code() {
 
 // SELECT-before-INSERT avoids pqxx::subtransaction, which requires dbtransaction&
 // (incompatible with our DbTxn = transaction_base signature).
-Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t owner_id,
+Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
                          int min_players, int max_players) {
     for (int attempt = 0; attempt < 10; ++attempt) {
         const auto code = generate_code();
@@ -81,14 +81,25 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t owner_id,
         if (!exists.empty()) continue;
 
         const auto r = txn.exec_params(
-            "INSERT INTO lobbies (code, owner_id, min_players, max_players) "
+            "INSERT INTO lobbies (code, creator_id, min_players, max_players) "
             "VALUES ($1, $2, $3, $4) "
-            "RETURNING id, code, owner_id, status, min_players, max_players, created_at",
-            code, owner_id, min_players, max_players
+            "RETURNING id, code, creator_id, status, min_players, max_players, created_at",
+            code, creator_id, min_players, max_players
         );
         if (r.empty())
             throw std::runtime_error("LobbyRepo::create: INSERT RETURNING returned no rows");
-        return row_to_lobby(r[0]);
+
+        auto lobby = row_to_lobby(r[0]);
+
+        // AGENT-CTX: Creator row inserted at lobby creation so player_count()
+        // is never 0 after create(). Slice 7 resilience requirement: the old
+        // code had a window where the lobby existed with no player rows.
+        txn.exec_params(
+            "INSERT INTO lobby_players (lobby_id, player_id) VALUES ($1, $2)",
+            lobby.id, creator_id
+        );
+
+        return lobby;
     }
     throw std::runtime_error("LobbyRepo::create: failed to generate unique code after 10 attempts");
 }
@@ -96,7 +107,7 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t owner_id,
 std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
                                              const std::string& lobby_id) {
     const auto r = txn.exec_params(
-        "SELECT id, code, owner_id, status, min_players, max_players, created_at "
+        "SELECT id, code, creator_id, status, min_players, max_players, created_at "
         "FROM lobbies WHERE id = $1",
         lobby_id
     );
@@ -107,7 +118,7 @@ std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
 std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
                                                const std::string& code) {
     const auto r = txn.exec_params(
-        "SELECT id, code, owner_id, status, min_players, max_players, created_at "
+        "SELECT id, code, creator_id, status, min_players, max_players, created_at "
         "FROM lobbies WHERE code = $1",
         code
     );
@@ -117,7 +128,7 @@ std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
 
 std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn) {
     const auto r = txn.exec(
-        "SELECT l.id, l.code, l.owner_id, l.status, l.min_players, l.max_players, "
+        "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
         "       l.created_at, COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
@@ -136,30 +147,59 @@ std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn) {
     return views;
 }
 
+std::vector<LobbyView> LobbyRepo::list_active(pqxx::transaction_base& txn) {
+    const auto r = txn.exec(
+        "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
+        "       l.created_at, COUNT(lp.player_id) AS player_count "
+        "FROM lobbies l "
+        "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
+        "WHERE l.status = 'in_game' "
+        "GROUP BY l.id "
+        "ORDER BY l.created_at DESC"
+    );
+    std::vector<LobbyView> views;
+    views.reserve(r.size());
+    for (const auto& row : r) {
+        LobbyView v;
+        v.lobby        = row_to_lobby(row);
+        v.player_count = row["player_count"].as<int>();
+        views.push_back(std::move(v));
+    }
+    return views;
+}
+
 std::optional<std::string> LobbyRepo::add_player(pqxx::transaction_base& txn,
                                                     const std::string& lobby_id,
                                                     int64_t player_id) {
+    // AGENT-CTX: BOOL_OR detects if player already has a row in one pass.
+    // already_joined=true → idempotent return of existing joined_at (Slice 7:
+    // leave + rejoin must work; the old explicit duplicate guard is removed).
     const auto r = txn.exec_params(
-        "SELECT l.status, l.max_players, COUNT(lp.player_id) AS cnt "
+        "SELECT l.status, l.max_players, COUNT(lp.player_id) AS cnt, "
+        "       BOOL_OR(lp.player_id = $2) AS already_joined "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
         "WHERE l.id = $1 "
         "GROUP BY l.id, l.status, l.max_players",
-        lobby_id
+        lobby_id, player_id
     );
 
-    if (!r.empty()) {
-        if (parse_status(r[0]["status"].as<std::string>()) != LobbyStatus::Waiting)
-            return std::nullopt;
-        if (r[0]["cnt"].as<int>() >= r[0]["max_players"].as<int>())
-            return std::nullopt;
+    if (r.empty()) return std::nullopt;
+    if (parse_status(r[0]["status"].as<std::string>()) != LobbyStatus::Waiting)
+        return std::nullopt;
 
-        const auto dup = txn.exec_params(
-            "SELECT 1 FROM lobby_players WHERE lobby_id = $1 AND player_id = $2",
+    const bool already_joined = r[0]["already_joined"].as<bool>(false);
+    if (already_joined) {
+        const auto existing = txn.exec_params(
+            "SELECT joined_at FROM lobby_players WHERE lobby_id = $1 AND player_id = $2",
             lobby_id, player_id
         );
-        if (!dup.empty()) return std::nullopt;
+        if (existing.empty()) return std::nullopt;
+        return existing[0][0].as<std::string>();
     }
+
+    if (r[0]["cnt"].as<int>() >= r[0]["max_players"].as<int>())
+        return std::nullopt;
 
     const auto ins = txn.exec_params(
         "INSERT INTO lobby_players (lobby_id, player_id) VALUES ($1, $2) "
@@ -174,6 +214,19 @@ bool LobbyRepo::remove_player(pqxx::transaction_base& txn,
     const auto r = txn.exec_params(
         "DELETE FROM lobby_players WHERE lobby_id = $1 AND player_id = $2",
         lobby_id, player_id
+    );
+    return r.affected_rows() > 0;
+}
+
+bool LobbyRepo::delete_if_empty(pqxx::transaction_base& txn,
+                                  const std::string& lobby_id) {
+    // AGENT-CTX: Subquery makes the delete atomic — no TOCTOU race if a player
+    // joins between count-check and delete. ON DELETE CASCADE on lobby_players
+    // is a safety net but should never fire here since count is verified 0.
+    const auto r = txn.exec_params(
+        "DELETE FROM lobbies WHERE id = $1 "
+        "AND (SELECT COUNT(*) FROM lobby_players WHERE lobby_id = $1) = 0",
+        lobby_id
     );
     return r.affected_rows() > 0;
 }

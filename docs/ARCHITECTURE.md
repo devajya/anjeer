@@ -37,14 +37,12 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 
 **Role:** Pure game logic. No network, no JSON, no file I/O. Returns structured events; callers own dispatch.
 
-**Current modules (Slice 4):**
+**Current modules (Slice 7):**
 - `OrderBook` — price-time priority limit order matching. Operations: submit, nudge (best±1), cancel, wipe (global clear). Returns a vector of typed events per operation.
-- `GameState` — deals deck, derives goal suit, tracks per-player hand counts. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules. Order books are held by the server layer until Slice 6 unifies them here under `GameSession`.
+- `GameState` — deals deck, derives goal suit, tracks per-player hand counts. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules.
 - `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, pre-buyin balances, and `ScoringConfig`. Computes pot, per-card payout, majority/plurality bonus, and new balances. No I/O; server owns dispatch of `RoundResult`.
 
 **Planned modules (future slices):**
-- `RoundTimer` (Slice 4 server-layer) — already implemented as a thread in the server; moves into the engine under `GameSession` in Slice 6
-- `GameSession` (Slice 7) — multi-round orchestrator, buy-in collection, end-vote tally; also wraps engine in a thread-safe boundary (Slice 6 threading change)
 - `BotAgent` (Slice 10) — strategy implementations connecting via the same WS interface as human players
 - `EvalModule` / `EvalRunner` (Slice 11) — plugin-style analysis running on a separate thread, read-only game state snapshots
 - `ReplayEngine` (Slice 13) — deterministic state reconstruction from event log
@@ -55,19 +53,21 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 
 **Role:** Owns the WebSocket connection lifecycle, JSON serialization, config, logging, and game loop. Translates between wire protocol and engine calls.
 
-**Current responsibilities (Slice 6):**
+**Current responsibilities (Slice 7):**
 
 `WsServer` (uWS, port 9001):
-- Accept WS connections; assign player slots; maintain per-slot balance
-- Deserialize inbound JSON; call `GameSession`; route returned events to recipients
+- Thin dispatch layer: parses inbound JSON, enqueues `NetEvent` onto the active session's inbound SPSC queue; drains each session's outbound `GameEvent` queue every 16ms via uWS timer
+- Maintains `unordered_map<lobby_id, ActiveSession>` — each entry holds the two SPSC queues, a `GameSession` instance, and a slot↔WsHandle map
+- `subscribe_lobby` / `unsubscribe_lobby` — per-connection lobby subscriptions backed by `IEventBus`; cleanup on close
+- `leave_lobby` — removes player from `lobby_players`, calls `delete_if_empty`, tears down session if empty
 - HTTP POST `/api/log` — frontend log batches → `logs/frontend_logs.txt`
-- Heartbeat loop (configurable interval)
-- `subscribe_lobby` / `unsubscribe_lobby` commands — per-connection lobby subscriptions backed by `IEventBus`; cleanup on close
 
-`GameSession` (extracted from WsServer in Slice 5):
-- `RoundPhase` state machine (`Waiting → Active → Scoring → Ended`)
-- Manual `start_game` trigger (replaces N-connection auto-start); gates orders to Active only
-- Round expiry timer: wipe books → `score_round()` → deduct buy-in → dispatch `round_end`
+`GameSession` (Slice 7):
+- Runs on a dedicated game-loop thread; communicates with WsServer exclusively via two lock-free SPSC queues (`session_queue.h`: `NetEvent` inbound, `GameEvent` outbound)
+- `SessionPhase` state machine: `Lobby → Countdown → RoundActive → InterRound → Ended`
+- Collects buy-ins at round start; runs multi-round loop until majority vote or all players leave
+- Timers via `std::chrono::steady_clock` on the game thread — no uWS involvement
+- Persists session + round records to DB via `SessionRepo`; writes `session_errors` on unhandled exceptions
 
 `HttpServer` (Crow async, port 8080):
 - `GET /auth/{provider}` — redirect to OAuth provider with CSRF state nonce
@@ -75,13 +75,16 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - `POST /auth/refresh` — validate refresh token cookie → issue new access token cookie
 - `POST /auth/logout` — clear cookies
 - `GET /players/me` — JWT middleware → `PlayerRepo::find_by_id` → profile JSON
-- `POST /lobbies` — create lobby; returns 201 LobbyView JSON
-- `GET /lobbies` — list waiting lobbies with player counts
-- `POST /lobbies/:id/join` — add authenticated player; 409 on full/duplicate/not-waiting
+- `POST /lobbies` — create lobby; inserts creator row; returns 201 LobbyView JSON
+- `GET /lobbies` — list waiting + active lobbies with player counts
+- `POST /lobbies/:id/join` — add authenticated player; 409 on full/not-waiting
 - `POST /lobbies/:id/start` — owner-only; transitions status `waiting → starting`; publishes `lobby_started` to `IEventBus`
 
-`LobbyRepo` (Slice 6):
-- CRUD over `lobbies` + `lobby_players` tables; CAS-style `transition_status`; unique 6-char code generation via OpenSSL
+`SessionRepo` (Slice 7):
+- Writes session lifecycle records to `game_sessions`, `rounds`, `session_errors` tables
+
+`LobbyRepo` (Slice 6+):
+- CRUD over `lobbies` + `lobby_players` tables; CAS-style `transition_status`; unique 6-char code generation via OpenSSL; `list_active()` for in-progress lobbies; `delete_if_empty()` for cleanup on leave
 
 `IEventBus` / `LocalEventBus` (Slice 6):
 - In-process publish/subscribe over named channels; synchronous delivery on publish thread
@@ -97,9 +100,9 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - Background job queue for analysis (Slice 14)
 - `RedisEventBus` (Slice 16) — swap `LocalEventBus` for multi-node deployments
 
-**Threading model (Slices 1-5):** Single uWS event loop thread. No locks. Engine calls happen synchronously on the event loop. Heartbeat runs on a second thread but does not touch engine state.
+**Threading model (Slices 1-6):** Single uWS event loop thread. No locks. Engine calls happen synchronously on the event loop. Heartbeat runs on a second thread but does not touch engine state.
 
-**Threading model (Slice 6+):** Engine wrapped in `GameSession`. Network thread and game loop thread communicate via lock-free queue.
+**Threading model (Slice 7+):** Each active game session runs on a dedicated `GameSession` thread. The uWS event loop thread and the game-loop thread share no mutable state — all communication passes through two lock-free SPSC queues (`moodycamel::ReaderWriterQueue`): `NetEvent` inbound (network → game) and `GameEvent` outbound (game → network). The network thread enqueues on receive; a 16ms uWS timer drains the outbound queue and dispatches to WebSocket handles.
 
 ## Frontend Layer
 
@@ -109,10 +112,15 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 ```
 App
 ├── /login      → Login
-├── /lobby      → LobbyBrowser   — list waiting lobbies; create; join by code
+├── /lobby      → LobbyBrowser   — list waiting + active lobbies; create; join by code
 ├── /lobby/:code → LobbyRoom     — player roster; WS lobby_state/player_joined/left;
-│                                   Start button (owner + count ≥ min_players only)
+│                                   Start button (owner + count ≥ min_players only);
+│                                   emits leave_lobby on back-nav
 └── /game       → Game           — reads lobby_id from ?lobby_id= query param (Slice 6+)
+                    ├── GameEndScreen      — full-screen on game_ended: final standings + per-round breakdown
+                    ├── SessionError       — full-screen on session_error: message + return button
+                    ├── InterRoundScreen   — overlay on inter_round: standings + vote-to-end + countdown
+                    │    └── VoteTally     — live vote count display
                     ├── ConnectionBanner   — connection status indicator
                     ├── RoundCountdown     — pre-deal countdown; MM:SS timer during round (red in final 30 s)
                     ├── SuitPanel (×N)     — per-suit order form + best bid/ask display
@@ -226,14 +234,14 @@ All messages are JSON objects with a `type` string discriminator.
 | Round end (Slice 4+) | `round_end` |
 | Auth (Slice 5+) | `waiting_for_start` (WS broadcast); auth via HTTP cookies, not WS |
 | Lobby (Slice 6+) | `lobby_state` (snapshot on subscribe), `player_joined`, `player_left`, `lobby_started` |
-| Game lifecycle (Slice 7+) | `round_transition`, `game_ended` |
+| Game lifecycle (Slice 7+) | `inter_round`, `vote_tally`, `game_ended`, `game_player_left`, `session_error` |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
 
 **Client → Server categories:**
 | Category | Messages |
 |---|---|
 | Trading | `submit_order`, `nudge`, `cancel_order` |
-| Lobby (Slice 6+) | `subscribe_lobby`, `unsubscribe_lobby` |
+| Lobby (Slice 6+) | `subscribe_lobby`, `unsubscribe_lobby`, `leave_lobby` |
 | Game (Slice 7+) | `vote_to_end` |
 | Subscription (Slice 17+) | `subscribe`, `unsubscribe` |
 

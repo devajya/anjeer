@@ -1,0 +1,128 @@
+.ges__backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0d0f14;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  z-index: 200;
+  padding: 2rem 1rem;
+}
+
+.ges__card {
+  background: #181c24;
+  border: 1px solid #2a2f3d;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.ges__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e8eaf0;
+  text-align: center;
+  margin: 0;
+}
+
+.ges__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ges__section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8892a4;
+  margin: 0;
+}
+
+.ges__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  color: #c8cdd8;
+}
+
+.ges__table th {
+  text-align: left;
+  padding: 0.375rem 0.5rem;
+  color: #8892a4;
+  font-weight: 500;
+  border-bottom: 1px solid #2a2f3d;
+}
+
+.ges__table td {
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid #1e2330;
+}
+
+.ges__table--compact td,
+.ges__table--compact th {
+  padding: 0.25rem 0.5rem;
+}
+
+.ges__row--own td {
+  color: #e8eaf0;
+  font-weight: 600;
+}
+
+.ges__net--pos { color: #4caf7d; }
+.ges__net--neg { color: #e05c5c; }
+
+.ges__away {
+  font-size: 0.75rem;
+  color: #8892a4;
+}
+
+.ges__round {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ges__round-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #c8cdd8;
+}
+
+.ges__round-num {
+  font-weight: 600;
+  color: #e8eaf0;
+}
+
+.ges__suit-icon--hearts,
+.ges__suit-icon--diamonds { color: #e05c5c; }
+.ges__suit-icon--clubs,
+.ges__suit-icon--spades   { color: #c8cdd8; }
+
+.ges__round-suit {
+  font-size: 0.8rem;
+  color: #8892a4;
+}
+
+.ges__return-btn {
+  align-self: center;
+  padding: 0.625rem 1.5rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ges__return-btn:hover { background: #1d4ed8; }

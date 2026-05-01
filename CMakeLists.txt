@@ -135,6 +135,20 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(libpqxx)
 set(BUILD_TESTING ON  CACHE BOOL "" FORCE)
 
+# moodycamel/readerwriterqueue — lock-free SPSC queue for NetEvent/GameEvent
+# AGENT-CTX: Header-only; exposes readerwriterqueue.h directly from source dir.
+# Used to decouple WsServer (uWS event loop thread) from GameSession (game loop
+# thread) without any mutex — the SPSC guarantee holds because exactly one
+# producer and one consumer exist per direction per session.
+# GIT_TAG pinned to a known-good commit; bump only when upgrading intentionally.
+FetchContent_Declare(
+  readerwriterqueue
+  GIT_REPOSITORY https://github.com/cameron314/readerwriterqueue.git
+  GIT_TAG        v1.0.6
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(readerwriterqueue)
+
 # ---------------------------------------------------------------------------
 # uSockets — built from the copy bundled inside uWebSockets
 # ---------------------------------------------------------------------------

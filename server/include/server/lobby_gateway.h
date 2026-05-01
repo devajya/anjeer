@@ -2,7 +2,7 @@
 
 #include "server/db.h"
 #include "server/event_bus.h"
-#include "server/game_session.h"  // WsHandle, PerSocketData
+#include "server/ws_types.h"  // WsHandle, PerSocketData
 #include "server/lobby_repo.h"
 #include "server/logger.h"
 

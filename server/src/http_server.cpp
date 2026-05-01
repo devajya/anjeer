@@ -66,7 +66,7 @@ nlohmann::json lobby_view_json(const LobbyView& lv)
     nlohmann::json j;
     j["id"]           = lv.lobby.id;
     j["code"]         = lv.lobby.code;
-    j["owner_id"]     = lv.lobby.owner_id;
+    j["creator_id"]   = lv.lobby.creator_id;
     j["status"]       = lobby_status_string(lv.lobby.status);
     j["min_players"]  = lv.lobby.min_players;
     j["max_players"]  = lv.lobby.max_players;
@@ -314,8 +314,6 @@ void HttpServer::register_lobby_routes(App& app)
                 config_.lobby.max_players
             );
 
-            lobby_repo_.add_player(txn, lobby.id, player.id);
-
             const int count = lobby_repo_.player_count(txn, lobby.id);
             txn.commit();
 
@@ -381,16 +379,12 @@ void HttpServer::register_lobby_routes(App& app)
             if (lobby.status != LobbyStatus::Waiting)
                 return make_error(409, "GAME_ALREADY_STARTED");
 
+            // AGENT-CTX: add_player is now idempotent for duplicate joins (Slice 7
+            // resilience). nullopt means only LOBBY_FULL here — not-waiting is
+            // pre-checked above, and duplicates return the existing joined_at.
             const auto joined_at = lobby_repo_.add_player(txn, lobby_id, player.id);
-            if (!joined_at) {
-                // ALREADY_JOINED must be checked before LOBBY_FULL: a player
-                // already in a full lobby would otherwise return LOBBY_FULL.
-                const auto existing = lobby_repo_.list_players(txn, lobby_id);
-                for (const auto& p : existing)
-                    if (p.player_id == player.id)
-                        return make_error(409, "ALREADY_JOINED");
+            if (!joined_at)
                 return make_error(409, "LOBBY_FULL");
-            }
 
             const int count = lobby_repo_.player_count(txn, lobby_id);
             txn.commit();
@@ -437,7 +431,7 @@ void HttpServer::register_lobby_routes(App& app)
                 return make_error(404, "LOBBY_NOT_FOUND");
 
             const Lobby& lobby = *lobby_opt;
-            if (lobby.owner_id != player.id)
+            if (lobby.creator_id != player.id)
                 return make_error(403, "NOT_LOBBY_OWNER");
 
             if (lobby.status != LobbyStatus::Waiting)
@@ -460,6 +454,15 @@ void HttpServer::register_lobby_routes(App& app)
             ev["lobby_id"] = lobby_id;
             ev["code"]     = lobby.code;
             event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
+            // AGENT-CTX: Separate "game:start" channel so WsServer can subscribe
+            // once at startup instead of per-lobby. WsServer transitions the lobby
+            // Starting→InGame after creating the session (it is the authority on
+            // whether the game is actually live; HttpServer only initiates the start).
+            nlohmann::json game_ev;
+            game_ev["type"]     = "game_start";
+            game_ev["lobby_id"] = lobby_id;
+            event_bus_.publish("game:start", game_ev.dump());
 
             http_log_.info("lobbies", "lobby " + lobby_id +
                            " started by player " + std::to_string(player.id));

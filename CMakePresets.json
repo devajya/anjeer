@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default (Debug)",
+      "description": "Standard debug build — same as plain cmake -B build",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "Thread Sanitizer",
+      "description": "Debug build with -fsanitize=thread. Isolated in build-tsan/ so switching presets never invalidates the main build.",
+      "binaryDir": "${sourceDir}/build-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1",
+        "CMAKE_C_FLAGS":   "-fsanitize=thread -g -O1",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
+      }
+    }
+  ]
+}

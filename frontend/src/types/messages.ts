@@ -160,7 +160,7 @@ export interface LobbyStateMessage {
   type: 'lobby_state'
   lobby_id: string
   code: string
-  owner_id: number
+  creator_id: number
   status: 'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
   min_players: number
   max_players: number
@@ -199,6 +199,72 @@ export interface LobbyStartedMessage {
 }
 
 /**
+ * Sent to all connected players after every round ends.
+ * Includes results + vote state so the client can render the inter-round screen.
+ * AGENT-CTX: next_round_at is null when the vote majority was already reached
+ * before inter_round_seconds elapsed — the round transitions immediately.
+ * Clients must handle null here and skip the countdown display.
+ */
+export interface InterRoundMessage {
+  type: 'inter_round'
+  round_number: number
+  goal_suit: string
+  results: PlayerRoundResult[]
+  vote_count: number
+  votes_required: number
+  next_round_at: string | null  // ISO timestamp; null if vote threshold already met
+}
+
+/** Sent to all connected players each time a new vote_to_end is received. */
+export interface VoteTallyMessage {
+  type: 'vote_tally'
+  votes: number
+  required: number
+}
+
+/**
+ * Sent to all connected players when the game ends (majority vote or all leave).
+ * AGENT-CTX: net_change = final_balance − starting_balance; pre-computed
+ * server-side so the client never needs to know starting_balance separately.
+ */
+export interface GameEndedMessage {
+  type: 'game_ended'
+  rounds: Array<{
+    round_number: number
+    goal_suit: string
+    results: PlayerRoundResult[]
+  }>
+  final_standings: Array<{
+    player_slot: number
+    username: string
+    final_balance: number
+    net_change: number
+  }>
+}
+
+/**
+ * Broadcast to all connected players when a player disconnects mid-game.
+ * AGENT-CTX: Distinct from PlayerLeftMessage (lobby layer) — this fires only
+ * inside an active game session. The client should grey out the departed slot.
+ */
+export interface GamePlayerLeftMessage {
+  type: 'game_player_left'
+  player_slot: number
+  username: string
+}
+
+/**
+ * Sent to all connected players when the session encounters an unhandled error.
+ * AGENT-CTX: The session tears down after emitting this. The client should
+ * display a full-screen error with a "Return to lobby" button.
+ * TODO(observability): extend with error_id and session_id when full stack added.
+ */
+export interface SessionErrorMessage {
+  type: 'session_error'
+  message: string
+}
+
+/**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
  * useWebSocket.ts is exhaustive — TypeScript will error on unhandled variants
@@ -220,6 +286,11 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | LobbyStartedMessage
+  | InterRoundMessage
+  | VoteTallyMessage
+  | GameEndedMessage
+  | GamePlayerLeftMessage
+  | SessionErrorMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
@@ -267,6 +338,26 @@ export interface UnsubscribeLobbyCommand {
   lobby_id: string
 }
 
+/**
+ * Votes to end the game early. No payload — server identifies voter by slot.
+ * AGENT-CTX: Majority threshold = floor(active_players / 2) + 1.
+ * Duplicate votes from the same player are ignored by the server.
+ */
+export interface VoteToEndCommand {
+  type: 'vote_to_end'
+}
+
+/**
+ * Sent by the client before back-navigating out of a lobby room.
+ * AGENT-CTX: Required so WsServer can call LobbyRepo::remove_player and
+ * delete_if_empty atomically. Without this the player row lingers until
+ * the WebSocket closes, causing a stale lobby_players row.
+ */
+export interface LeaveLobbyCommand {
+  type: 'leave_lobby'
+  lobby_id: string
+}
+
 export type ClientCommand =
   | SubmitOrderCommand
   | NudgeCommand
@@ -274,3 +365,5 @@ export type ClientCommand =
   | StartGameCommand
   | SubscribeLobbyCommand
   | UnsubscribeLobbyCommand
+  | VoteToEndCommand
+  | LeaveLobbyCommand

@@ -256,7 +256,7 @@ TEST_CASE("HTTP lobby — creating a second lobby while one is open returns 409 
     CHECK(res.error_code() == "LOBBY_ALREADY_EXISTS");
 }
 
-TEST_CASE("HTTP lobby — duplicate join returns 409 ALREADY_JOINED", "[integration][http_lobby]") {
+TEST_CASE("HTTP lobby — duplicate join is idempotent and returns 200", "[integration][http_lobby]") {
     ensure_http_server_running();
     reset_db();
     const auto owner  = make_player();
@@ -268,9 +268,9 @@ TEST_CASE("HTTP lobby — duplicate join returns 409 ALREADY_JOINED", "[integrat
 
     REQUIRE(http("POST", "/lobbies/" + lid + "/join", joiner.cookie).status == 200);
 
-    const auto res = http("POST", "/lobbies/" + lid + "/join", joiner.cookie);
-    REQUIRE(res.status == 409);
-    CHECK(res.error_code() == "ALREADY_JOINED");
+    // AGENT-CTX: Slice 7 resilience change — re-joining is idempotent.
+    // Returns 200 with the original joined_at, not 409 ALREADY_JOINED.
+    REQUIRE(http("POST", "/lobbies/" + lid + "/join", joiner.cookie).status == 200);
 }
 
 TEST_CASE("HTTP lobby — joining a full lobby returns 409 LOBBY_FULL", "[integration][http_lobby]") {

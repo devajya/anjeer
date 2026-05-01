@@ -50,17 +50,24 @@ struct ServerConfig {
         std::array<int, 4>   card_distribution;
         int                  countdown_seconds;
         int                  round_duration_seconds;
+        int                  inter_round_seconds;
     } game;
 
     // AGENT-CTX: ScoringConfig is the server-side view of scoring constants.
-    // It mirrors engine::ScoringConfig (buy_in, points_per_card) but adds
-    // starting_balance, which is server-only state — the engine receives
-    // pre-buyin balances as a vector and never tracks balances across rounds.
-    // Keeping it here (not in the engine) maintains the engine's I/O-free invariant.
+    // round_buy_in_pct is the fraction of starting_balance charged per round entry.
+    // round_buy_in() is the computed integer value used everywhere in game logic —
+    // call the function rather than caching the result, as starting_balance could
+    // in principle change between rounds (not currently, but the accessor is cheap).
+    // starting_balance is server-only state — the engine receives pre-buyin balances
+    // as a vector and never tracks balances across rounds.
     struct ScoringConfig {
-        int starting_balance;
-        int buy_in;
-        int points_per_card;
+        int    starting_balance;
+        double round_buy_in_pct;
+        int    points_per_card;
+
+        int round_buy_in() const {
+            return static_cast<int>(starting_balance * round_buy_in_pct);
+        }
     } scoring;
 
     // AGENT-CTX: http_port is the Crow REST server port (8080); port above is the

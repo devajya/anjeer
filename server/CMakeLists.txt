@@ -14,6 +14,7 @@ add_executable(server
     src/db.cpp
     src/player_repo.cpp
     src/lobby_repo.cpp
+    src/session_repo.cpp
     src/oauth_provider.cpp
     src/auth_service.cpp
     src/http_server.cpp
@@ -30,6 +31,7 @@ target_link_libraries(server PRIVATE
     CURL::libcurl
     Crow::Crow
     jwt-cpp::jwt-cpp
+    readerwriterqueue
     pthread
 )
 
@@ -69,9 +71,12 @@ add_executable(ws_server_tests
     src/lobby_gateway.cpp
     src/game_session.cpp
     src/game_session_wire.cpp
+    src/session_repo.cpp
     src/logger.cpp
     src/db.cpp
+    src/player_repo.cpp
     src/lobby_repo.cpp
+    src/auth_service.cpp
     src/event_bus.cpp
 )
 
@@ -88,6 +93,8 @@ target_link_libraries(ws_server_tests PRIVATE
     uWebSockets
     nlohmann_json::nlohmann_json
     libpqxx::pqxx
+    jwt-cpp::jwt-cpp
+    readerwriterqueue
     crypto
     pthread
 )
@@ -205,3 +212,115 @@ target_link_libraries(http_lobby_tests PRIVATE
 
 add_test(NAME http_lobby_tests COMMAND http_lobby_tests)
 set_tests_properties(http_lobby_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# SessionRepo integration tests
+# ---------------------------------------------------------------------------
+add_executable(session_repo_tests
+    tests/test_session_repo.cpp
+    src/db.cpp
+    src/lobby_repo.cpp
+    src/session_repo.cpp
+)
+
+target_include_directories(session_repo_tests PRIVATE include)
+
+target_compile_definitions(session_repo_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(session_repo_tests PRIVATE
+    Catch2::Catch2WithMain
+    nlohmann_json::nlohmann_json
+    libpqxx::pqxx
+    crypto
+)
+
+add_test(NAME session_repo_tests COMMAND session_repo_tests)
+set_tests_properties(session_repo_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# Lobby resilience tests (Slice 7 acceptance criteria L1-L5)
+# ---------------------------------------------------------------------------
+add_executable(lobby_resilience_tests
+    tests/lobby_resilience_tests.cpp
+    src/db.cpp
+    src/lobby_repo.cpp
+)
+
+target_include_directories(lobby_resilience_tests PRIVATE include)
+
+target_compile_definitions(lobby_resilience_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(lobby_resilience_tests PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+
+add_test(NAME lobby_resilience_tests COMMAND lobby_resilience_tests)
+set_tests_properties(lobby_resilience_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# GameSession unit tests (Slice 7 acceptance criteria G1-G10)
+# ---------------------------------------------------------------------------
+add_executable(game_session_tests
+    tests/game_session_tests.cpp
+    src/config.cpp
+    src/db.cpp
+    src/lobby_repo.cpp
+    src/session_repo.cpp
+    src/game_session.cpp
+    src/game_session_wire.cpp
+    src/logger.cpp
+    src/event_bus.cpp
+)
+
+target_include_directories(game_session_tests PRIVATE include)
+
+target_compile_definitions(game_session_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(game_session_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    libpqxx::pqxx
+    readerwriterqueue
+    crypto
+    pthread
+)
+
+add_test(NAME game_session_tests COMMAND game_session_tests)
+set_tests_properties(game_session_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# session_queue_tsan_tests — lock-free SPSC queue under concurrent use (T1)
+# ---------------------------------------------------------------------------
+# AGENT-CTX: Minimal deps on purpose — this test only exercises the queue, not
+# the server stack. Keeping it lean means it also compiles quickly in CI when
+# only the tsan preset is needed. No DB, no uWS, no nlohmann.
+add_executable(session_queue_tsan_tests
+    tests/session_queue_tsan_tests.cpp
+)
+
+target_include_directories(session_queue_tsan_tests PRIVATE include)
+
+target_link_libraries(session_queue_tsan_tests PRIVATE
+    Catch2::Catch2WithMain
+    readerwriterqueue
+    pthread
+)
+
+add_test(NAME session_queue_tsan_tests COMMAND session_queue_tsan_tests)
+# AGENT-CTX: RUN_SERIAL prevents other threaded tests from running in parallel
+# with this one. Under ThreadSanitizer, concurrent test processes sharing the
+# same shadow-memory region can produce spurious cross-test race reports.
+set_tests_properties(session_queue_tsan_tests PROPERTIES RUN_SERIAL TRUE)

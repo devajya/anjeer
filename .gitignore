@@ -13,6 +13,7 @@ cmake-build-*/
 /imgs/
 /readings/
 /build/
+/build-tsan/
 
 # ── Logs: track the folder (via .gitkeep) but ignore all log files ─────────
 logs/*

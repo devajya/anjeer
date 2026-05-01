@@ -1,0 +1,148 @@
+/* ── Backdrop ─────────────────────────────────────────────────────────────── */
+.irs__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+.irs__card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 12px;
+  padding: 2rem;
+  width: min(560px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ── Title ────────────────────────────────────────────────────────────────── */
+.irs__title {
+  margin: 0;
+  font-size: 1.4rem;
+  color: #e2e8f0;
+  text-align: center;
+}
+
+/* ── Goal suit ────────────────────────────────────────────────────────────── */
+.irs__goal-suit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  color: #94a3b8;
+}
+
+.irs__suit-icon {
+  font-size: 1.6rem;
+}
+
+.irs__suit-icon--hearts,
+.irs__suit-icon--diamonds {
+  color: #f87171;
+}
+
+.irs__suit-icon--clubs,
+.irs__suit-icon--spades {
+  color: #e2e8f0;
+}
+
+.irs__suit-name {
+  color: #cbd5e1;
+}
+
+/* ── Standings table ──────────────────────────────────────────────────────── */
+.irs__standings {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.irs__standings th {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  color: #64748b;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.irs__standings td {
+  padding: 0.4rem 0.6rem;
+  color: #cbd5e1;
+  border-bottom: 1px solid #1e1e38;
+}
+
+.irs__row--own td {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+}
+
+.irs__away {
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+/* ── Vote section ─────────────────────────────────────────────────────────── */
+.irs__vote-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.vote-tally {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.vote-tally__count {
+  color: #e2e8f0;
+}
+
+.irs__vote-btn {
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #6366f1;
+  background: transparent;
+  color: #a5b4fc;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.irs__vote-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.irs__vote-btn:disabled {
+  border-color: #2a2a4a;
+  color: #475569;
+  cursor: default;
+}
+
+/* ── Status / countdown ───────────────────────────────────────────────────── */
+.irs__status {
+  text-align: center;
+  font-size: 0.9rem;
+  color: #64748b;
+  min-height: 1.4em;
+}
+
+.irs__status--ending {
+  color: #f59e0b;
+}
+
+.irs__status--starting {
+  color: #34d399;
+}

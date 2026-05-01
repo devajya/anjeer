@@ -60,7 +60,9 @@ int main(int argc, char* argv[]) {
     std::thread http_thread([&http_server] { http_server.run(); });
     http_thread.detach();
 
-    anjeer::server::WsServer ws_server(cfg, lobby_gateway);
+    anjeer::server::WsServer ws_server(cfg, lobby_gateway,
+                                       db_pool, lobby_repo,
+                                       auth_service, event_bus);
     ws_server.run();
 
     return 0;

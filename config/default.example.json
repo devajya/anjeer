@@ -31,11 +31,12 @@
       8
     ],
     "countdown_seconds": 3,
-    "round_duration_seconds": 240
+    "round_duration_seconds": 240,
+    "inter_round_seconds": 30
   },
   "scoring": {
     "starting_balance": 100,
-    "buy_in": 50,
+    "round_buy_in_pct": 0.20,
     "points_per_card": 20
   },
   "db": {

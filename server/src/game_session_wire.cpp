@@ -148,6 +148,96 @@ std::string round_start_payload(
     }.dump();
 }
 
+// ── GameSession outbound payloads ─────────────────────────────────────────────
+
+static nlohmann::json player_results_array(const std::vector<WirePlayerResult>& results) {
+    auto arr = nlohmann::json::array();
+    for (const auto& r : results) {
+        arr.push_back({
+            {"player_slot",     r.player_slot},
+            {"goal_cards_held", r.goal_cards_held},
+            {"payout",          r.payout},
+            {"balance",         r.balance},
+            {"disconnected",    r.disconnected},
+        });
+    }
+    return arr;
+}
+
+std::string inter_round_payload(
+        int                                  round_number,
+        const std::string&                   goal_suit,
+        const std::vector<WirePlayerResult>& results,
+        int                                  vote_count,
+        int                                  votes_required,
+        const std::string&                   next_round_at) {
+    // AGENT-CTX: next_round_at is null when vote majority already met (game ends
+    // immediately); non-null drives the client countdown timer.
+    const nlohmann::json next_at_val =
+        next_round_at.empty() ? nlohmann::json(nullptr) : nlohmann::json(next_round_at);
+    return nlohmann::json{
+        {"type",           "inter_round"},
+        {"round_number",   round_number},
+        {"goal_suit",      goal_suit},
+        {"results",        player_results_array(results)},
+        {"vote_count",     vote_count},
+        {"votes_required", votes_required},
+        {"next_round_at",  next_at_val},
+    }.dump();
+}
+
+std::string vote_tally_payload(int votes, int required) {
+    return nlohmann::json{
+        {"type",     "vote_tally"},
+        {"votes",    votes},
+        {"required", required},
+    }.dump();
+}
+
+std::string game_ended_payload(
+        const std::vector<WireRoundSummary>&  rounds,
+        const std::vector<WireFinalStanding>& standings) {
+    auto rounds_arr = nlohmann::json::array();
+    for (const auto& r : rounds) {
+        rounds_arr.push_back({
+            {"round_number", r.round_number},
+            {"goal_suit",    r.goal_suit},
+            {"results",      player_results_array(r.results)},
+        });
+    }
+    auto standings_arr = nlohmann::json::array();
+    for (const auto& s : standings) {
+        standings_arr.push_back({
+            {"player_slot",   s.player_slot},
+            {"username",      s.username},
+            {"final_balance", s.final_balance},
+            {"net_change",    s.net_change},
+        });
+    }
+    return nlohmann::json{
+        {"type",             "game_ended"},
+        {"rounds",           rounds_arr},
+        {"final_standings",  standings_arr},
+    }.dump();
+}
+
+std::string game_player_left_payload(int player_slot, const std::string& username) {
+    return nlohmann::json{
+        {"type",        "game_player_left"},
+        {"player_slot", player_slot},
+        {"username",    username},
+    }.dump();
+}
+
+std::string session_error_payload(const std::string& message) {
+    // AGENT-CTX: Only message is included here; error_id and session_id are
+    // deferred to full observability slice (TODO(observability) in SessionRepo).
+    return nlohmann::json{
+        {"type",    "session_error"},
+        {"message", message},
+    }.dump();
+}
+
 } // namespace serialise
 
 namespace parse {
@@ -181,6 +271,21 @@ std::optional<engine::Side> side(const std::string& s) noexcept {
     if (s == "buy")  return engine::Side::Buy;
     if (s == "sell") return engine::Side::Sell;
     return std::nullopt;
+}
+
+std::optional<VoteToEndFields> vote_to_end(const nlohmann::json& j) {
+    // AGENT-CTX: Only type validation needed — the message carries no payload.
+    // The server uses the socket's player_slot to identify the voter.
+    try {
+        if (j.at("type").get<std::string>() != "vote_to_end") return std::nullopt;
+        return VoteToEndFields{};
+    } catch (const nlohmann::json::exception&) { return std::nullopt; }
+}
+
+std::optional<LeaveLobbyFields> leave_lobby(const nlohmann::json& j) {
+    try {
+        return LeaveLobbyFields{ j.at("lobby_id").get<std::string>() };
+    } catch (const nlohmann::json::exception&) { return std::nullopt; }
 }
 
 } // namespace parse

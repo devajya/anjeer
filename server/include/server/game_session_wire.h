@@ -4,8 +4,15 @@
 // No game state; no side effects beyond socket I/O in the send functions.
 // Editing the wire format requires changes only in this header and game_session_wire.cpp.
 
-#include "server/game_session.h"
+// AGENT-CTX: game_session_wire.h includes ws_types.h (not game_session.h) since
+// Slice 7. The new GameSession has no uWS dependency, so WsHandle/WsErrorCode
+// live in ws_types.h. The legacy send functions (error, book_update, trade) that
+// take WsHandle are still used by ws_server.cpp directly during the Slice 7→8
+// transition; they will be removed when Task 8 completes the WsServer refactor.
+#include "server/ws_types.h"
 #include "server/logger.h"
+#include "engine/engine.h"
+#include <nlohmann/json.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -31,11 +38,18 @@ namespace parse {
 struct SubmitOrderFields { std::string suit; std::string side; int32_t price; };
 struct NudgeFields        { std::string suit; std::string side; };
 struct CancelFields       { int64_t order_id; };
+// AGENT-CTX: VoteToEndFields is empty — the server identifies the voter by
+// their slot, not by any field in the message. Keeping the struct avoids a
+// special-case bool return in the dispatch switch.
+struct VoteToEndFields    {};
+struct LeaveLobbyFields   { std::string lobby_id; };
 
 std::optional<SubmitOrderFields> submit_order(const nlohmann::json& j);
 std::optional<NudgeFields>       nudge        (const nlohmann::json& j);
 std::optional<CancelFields>      cancel_order (const nlohmann::json& j);
 std::optional<engine::Side>      side         (const std::string& s) noexcept;
+std::optional<VoteToEndFields>   vote_to_end  (const nlohmann::json& j);
+std::optional<LeaveLobbyFields>  leave_lobby  (const nlohmann::json& j);
 
 } // namespace parse
 
@@ -45,6 +59,34 @@ std::optional<engine::Side>      side         (const std::string& s) noexcept;
 // Pure output — converts data to wire format and pushes bytes to sockets.
 // No game-state reads or writes.
 // ═══════════════════════════════════════════════════════════════════════════
+// ── Payload structs for multi-field messages ─────────────────────────────────
+// AGENT-CTX: Plain data structs live here (not inside GameSession) so the wire
+// layer has no compile-time dependency on GameSession internals.  GameSession
+// builds these from its own SlotInfo / RoundSummary types before calling the
+// serialise functions below.  Renaming a GameSession field never forces a
+// recompile of everything that includes this header.
+
+struct WirePlayerResult {
+    int  player_slot;
+    int  goal_cards_held;
+    int  payout;
+    int  balance;
+    bool disconnected;
+};
+
+struct WireRoundSummary {
+    int                           round_number;
+    std::string                   goal_suit;
+    std::vector<WirePlayerResult> results;
+};
+
+struct WireFinalStanding {
+    int         player_slot;
+    std::string username;
+    int         final_balance;
+    int         net_change;   // final_balance − starting_balance
+};
+
 namespace serialise {
 
 std::string error_code_str(WsErrorCode c) noexcept;
@@ -78,6 +120,31 @@ void book_update(const std::set<WsHandle>& conns,
 void trade      (const std::set<WsHandle>& conns,
                  const engine::TradeEvent& t,
                  Logger&                   slog);
+
+// ── GameSession outbound payloads (return std::string, no socket I/O) ────────
+// AGENT-CTX: These functions return JSON strings rather than performing
+// socket sends because GameSession runs on its own thread and has no WsHandle.
+// WsServer drains the outbound queue and calls ws->send() with these strings.
+
+// next_round_at: ISO timestamp, or empty string → serialised as JSON null
+// (null when vote majority already reached before inter_round_seconds expires).
+std::string inter_round_payload(
+    int                                round_number,
+    const std::string&                 goal_suit,
+    const std::vector<WirePlayerResult>& results,
+    int                                vote_count,
+    int                                votes_required,
+    const std::string&                 next_round_at);
+
+std::string vote_tally_payload(int votes, int required);
+
+std::string game_ended_payload(
+    const std::vector<WireRoundSummary>&  rounds,
+    const std::vector<WireFinalStanding>& standings);
+
+std::string game_player_left_payload(int player_slot, const std::string& username);
+
+std::string session_error_payload(const std::string& message);
 
 } // namespace serialise
 

@@ -57,7 +57,7 @@ TEST_CASE("LobbyRepo::create returns lobby with unique 6-char code", "[integrati
     txn.commit();
 
     REQUIRE(lobby.code.size() == 6);
-    REQUIRE(lobby.owner_id    == f.owner_id);
+    REQUIRE(lobby.creator_id  == f.owner_id);
     REQUIRE(lobby.status      == anjeer::server::LobbyStatus::Waiting);
     REQUIRE(lobby.min_players == 2);
     REQUIRE(lobby.max_players == 8);
@@ -113,19 +113,21 @@ TEST_CASE("LobbyRepo::list_waiting includes player count", "[integration][lobby_
 // AC3 — join rejects
 // ---------------------------------------------------------------------------
 
-TEST_CASE("LobbyRepo::add_player returns false for duplicate join", "[integration][lobby_repo]") {
+TEST_CASE("LobbyRepo::add_player is idempotent for duplicate join", "[integration][lobby_repo]") {
     TestDbFixture f;
     std::string lobby_id;
     {
         pqxx::work txn(f.conn);
         const auto lobby = f.repo.create(txn, f.owner_id, 2, 8);
         lobby_id = lobby.id;
-        f.repo.add_player(txn, lobby_id, f.owner_id);
         txn.commit();
     }
 
+    // AGENT-CTX: create() now auto-inserts the creator row. Re-joining the same
+    // player must return the existing joined_at (idempotent), not nullopt.
     pqxx::work txn(f.conn);
-    REQUIRE_FALSE(f.repo.add_player(txn, lobby_id, f.owner_id));
+    const auto result = f.repo.add_player(txn, lobby_id, f.owner_id);
+    REQUIRE(result.has_value());
 }
 
 TEST_CASE("LobbyRepo::add_player returns false when lobby full", "[integration][lobby_repo]") {
@@ -225,7 +227,7 @@ TEST_CASE("LobbyRepo::find_by_code returns lobby after create", "[integration][l
     const auto found = f.repo.find_by_code(txn, code);
     REQUIRE(found.has_value());
     REQUIRE(found->code     == code);
-    REQUIRE(found->owner_id == f.owner_id);
+    REQUIRE(found->creator_id == f.owner_id);
     REQUIRE(found->status   == anjeer::server::LobbyStatus::Waiting);
 }
 

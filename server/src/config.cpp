@@ -62,6 +62,7 @@ ServerConfig load_config(const std::string& path) {
         cfg.game.total_cards             = gm.at("total_cards").get<int>();
         cfg.game.countdown_seconds       = gm.at("countdown_seconds").get<int>();
         cfg.game.round_duration_seconds  = gm.at("round_duration_seconds").get<int>();
+        cfg.game.inter_round_seconds     = gm.at("inter_round_seconds").get<int>();
 
         const auto dist_vec = gm.at("card_distribution").get<std::vector<int>>();
         if (dist_vec.size() != 4) {
@@ -72,17 +73,22 @@ ServerConfig load_config(const std::string& path) {
 
         const auto& sc = j.at("scoring");
         cfg.scoring.starting_balance = sc.at("starting_balance").get<int>();
-        cfg.scoring.buy_in           = sc.at("buy_in").get<int>();
+        cfg.scoring.round_buy_in_pct = sc.at("round_buy_in_pct").get<double>();
         cfg.scoring.points_per_card  = sc.at("points_per_card").get<int>();
 
-        // AGENT-CTX: buy_in > starting_balance would put a player into negative
-        // balance immediately on round entry, which is not a valid game state.
-        // Equality is allowed — a player can spend their last coins to enter.
-        if (cfg.scoring.buy_in > cfg.scoring.starting_balance) {
+        // AGENT-CTX: round_buy_in_pct must be in (0, 1]. A pct that makes round_buy_in()
+        // exceed starting_balance puts a player into negative balance on round entry.
+        // Equality (pct=1.0) is allowed — the player spends their entire balance to enter.
+        if (cfg.scoring.round_buy_in_pct <= 0.0 || cfg.scoring.round_buy_in_pct > 1.0) {
             throw std::runtime_error(
-                "scoring.buy_in must be <= scoring.starting_balance; got buy_in=" +
-                std::to_string(cfg.scoring.buy_in) +
-                " starting_balance=" + std::to_string(cfg.scoring.starting_balance));
+                "scoring.round_buy_in_pct must be in (0, 1]; got " +
+                std::to_string(cfg.scoring.round_buy_in_pct));
+        }
+        if (cfg.scoring.round_buy_in() > cfg.scoring.starting_balance) {
+            throw std::runtime_error(
+                "computed round_buy_in (" + std::to_string(cfg.scoring.round_buy_in()) +
+                ") must be <= starting_balance (" +
+                std::to_string(cfg.scoring.starting_balance) + ")");
         }
 
         cfg.http_port   = srv.at("http_port").get<int>();

@@ -10,6 +10,10 @@ import type {
   WaitingForStartMessage,
   LobbyStateMessage,
   LobbyStartedMessage,
+  InterRoundMessage,
+  VoteTallyMessage,
+  GameEndedMessage,
+  SessionErrorMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -112,6 +116,23 @@ export interface WsState {
    * The lobby_id guard in LobbyRoom prevents spurious re-navigation.
    */
   lobbyStarted: LobbyStartedMessage | null
+  /**
+   * Set on inter_round; cleared when a new round_start arrives.
+   * AGENT-CTX: Task 10 renders InterRoundScreen while this is non-null.
+   */
+  interRound: InterRoundMessage | null
+  /** Updated on every vote_tally message. Superceded by interRound.vote_count on round end. */
+  voteTally: VoteTallyMessage | null
+  /** Set on game_ended; never cleared — the session is over at that point. */
+  gameEnded: GameEndedMessage | null
+  /** Set on session_error; never cleared — the session is over at that point. */
+  sessionError: SessionErrorMessage | null
+  /**
+   * Slot indices of players who disconnected mid-game (game_player_left).
+   * AGENT-CTX: Accumulates across the session so the UI can keep departed
+   * players greyed out even after multiple departures.
+   */
+  departedSlots: number[]
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -155,6 +176,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     waitingForStart: null,
     lobbyState: null,
     lobbyStarted: null,
+    interRound: null,
+    voteTally: null,
+    gameEnded: null,
+    sessionError: null,
+    departedSlots: [],
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -323,6 +349,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             roundEndAt: msg.round_end_at,
             roundEnd: null,
             balance: msg.balance,
+            // AGENT-CTX: Clear inter-round screen when the next round begins.
+            interRound: null,
+            voteTally: null,
           }))
           break
 
@@ -385,6 +414,38 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         case 'lobby_started':
           logger.info('ws/recv', `lobby_started lobby_id=${msg.lobby_id} code=${msg.code}`)
           setState(s => ({ ...s, lobbyStarted: msg }))
+          break
+
+        case 'inter_round':
+          logger.info('ws/recv', `inter_round round=${msg.round_number} goal=${msg.goal_suit} votes=${msg.vote_count}/${msg.votes_required}`)
+          // AGENT-CTX: Clears roundEnd and roundEndAt so the game board does not
+          // show the previous round_end modal while the inter-round screen is up.
+          setState(s => ({ ...s, interRound: msg, roundEnd: null, roundEndAt: null }))
+          break
+
+        case 'vote_tally':
+          logger.info('ws/recv', `vote_tally votes=${msg.votes}/${msg.required}`)
+          setState(s => ({ ...s, voteTally: msg }))
+          break
+
+        case 'game_ended':
+          logger.info('ws/recv', `game_ended rounds=${msg.rounds.length} standings=${msg.final_standings.length}`)
+          setState(s => ({ ...s, gameEnded: msg, interRound: null }))
+          break
+
+        case 'game_player_left':
+          logger.info('ws/recv', `game_player_left slot=${msg.player_slot} username=${msg.username}`)
+          setState(s => ({
+            ...s,
+            departedSlots: s.departedSlots.includes(msg.player_slot)
+              ? s.departedSlots
+              : [...s.departedSlots, msg.player_slot],
+          }))
+          break
+
+        case 'session_error':
+          logger.warn('ws/recv', `session_error message=${msg.message}`)
+          setState(s => ({ ...s, sessionError: msg, interRound: null }))
           break
 
         default: {

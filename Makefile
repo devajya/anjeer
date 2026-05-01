@@ -13,7 +13,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
         dev dev-server dev-frontend \
         test test-unit test-frontend \
         clean clean-all fmt install-hooks install-deps \
-        db-migrate db-seed
+        db-migrate db-seed reset-lobby-db
 
 # ---------------------------------------------------------------------------
 # CMake configure
@@ -70,7 +70,7 @@ dev-frontend:
 #
 # Also kills any pre-existing server binary on port 9001 before starting, so a
 # manually-interrupted previous run never causes the same problem.
-dev: build-server
+dev: build-server reset-lobby-db
 	@fuser -k 9001/tcp 2>/dev/null || true; \
 	fuser -k 10000/tcp 2>/dev/null || true; \
 	trap 'kill $$server_pid $$vite_pid 2>/dev/null; exit 0' INT TERM; \
@@ -94,11 +94,30 @@ test-unit: $(BUILD_DIR)/Makefile
 	cmake --build $(BUILD_DIR) --target event_bus_tests --parallel
 	cmake --build $(BUILD_DIR) --target lobby_tests --parallel
 	cmake --build $(BUILD_DIR) --target http_lobby_tests --parallel
+	cmake --build $(BUILD_DIR) --target session_repo_tests --parallel
+	cmake --build $(BUILD_DIR) --target lobby_resilience_tests --parallel
+	cmake --build $(BUILD_DIR) --target game_session_tests --parallel
+	cmake --build $(BUILD_DIR) --target session_queue_tsan_tests --parallel
 	# AGENT-CTX: NTFS (/mnt/c/) does not reliably preserve the execute bit on
 	# newly linked ELF binaries. chmod after every build so ctest can run them
 	# regardless of which targets were just rebuilt.
 	find $(BUILD_DIR) -maxdepth 2 -name '*_tests' -exec chmod +x {} +
 	cd $(BUILD_DIR) && ctest --output-on-failure
+
+TSAN_BUILD_DIR := build-tsan
+
+test-tsan:
+	# AGENT-CTX: Uses a separate build-tsan/ directory so the normal build/ is
+	# never touched — switching between test-tsan and make test never triggers a
+	# full recompile. The tsan preset configures build-tsan/ independently.
+	# AGENT-CTX: WSL2 defaults to vm.mmap_rnd_bits=32 which overflows TSAN's
+	# shadow-memory layout. Lowering to 28 is the standard fix; resets on reboot.
+	sudo sysctl -w vm.mmap_rnd_bits=28
+	cmake --preset tsan
+	cmake --build $(TSAN_BUILD_DIR) --target session_queue_tsan_tests --parallel
+	chmod +x $(TSAN_BUILD_DIR)/server/session_queue_tsan_tests
+	cd $(TSAN_BUILD_DIR) && TSAN_OPTIONS="suppressions=$(CURDIR)/tsan_suppressions.txt" \
+	  ctest -R session_queue_tsan_tests --output-on-failure
 
 test-frontend:
 	npm test --prefix frontend
@@ -166,6 +185,15 @@ db-migrate:
 db-seed:
 	@psql "$(DB_CONN)" -v ON_ERROR_STOP=1 -f db/seeds/dev_users.sql
 	@echo "Seed data inserted."
+
+# AGENT-CTX: Wipes all lobby and session data without touching players or
+# schema_migrations. Safe to run against the dev DB between test sessions when
+# stale lobby rows (created under older code without leave_lobby / delete_if_empty)
+# prevent clean joins or creates. CASCADE handles FK-dependent tables automatically.
+reset-lobby-db:
+	@psql "$(DB_CONN)" -v ON_ERROR_STOP=1 \
+	    -c "TRUNCATE lobby_players, session_errors, rounds, game_sessions, lobbies CASCADE;"
+	@echo "Lobby and session tables cleared."
 
 # AGENT-CTX: fmt runs clang-format in-place on all C++ source and header files,
 # and prettier on frontend TypeScript/CSS. The `|| true` prevents a non-zero exit

@@ -1,6 +1,10 @@
 #include "server/game_session.h"
 #include "server/game_session_wire.h"
+#include "server/session_repo.h"
 
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <string>
@@ -9,731 +13,670 @@
 
 namespace anjeer::server {
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Internal helpers ─────────────────────────────────────────────────────────
 
-struct ScoringInputs {
-    std::vector<engine::PlayerHand> hands;
-    std::vector<bool>               disconnected;
-};
-
-struct SuitSideResult {
-    engine::Suit suit;
-    engine::Side side;
-};
-
-static void log_recv(int32_t player_slot, std::string_view msg, Logger& slog) {
-    constexpr std::size_t kMaxRawLog = 256;
-    std::string raw(msg.substr(0, kMaxRawLog));
-    for (auto& c : raw) if (c == '\n' || c == '\r') c = ' ';
-    slog.info("recv",
-              "player=" + std::to_string(player_slot) +
-              " raw=" + raw +
-              (msg.size() > kMaxRawLog ? "…" : ""));
+static std::array<engine::OrderBook, 4> build_books(const ServerConfig& cfg) {
+    auto make = [&](engine::Suit s) {
+        return engine::OrderBook{engine::OrderBook::Config{
+            cfg.order_book.min_price,
+            cfg.order_book.max_price,
+            cfg.order_book.nudge_initial_buy_price,
+            cfg.order_book.nudge_initial_sell_price,
+            std::string(engine::suit_name(s)),
+        }};
+    };
+    return {
+        make(engine::Suit::Clubs),
+        make(engine::Suit::Diamonds),
+        make(engine::Suit::Hearts),
+        make(engine::Suit::Spades),
+    };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GameSession implementation
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 GameSession::GameSession(
-    std::array<engine::OrderBook, 4> books,
-    std::array<bool, 4>              active_suits,
-    const ServerConfig&              cfg,
-    Logger&                          server_log,
-    Logger&                          engine_log,
-    uWS::Loop*                       loop,
-    std::mt19937&                    rng)
-    : cfg_(cfg)
-    , server_log_(server_log)
-    , engine_log_(engine_log)
-    , loop_(loop)
-    , rng_(rng)
-    , books_(std::move(books))
-    , active_suits_(active_suits)
+    std::string                                       session_id,
+    std::string                                       lobby_id,
+    std::vector<SlotInfo>                             slots,
+    GameSessionContext                                ctx,
+    moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
+    moodycamel::ReaderWriterQueue<GameEvent>&         outbound)
+    : cfg_(ctx.cfg)
+    , server_log_(ctx.server_log)
+    , engine_log_(ctx.engine_log)
+    , rng_(ctx.rng)
+    , db_pool_(ctx.db_pool)
+    , inbound_(inbound)
+    , outbound_(outbound)
+    , session_id_(std::move(session_id))
+    , lobby_id_(std::move(lobby_id))
+    , slots_(std::move(slots))
+    , books_(build_books(ctx.cfg))
 {
-    player_slots_.resize(cfg_.game.player_count, nullptr);
-    // AGENT-CTX: Balances initialised once at session start, not per-connect.
-    // A balance survives a player leaving and rejoining within the same session.
-    available_cash_.resize(cfg_.game.player_count, cfg_.scoring.starting_balance);
+    vote_to_end_.assign(slots_.size(), false);
+    funded_this_round_.assign(slots_.size(), false);
+    active_player_count_ = static_cast<int>(slots_.size());
+
+    for (const auto& suit_str : cfg_.order_book.active_suits) {
+        const auto s = engine::suit_from_string(suit_str);
+        if (s) active_suits_[engine::suit_index(*s)] = true;
+    }
 }
 
 GameSession::~GameSession() {
-    // Defensive: shutdown() should be called explicitly before destruction,
-    // but guard here in case of exception paths.
-    if (running_) running_ = false;
-    if (countdown_thread_.has_value()    && countdown_thread_->joinable())
-        countdown_thread_->join();
-    if (round_timer_thread_.has_value()  && round_timer_thread_->joinable())
-        round_timer_thread_->join();
+    shutdown();
+}
+
+void GameSession::start() {
+    game_loop_thread_ = std::thread([this]() { run(); });
 }
 
 void GameSession::shutdown() {
-    running_ = false;
-    if (countdown_thread_.has_value()   && countdown_thread_->joinable())
-        countdown_thread_->join();
-    if (round_timer_thread_.has_value() && round_timer_thread_->joinable())
-        round_timer_thread_->join();
+    stop_.store(true, std::memory_order_relaxed);
+    if (game_loop_thread_.joinable()) game_loop_thread_.join();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Event processing pipeline
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Game loop ────────────────────────────────────────────────────────────────
 
-// AGENT-CTX: Serialises engine events and sends to the appropriate sockets.
-// No game-state mutation — does not clear books. Returns had_trade so
-// apply_engine_events can decide whether to wipe. BookUpdateEvent is suppressed
-// when a trade occurred in the same batch because the wipe broadcasts null
-// book_updates immediately after.
-bool GameSession::dispatch_events(
-        WsHandle ws,
-        const std::vector<engine::OrderEvent>& events) {
+void GameSession::run() {
+    server_log_.info("session", "game loop started session=" + session_id_);
+    try {
+        while (!stop_.load(std::memory_order_relaxed)) {
+            tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+    } catch (const std::exception& ex) {
+        server_log_.error("session", "unhandled exception: " + std::string(ex.what()));
+        persist_error("unhandled_exception", ex.what());
+        emit_broadcast(serialise::session_error_payload(ex.what()));
+    } catch (...) {
+        server_log_.error("session", "unknown exception in game loop");
+        persist_error("unknown_exception", "unknown");
+        emit_broadcast(serialise::session_error_payload("internal server error"));
+    }
+    outbound_.enqueue(GameDone{});
+    done_.store(true, std::memory_order_release);
+    server_log_.info("session", "game loop ended session=" + session_id_);
+}
+
+void GameSession::tick() {
+    process_inbound();
+
+    const auto now = std::chrono::steady_clock::now();
+
+    switch (phase_) {
+    case SessionPhase::Lobby:
+        break;
+
+    case SessionPhase::Countdown:
+        if (now >= countdown_deadline_) begin_round();
+        break;
+
+    case SessionPhase::RoundActive:
+        if (now >= round_deadline_) {
+            end_round();
+        } else if (all_disconnected_ &&
+                   now - all_disconnected_since_ >= kReconnectGrace) {
+            server_log_.warn("session", "all disconnected for >500ms — ending game");
+            end_game(true);
+        }
+        break;
+
+    case SessionPhase::InterRound: {
+        const int votes  = static_cast<int>(
+            std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
+        const int needed = majority_threshold();
+        if (votes >= needed) {
+            server_log_.info("session", "vote majority reached — ending game");
+            end_game(false);
+        } else if (now >= inter_round_deadline_) {
+            begin_round();
+        }
+        break;
+    }
+
+    case SessionPhase::Ended:
+        stop_.store(true, std::memory_order_relaxed);
+        break;
+    }
+}
+
+void GameSession::process_inbound() {
+    NetEvent ev;
+    while (inbound_.try_dequeue(ev)) {
+        std::visit([this](auto&& e) {
+            using T = std::decay_t<decltype(e)>;
+            if constexpr      (std::is_same_v<T, NetConnect>)    handle_connect(e);
+            else if constexpr (std::is_same_v<T, NetDisconnect>) handle_disconnect(e);
+            else if constexpr (std::is_same_v<T, NetSubmit>)     handle_submit(e);
+            else if constexpr (std::is_same_v<T, NetNudge>)      handle_nudge(e);
+            else if constexpr (std::is_same_v<T, NetCancel>)     handle_cancel(e);
+            else if constexpr (std::is_same_v<T, NetStartGame>)  handle_start_game();
+            else if constexpr (std::is_same_v<T, NetVoteToEnd>)      handle_vote_to_end(e.slot);
+            else if constexpr (std::is_same_v<T, NetPermanentLeave>) handle_permanent_leave(e.slot);
+        }, ev);
+    }
+}
+
+// ─── NetEvent handlers ────────────────────────────────────────────────────────
+
+void GameSession::handle_connect(const NetConnect& ev) {
+    if (ev.slot < 0 || ev.slot >= static_cast<int32_t>(slots_.size())) {
+        server_log_.warn("connect", "slot=" + std::to_string(ev.slot) + " out of range");
+        return;
+    }
+    auto& slot = slots_[ev.slot];
+    if (!slot.active) {
+        // Slot re-used within grace window: re-activate
+        slot.active = true;
+        active_player_count_++;
+    }
+    slot.connected  = true;
+    slot.player_id  = ev.player_id;
+    slot.username   = ev.username;
+    all_disconnected_ = false;
+
+    server_log_.info("connect",
+        "slot=" + std::to_string(ev.slot) + " player=" + ev.username);
+
+    // Send current book state to this slot
+    for (auto s : engine::kAllSuits) {
+        const int si = engine::suit_index(s);
+        if (!active_suits_[si]) continue;
+        emit_targeted(ev.slot, serialise::book_update_payload(
+            std::string(engine::suit_name(s)),
+            books_[si].best_bid(), books_[si].best_ask()));
+    }
+
+    if (phase_ == SessionPhase::Lobby) broadcast_waiting_for_start();
+}
+
+void GameSession::handle_disconnect(const NetDisconnect& ev) {
+    if (ev.slot < 0 || ev.slot >= static_cast<int32_t>(slots_.size())) return;
+    auto& slot = slots_[ev.slot];
+    slot.connected = false;
+
+    server_log_.info("disconnect",
+        "slot=" + std::to_string(ev.slot) + " player=" + slot.username);
+
+    if (phase_ == SessionPhase::RoundActive || phase_ == SessionPhase::InterRound)
+        emit_broadcast(serialise::game_player_left_payload(ev.slot, slot.username));
+
+    bool any_connected = false;
+    for (const auto& s : slots_) {
+        if (s.active && s.connected) { any_connected = true; break; }
+    }
+    if (!any_connected && !all_disconnected_) {
+        all_disconnected_       = true;
+        all_disconnected_since_ = std::chrono::steady_clock::now();
+    }
+
+    check_end_condition();
+}
+
+void GameSession::handle_submit(const NetSubmit& ev) {
+    if (phase_ != SessionPhase::RoundActive) {
+        emit_error(ev.slot, "ROUND_NOT_ACTIVE", "round is not active");
+        return;
+    }
+    const auto suit_opt = engine::suit_from_string(ev.suit);
+    if (!suit_opt || !active_suits_[engine::suit_index(*suit_opt)]) {
+        emit_error(ev.slot, "UNKNOWN_SUIT", "unknown suit: " + ev.suit);
+        return;
+    }
+    if (ev.side == engine::Side::Buy && ev.price > slots_[ev.slot].balance) {
+        emit_error(ev.slot, "INSUFFICIENT_BALANCE", "insufficient balance");
+        return;
+    }
+    auto events = books_[engine::suit_index(*suit_opt)].submit(ev.slot, ev.side, ev.price);
+    const bool had_trade = dispatch_events(ev.slot, events);
+    apply_card_transfers(events);
+    apply_trade_settlements(events);
+    if (had_trade) apply_global_wipe();
+}
+
+void GameSession::handle_nudge(const NetNudge& ev) {
+    if (phase_ != SessionPhase::RoundActive) {
+        emit_error(ev.slot, "ROUND_NOT_ACTIVE", "round is not active");
+        return;
+    }
+    const auto suit_opt = engine::suit_from_string(ev.suit);
+    if (!suit_opt || !active_suits_[engine::suit_index(*suit_opt)]) {
+        emit_error(ev.slot, "UNKNOWN_SUIT", "unknown suit: " + ev.suit);
+        return;
+    }
+    auto events = books_[engine::suit_index(*suit_opt)].nudge(ev.side, ev.slot);
+    const bool had_trade = dispatch_events(ev.slot, events);
+    apply_card_transfers(events);
+    apply_trade_settlements(events);
+    if (had_trade) apply_global_wipe();
+}
+
+void GameSession::handle_cancel(const NetCancel& ev) {
+    if (phase_ != SessionPhase::RoundActive) {
+        emit_error(ev.slot, "ROUND_NOT_ACTIVE", "round is not active");
+        return;
+    }
+    bool handled = false;
+    for (auto s : engine::kAllSuits) {
+        const int si = engine::suit_index(s);
+        if (!active_suits_[si]) continue;
+        auto events = books_[si].cancel(ev.order_id, ev.slot);
+        if (events.empty()) continue;
+        const auto* err = std::get_if<engine::OrderErrorEvent>(&events.front());
+        if (err && err->code == engine::OrderErrorEvent::Code::OrderNotFound) continue;
+        handled = true;
+        if (dispatch_events(ev.slot, events)) apply_global_wipe();
+        break;
+    }
+    if (!handled)
+        emit_error(ev.slot, "ORDER_NOT_FOUND", "order " + std::to_string(ev.order_id) + " not found");
+}
+
+void GameSession::handle_start_game() {
+    if (phase_ != SessionPhase::Lobby) {
+        server_log_.warn("start_game", "ignored — not in Lobby phase");
+        return;
+    }
+    int connected = 0;
+    for (const auto& s : slots_) if (s.connected) connected++;
+    if (connected < cfg_.lobby.min_players) {
+        server_log_.warn("start_game",
+            "ignored — " + std::to_string(connected) +
+            "/" + std::to_string(cfg_.lobby.min_players) + " players");
+        return;
+    }
+    server_log_.info("start_game", "beginning countdown session=" + session_id_);
+    begin_countdown();
+}
+
+void GameSession::handle_vote_to_end(int32_t slot) {
+    if (phase_ != SessionPhase::InterRound) return;
+    if (slot < 0 || slot >= static_cast<int32_t>(vote_to_end_.size())) return;
+    vote_to_end_[slot] = true;
+
+    const int votes  = static_cast<int>(
+        std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
+    const int needed = (active_player_count_ + 1) / 2;
+
+    server_log_.info("vote_to_end",
+        "slot=" + std::to_string(slot) +
+        " votes=" + std::to_string(votes) + "/" + std::to_string(needed));
+
+    emit_broadcast(serialise::vote_tally_payload(votes, needed));
+}
+
+void GameSession::handle_permanent_leave(int32_t slot) {
+    if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
+    auto& s = slots_[slot];
+    if (!s.active) return;  // already marked inactive (double-fire guard)
+
+    s.active    = false;
+    s.connected = false;
+    active_player_count_--;
+
+    server_log_.info("permanent_leave",
+        "slot=" + std::to_string(slot) + " player=" + s.username +
+        " active_remaining=" + std::to_string(active_player_count_));
+
+    if (phase_ == SessionPhase::RoundActive || phase_ == SessionPhase::InterRound)
+        emit_broadcast(serialise::game_player_left_payload(slot, s.username));
+
+    bool any_connected = false;
+    for (const auto& sl : slots_) {
+        if (sl.active && sl.connected) { any_connected = true; break; }
+    }
+    if (!any_connected && !all_disconnected_) {
+        all_disconnected_       = true;
+        all_disconnected_since_ = std::chrono::steady_clock::now();
+    }
+
+    check_end_condition();
+}
+
+// ─── Session / round lifecycle ────────────────────────────────────────────────
+
+void GameSession::begin_countdown() {
+    phase_             = SessionPhase::Countdown;
+    countdown_deadline_ = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(cfg_.game.countdown_seconds);
+
+    const std::string starts_at = steady_to_iso(countdown_deadline_);
+    emit_broadcast(nlohmann::json{
+        {"type",         "round_starting"},
+        {"starts_at",    starts_at},
+        {"player_count", static_cast<int>(slots_.size())},
+    }.dump());
+    server_log_.info("countdown", "starts_at=" + starts_at);
+}
+
+void GameSession::begin_round() {
+    phase_        = SessionPhase::RoundActive;
+    all_disconnected_ = false;
+    round_number_++;
+
+    std::fill(vote_to_end_.begin(),      vote_to_end_.end(),      false);
+    std::fill(funded_this_round_.begin(), funded_this_round_.end(), false);
+
+    engine::GameState::Config gs_cfg{
+        static_cast<int>(slots_.size()),
+        cfg_.game.total_cards,
+        cfg_.game.card_distribution,
+    };
+    game_state_        = std::make_unique<engine::GameState>(gs_cfg);
+    auto deal          = game_state_->deal(rng_);
+    current_goal_suit_ = std::string(engine::suit_name(deal.goal_suit));
+
+    try {
+        auto conn = db_pool_.acquire();
+        pqxx::work txn(conn.get());
+        const int pot  = cfg_.scoring.round_buy_in() * active_player_count_;
+        current_round_id_ = SessionRepo{}.create_round(
+            txn, session_id_, round_number_, current_goal_suit_, pot);
+        txn.commit();
+    } catch (const std::exception& ex) {
+        server_log_.warn("db", "create_round failed: " + std::string(ex.what()));
+    }
+
+    collect_buy_ins();
+
+    round_deadline_ = std::chrono::steady_clock::now() +
+                      std::chrono::seconds(cfg_.game.round_duration_seconds);
+    const std::string round_end_at = steady_to_iso(round_deadline_);
+
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        if (!slots_[i].connected) continue;
+        emit_targeted(i, serialise::round_start_payload(
+            i, deal.hands[i], round_end_at, slots_[i].balance));
+    }
+
+    server_log_.info("round",
+        "round=" + std::to_string(round_number_) +
+        " goal=" + current_goal_suit_ +
+        " round_end_at=" + round_end_at);
+}
+
+void GameSession::collect_buy_ins() {
+    const int buy_in = cfg_.scoring.round_buy_in();
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        if (!slots_[i].active || funded_this_round_[i]) continue;
+        slots_[i].balance    -= buy_in;
+        funded_this_round_[i] = true;
+    }
+}
+
+void GameSession::end_round() {
+    apply_global_wipe();
+
+    std::vector<engine::PlayerHand> hands;
+    std::vector<bool>               disconnected;
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        hands.push_back(game_state_->hand(i));
+        disconnected.push_back(!slots_[i].connected);
+    }
+
+    const engine::ScoringConfig sc{cfg_.scoring.round_buy_in(), cfg_.scoring.points_per_card};
+    const auto result = engine::score_round(
+        hands, game_state_->goal_suit(), disconnected, sc);
+
+    engine_log_.info("score_round",
+        "round=" + std::to_string(round_number_) + " goal=" + current_goal_suit_);
+
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i)
+        slots_[i].balance += result.player_results[i].payout;
+
+    std::vector<WirePlayerResult> wire_results;
+    for (const auto& pr : result.player_results) {
+        wire_results.push_back({
+            pr.player_slot,
+            pr.goal_cards_held,
+            pr.payout,
+            slots_[pr.player_slot].balance,
+            pr.disconnected,
+        });
+    }
+
+    try {
+        auto conn = db_pool_.acquire();
+        pqxx::work txn(conn.get());
+        SessionRepo{}.end_round(txn, current_round_id_);
+        txn.commit();
+    } catch (const std::exception& ex) {
+        server_log_.warn("db", "end_round failed: " + std::string(ex.what()));
+    }
+
+    round_history_.push_back({round_number_, current_goal_suit_, wire_results});
+
+    begin_inter_round(wire_results, current_goal_suit_);
+}
+
+void GameSession::begin_inter_round(
+        const std::vector<WirePlayerResult>& results,
+        const std::string& goal_suit) {
+    phase_ = SessionPhase::InterRound;
+
+    const int needed = (active_player_count_ + 1) / 2;
+
+    inter_round_deadline_ = std::chrono::steady_clock::now() +
+                            std::chrono::seconds(cfg_.game.inter_round_seconds);
+    const std::string next_round_at = steady_to_iso(inter_round_deadline_);
+
+    emit_broadcast(serialise::inter_round_payload(
+        round_number_, goal_suit, results, 0, needed, next_round_at));
+
+    server_log_.info("inter_round",
+        "round=" + std::to_string(round_number_) + " next_round_at=" + next_round_at);
+
+    check_end_condition();
+}
+
+
+void GameSession::end_game(bool forced) {
+    if (phase_ == SessionPhase::Ended) return;
+    phase_ = SessionPhase::Ended;
+
+    server_log_.info("game_end",
+        "forced=" + std::string(forced ? "true" : "false") +
+        " rounds=" + std::to_string(round_number_));
+
+    const int starting = cfg_.scoring.starting_balance;
+    std::vector<WireFinalStanding> standings;
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        standings.push_back({
+            i, slots_[i].username,
+            slots_[i].balance,
+            slots_[i].balance - starting,
+        });
+    }
+
+    std::vector<WireRoundSummary> rounds;
+    for (const auto& rh : round_history_)
+        rounds.push_back({rh.round_number, rh.goal_suit, rh.results});
+
+    emit_broadcast(serialise::game_ended_payload(rounds, standings));
+    persist_game_result();
+}
+
+void GameSession::check_end_condition() {
+    if (phase_ == SessionPhase::Ended || phase_ != SessionPhase::InterRound) return;
+    if (active_player_count_ < cfg_.lobby.min_players) {
+        server_log_.info("check_end",
+            "active=" + std::to_string(active_player_count_) +
+            " < min=" + std::to_string(cfg_.lobby.min_players));
+        end_game(true);
+    }
+}
+
+// ─── Engine event pipeline ────────────────────────────────────────────────────
+
+bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderEvent>& events) {
     bool had_trade = false;
 
     for (const auto& ev : events) {
-
         if (const auto* ack = std::get_if<engine::OrderAckEvent>(&ev)) {
-            const std::string payload = nlohmann::json{
+            emit_targeted(slot, nlohmann::json{
                 {"type",     "order_ack"},
                 {"order_id", ack->order_id},
                 {"suit",     ack->suit},
                 {"side",     serialise::side(ack->side)},
                 {"price",    ack->price},
-            }.dump();
-            ws->send(payload, uWS::OpCode::TEXT);
-            server_log_.info("send",
-                      "player=" + std::to_string(ws->getUserData()->player_slot) +
-                      " type=order_ack order_id=" + std::to_string(ack->order_id) +
-                      " suit=" + ack->suit +
-                      " side=" + serialise::side(ack->side) +
-                      " price=" + std::to_string(ack->price));
-            engine_log_.info("order_ack",
-                      "order_id=" + std::to_string(ack->order_id) +
-                      " player=" + std::to_string(ws->getUserData()->player_slot) +
-                      " suit=" + ack->suit +
-                      " side=" + serialise::side(ack->side) +
-                      " price=" + std::to_string(ack->price));
+            }.dump());
         }
-
         else if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
             engine_log_.info("trade",
-                      "suit=" + t->suit +
-                      " price=" + std::to_string(t->price) +
-                      " aggressor=" + serialise::side(t->aggressor_side) +
-                      " buyer_id=" + std::to_string(t->buyer_id) +
-                      " seller_id=" + std::to_string(t->seller_id));
-            serialise::trade(connections_, *t, server_log_);
+                "suit=" + t->suit + " price=" + std::to_string(t->price));
+            for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+                if (!slots_[i].connected) continue;
+                nlohmann::json your_side = nullptr;
+                if (i == t->buyer_id)  your_side = "buy";
+                if (i == t->seller_id) your_side = "sell";
+                emit_targeted(i, nlohmann::json{
+                    {"type",           "trade"},
+                    {"suit",           t->suit},
+                    {"price",          t->price},
+                    {"aggressor_side", serialise::side(t->aggressor_side)},
+                    {"your_side",      your_side},
+                }.dump());
+            }
             had_trade = true;
         }
-
         else if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
             if (!had_trade) {
-                serialise::book_update(connections_, upd->suit,
-                                       upd->best_bid, upd->best_ask, server_log_);
-            } else {
-                engine_log_.debug("book_update",
-                           "suppressed (trade in same batch) suit=" + upd->suit);
+                emit_broadcast(serialise::book_update_payload(
+                    upd->suit, upd->best_bid, upd->best_ask));
             }
         }
-
         else if (const auto* cack = std::get_if<engine::OrderCancelAckEvent>(&ev)) {
-            const std::string payload = nlohmann::json{
+            emit_targeted(slot, nlohmann::json{
                 {"type",     "order_cancel_ack"},
                 {"order_id", cack->order_id},
-            }.dump();
-            ws->send(payload, uWS::OpCode::TEXT);
-            server_log_.info("send",
-                      "player=" + std::to_string(ws->getUserData()->player_slot) +
-                      " type=order_cancel_ack order_id=" + std::to_string(cack->order_id));
-            engine_log_.info("cancel_ack",
-                      "order_id=" + std::to_string(cack->order_id) +
-                      " player=" + std::to_string(ws->getUserData()->player_slot));
+            }.dump());
         }
-
         else if (const auto* err = std::get_if<engine::OrderErrorEvent>(&ev)) {
-            engine_log_.warn("engine_error",
-                      "code=" + serialise::error_code_str(to_ws_error_code(err->code)) +
-                      " message=" + err->message +
-                      " player=" + std::to_string(ws->getUserData()->player_slot));
-            serialise::error(ws, to_ws_error_code(err->code), err->message, server_log_);
+            emit_error(slot,
+                serialise::error_code_str(to_ws_error_code(err->code)),
+                err->message);
         }
     }
 
     return had_trade;
 }
 
-// AGENT-CTX: Global wipe mechanic (Slice 2 resolution 1).
-// Any executed trade resets ALL suit order books simultaneously.
-// Separated from dispatch_events so serialise (event→JSON/socket) and
-// game-mechanic policy (wipe books on trade) are independently testable.
 void GameSession::apply_global_wipe() {
-    engine_log_.info("global_wipe", "wiping all books after trade");
+    engine_log_.info("global_wipe", "wiping all books");
     for (auto s : engine::kAllSuits) {
         const int si = engine::suit_index(s);
         if (!active_suits_[si]) continue;
         const auto events = books_[si].wipe();
         for (const auto& ev : events) {
             if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
-                serialise::book_update(connections_, upd->suit,
-                                       upd->best_bid, upd->best_ask, server_log_);
+                emit_broadcast(serialise::book_update_payload(
+                    upd->suit, upd->best_bid, upd->best_ask));
             }
         }
     }
 }
 
-// AGENT-CTX: Called after every dispatch_events() that produced a trade.
-// game_state_ may be null during tests or if somehow called before deal;
-// guard is intentional — the server should not crash on a double-fire.
-void GameSession::apply_card_transfers(
-        const std::vector<engine::OrderEvent>& events) {
+void GameSession::apply_card_transfers(const std::vector<engine::OrderEvent>& events) {
     if (!game_state_) return;
     for (const auto& ev : events) {
         if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
             const auto suit_opt = engine::suit_from_string(t->suit);
             if (!suit_opt) continue;
             game_state_->transfer_card(t->seller_id, t->buyer_id, *suit_opt);
-            engine_log_.info("transfer_card",
-                      "seller=" + std::to_string(t->seller_id) +
-                      " buyer="  + std::to_string(t->buyer_id)  +
-                      " suit="   + t->suit);
         }
     }
 }
 
-void GameSession::apply_trade_settlements(
-        const std::vector<engine::OrderEvent>& events) {
+void GameSession::apply_trade_settlements(const std::vector<engine::OrderEvent>& events) {
     for (const auto& ev : events) {
         if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
-            available_cash_[t->buyer_id]  -= t->price;
-            available_cash_[t->seller_id] += t->price;
-            engine_log_.info("trade_settlement",
-                      "buyer="   + std::to_string(t->buyer_id)  +
-                      " cash-=" + std::to_string(t->price) +
-                      " seller=" + std::to_string(t->seller_id) +
-                      " cash+=" + std::to_string(t->price));
+            slots_[t->buyer_id].balance  -= t->price;
+            slots_[t->seller_id].balance += t->price;
             for (int party : {t->buyer_id, t->seller_id}) {
-                if (auto* ws = player_slots_[party]) {
-                    const std::string payload = nlohmann::json{
+                if (slots_[party].connected) {
+                    emit_targeted(party, nlohmann::json{
                         {"type",    "balance_update"},
-                        {"balance", available_cash_[party]},
-                    }.dump();
-                    ws->send(payload, uWS::OpCode::TEXT);
-                    server_log_.info("send",
-                              "player=" + std::to_string(party) +
-                              " type=balance_update balance=" +
-                              std::to_string(available_cash_[party]));
+                        {"balance", slots_[party].balance},
+                    }.dump());
                 }
             }
         }
     }
 }
 
-void GameSession::apply_engine_events(
-        WsHandle ws,
-        const std::vector<engine::OrderEvent>& events) {
-    const bool had_trade = dispatch_events(ws, events);
-    apply_card_transfers(events);
-    apply_trade_settlements(events);
-    if (had_trade) apply_global_wipe();
+// ─── Outbound helpers ─────────────────────────────────────────────────────────
+
+void GameSession::emit_broadcast(const std::string& json) {
+    outbound_.enqueue(GameBroadcast{json});
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// validate_suit_and_side — shared by handle_submit and handle_nudge
-// ─────────────────────────────────────────────────────────────────────────────
-static std::optional<SuitSideResult> validate_suit_and_side(
-        WsHandle                      ws,
-        const std::array<bool, 4>&    active_suits,
-        const std::string&            suit_str,
-        const std::string&            side_raw,
-        std::string_view              op_name,
-        Logger&                       server_log,
-        Logger&                       engine_log) {
-    const auto suit_opt = engine::suit_from_string(suit_str);
-    if (!suit_opt || !active_suits[engine::suit_index(*suit_opt)]) {
-        std::string known;
-        for (auto s : engine::kAllSuits) {
-            if (active_suits[engine::suit_index(s)])
-                known += std::string(engine::suit_name(s)) + " ";
-        }
-        engine_log.warn(std::string(op_name),
-                        "UNKNOWN_SUIT: '" + suit_str + "'  known suits: " + known);
-        serialise::error(ws, WsErrorCode::UnknownSuit,
-                         "suit '" + suit_str + "' is not active", server_log);
-        return std::nullopt;
-    }
-
-    const auto side_opt = parse::side(side_raw);
-    if (!side_opt) {
-        engine_log.warn(std::string(op_name),
-                        "bad side value: '" + side_raw + "'");
-        serialise::error(ws, WsErrorCode::MalformedMessage,
-                         "'side' must be \"buy\" or \"sell\"", server_log);
-        return std::nullopt;
-    }
-
-    return SuitSideResult{*suit_opt, *side_opt};
+void GameSession::emit_targeted(int32_t slot, const std::string& json) {
+    outbound_.enqueue(GameTargeted{slot, json});
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Message handlers
-// ─────────────────────────────────────────────────────────────────────────────
-
-void GameSession::handle_submit(WsHandle ws, const nlohmann::json& j, int32_t player_slot) {
-    if (round_phase_ != RoundPhase::Active) {
-        serialise::error(ws, WsErrorCode::RoundNotActive, "round is not active", server_log_);
-        return;
-    }
-
-    const auto fields = parse::submit_order(j);
-    if (!fields) {
-        server_log_.error("submit_order",
-                   "player=" + std::to_string(player_slot) + " missing required fields");
-        serialise::error(ws, WsErrorCode::MalformedMessage,
-                         "submit_order requires 'suit', 'side', 'price'", server_log_);
-        return;
-    }
-
-    engine_log_.info("submit_order",
-              "player=" + std::to_string(player_slot) +
-              " suit=" + fields->suit +
-              " side=" + fields->side +
-              " price=" + std::to_string(fields->price));
-
-    const auto validated = validate_suit_and_side(
-        ws, active_suits_, fields->suit, fields->side, "submit_order",
-        server_log_, engine_log_);
-    if (!validated) return;
-
-    if (validated->side == engine::Side::Buy &&
-        fields->price > available_cash_[player_slot]) {
-        serialise::error(ws, WsErrorCode::InsufficientBalance,
-                         "insufficient balance: have " +
-                         std::to_string(available_cash_[player_slot]) +
-                         ", need " + std::to_string(fields->price), server_log_);
-        return;
-    }
-
-    engine_log_.debug("submit_order",
-               "calling engine — suit=" + fields->suit +
-               " player=" + std::to_string(player_slot) +
-               " side=" + fields->side +
-               " price=" + std::to_string(fields->price));
-    auto events = books_[engine::suit_index(validated->suit)]
-                      .submit(player_slot, validated->side, fields->price);
-    engine_log_.info("submit_order",
-              "engine returned " + std::to_string(events.size()) + " event(s)");
-
-    apply_engine_events(ws, events);
+void GameSession::emit_error(int32_t slot, std::string_view code, std::string_view message) {
+    emit_targeted(slot, nlohmann::json{
+        {"type",    "error"},
+        {"code",    std::string(code)},
+        {"message", std::string(message)},
+    }.dump());
 }
 
-void GameSession::handle_nudge(WsHandle ws, const nlohmann::json& j, int32_t player_slot) {
-    if (round_phase_ != RoundPhase::Active) {
-        serialise::error(ws, WsErrorCode::RoundNotActive, "round is not active", server_log_);
-        return;
-    }
-
-    const auto fields = parse::nudge(j);
-    if (!fields) {
-        server_log_.error("nudge",
-                   "player=" + std::to_string(player_slot) + " missing required fields");
-        serialise::error(ws, WsErrorCode::MalformedMessage,
-                         "nudge requires 'suit' and 'side'", server_log_);
-        return;
-    }
-
-    engine_log_.info("nudge",
-              "player=" + std::to_string(player_slot) +
-              " suit=" + fields->suit +
-              " side=" + fields->side);
-
-    const auto validated = validate_suit_and_side(
-        ws, active_suits_, fields->suit, fields->side, "nudge",
-        server_log_, engine_log_);
-    if (!validated) return;
-
-    auto events = books_[engine::suit_index(validated->suit)]
-                      .nudge(validated->side, player_slot);
-    engine_log_.info("nudge",
-              "engine returned " + std::to_string(events.size()) + " event(s)");
-
-    apply_engine_events(ws, events);
-}
-
-void GameSession::handle_cancel(WsHandle ws, const nlohmann::json& j, int32_t player_slot) {
-    if (round_phase_ != RoundPhase::Active) {
-        serialise::error(ws, WsErrorCode::RoundNotActive, "round is not active", server_log_);
-        return;
-    }
-
-    const auto fields = parse::cancel_order(j);
-    if (!fields) {
-        server_log_.error("cancel_order",
-                   "player=" + std::to_string(player_slot) + " missing required fields");
-        serialise::error(ws, WsErrorCode::MalformedMessage,
-                         "cancel_order requires 'order_id' (int)", server_log_);
-        return;
-    }
-
-    engine_log_.info("cancel_order",
-              "player=" + std::to_string(player_slot) +
-              " order_id=" + std::to_string(fields->order_id));
-
-    // AGENT-CTX: Cancel searches ALL books because the wire protocol omits
-    // suit from the cancel message.
-    bool handled = false;
-    for (auto s : engine::kAllSuits) {
-        const int si = engine::suit_index(s);
-        if (!active_suits_[si]) continue;
-        auto events = books_[si].cancel(fields->order_id, player_slot);
-        if (events.empty()) continue;
-        const auto* err = std::get_if<engine::OrderErrorEvent>(&events.front());
-        if (err && err->code == engine::OrderErrorEvent::Code::OrderNotFound) continue;
-
-        handled = true;
-        if (dispatch_events(ws, events))
-            apply_global_wipe();
-        break;
-    }
-
-    if (!handled) {
-        engine_log_.warn("cancel_order",
-                  "order_id=" + std::to_string(fields->order_id) + " not found in any book");
-        serialise::error(ws, WsErrorCode::OrderNotFound,
-                         "order " + std::to_string(fields->order_id) + " not found", server_log_);
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// handle_start_game — explicit trigger replacing the N-connections auto-start
-// ─────────────────────────────────────────────────────────────────────────────
-
-// AGENT-CTX: Silently ignores the request if conditions aren't met rather than
-// sending an error. The frontend button is hidden until conditions are met, so
-// a start_game when not ready means a stale/racing message — ignore is correct.
-void GameSession::handle_start_game() {
-    if (round_phase_ != RoundPhase::Waiting) {
-        server_log_.warn("start_game", "ignored — round not in Waiting phase");
-        return;
-    }
-    if (countdown_in_progress_) {
-        server_log_.warn("start_game", "ignored — countdown already in progress");
-        return;
-    }
-    if (connected_count_ < cfg_.game.player_count) {
-        server_log_.warn("start_game",
-            "ignored — not enough players: " +
-            std::to_string(connected_count_) + "/" +
-            std::to_string(cfg_.game.player_count));
-        return;
-    }
-    server_log_.info("start_game", "received — beginning countdown");
-    begin_countdown();
-}
-
-// Slice 6 replaces this with scoped lobby_joined / lobby_left events.
 void GameSession::broadcast_waiting_for_start() {
-    if (countdown_in_progress_ || round_phase_ != RoundPhase::Waiting) return;
-    const std::string payload = nlohmann::json{
+    if (phase_ != SessionPhase::Lobby) return;
+    int connected = 0;
+    for (const auto& s : slots_) if (s.connected) connected++;
+    emit_broadcast(nlohmann::json{
         {"type",      "waiting_for_start"},
-        {"connected", connected_count_},
-        {"required",  cfg_.game.player_count},
-    }.dump();
-    for (WsHandle ws : connections_)
-        ws->send(payload, uWS::OpCode::TEXT);
-    server_log_.info("broadcast",
-        "type=waiting_for_start connected=" + std::to_string(connected_count_) +
-        "/" + std::to_string(cfg_.game.player_count));
+        {"connected", connected},
+        {"required",  cfg_.lobby.min_players},
+    }.dump());
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Round lifecycle
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── DB writes ────────────────────────────────────────────────────────────────
 
-void GameSession::handle_round_expiry() {
-    // AGENT-CTX: Null is impossible today (timer only fires after deal), but
-    // Slice 6 lobby handoff can destroy game_state_ between timer start and
-    // fire. Guard prevents crash.
-    if (!game_state_) {
-        server_log_.error("round_expiry", "game_state is null — expiry handler aborted");
-        return;
+void GameSession::persist_game_result() {
+    try {
+        auto conn = db_pool_.acquire();
+        pqxx::work txn(conn.get());
+        SessionRepo{}.end_session(txn, session_id_, round_number_);
+        txn.commit();
+    } catch (const std::exception& ex) {
+        server_log_.error("db", "persist_game_result failed: " + std::string(ex.what()));
     }
-
-    round_phase_ = RoundPhase::Scoring;
-    apply_global_wipe();
-
-    ScoringInputs in;
-    in.hands.reserve(cfg_.game.player_count);
-    in.disconnected.reserve(cfg_.game.player_count);
-    for (int p = 0; p < cfg_.game.player_count; ++p) {
-        in.hands.push_back(game_state_->hand(p));
-        in.disconnected.push_back(player_slots_[p] == nullptr);
-    }
-
-    const engine::ScoringConfig sc{
-        cfg_.scoring.buy_in,
-        cfg_.scoring.points_per_card,
-    };
-    const auto result = engine::score_round(
-        in.hands,
-        game_state_->goal_suit(),
-        in.disconnected,
-        sc);
-
-    engine_log_.info("score_round",
-        "goal_suit=" + std::string(engine::suit_name(result.goal_suit)) +
-        " pot="        + std::to_string(result.pot) +
-        " bonus_pool=" + std::to_string(result.bonus_pool));
-
-    for (int p = 0; p < cfg_.game.player_count; ++p)
-        available_cash_[p] += result.player_results[p].payout;
-
-    const std::string re_payload =
-        serialise::round_end_payload(result, available_cash_);
-    for (int p = 0; p < cfg_.game.player_count; ++p) {
-        WsHandle ws = player_slots_[p];
-        if (!ws) {
-            server_log_.warn("round_end",
-                "slot=" + std::to_string(p) + " disconnected — round_end not sent");
-            continue;
-        }
-        ws->send(re_payload, uWS::OpCode::TEXT);
-        server_log_.info("send",
-            "player=" + std::to_string(p) + " type=round_end" +
-            " payout="  + std::to_string(result.player_results[p].payout) +
-            " balance=" + std::to_string(available_cash_[p]));
-    }
-
-    round_phase_ = RoundPhase::Ended;
-    server_log_.info("round", "round ended");
 }
 
-void GameSession::handle_deal_and_start() {
-    if (!running_ || round_started_) return;
-    round_started_ = true;
-    round_phase_   = RoundPhase::Active;
-
-    engine::GameState::Config gs_cfg{
-        cfg_.game.player_count,
-        cfg_.game.total_cards,
-        cfg_.game.card_distribution,
-    };
-    game_state_ = std::make_unique<engine::GameState>(gs_cfg);
-    auto deal = game_state_->deal(rng_);
-
-    if (deal.uneven_deal) {
-        for (int p = 0; p < static_cast<int>(deal.hands.size()); ++p) {
-            if (deal.hands[p].has_extra_card) {
-                server_log_.warn("round",
-                    "UNEVEN_DEAL slot=" + std::to_string(p) +
-                    " has informational edge — see future EV module.");
-            }
-        }
+void GameSession::persist_error(const std::string& type, const std::string& msg,
+                                const nlohmann::json& ctx) {
+    try {
+        auto conn = db_pool_.acquire();
+        pqxx::work txn(conn.get());
+        SessionRepo{}.write_error(txn, session_id_, type, msg, ctx);
+        txn.commit();
+    } catch (const std::exception& ex) {
+        server_log_.error("db", "persist_error failed: " + std::string(ex.what()));
     }
-
-    engine_log_.info("deal",
-        "goal_suit=" + std::string(engine::suit_name(deal.goal_suit)) +
-        " totals[clubs="    + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Clubs)])    +
-        " diamonds=" + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Diamonds)]) +
-        " hearts="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Hearts)])   +
-        " spades="   + std::to_string(deal.suit_totals[engine::suit_index(engine::Suit::Spades)])   + "]");
-
-    // Compute round_end_at once; same value sent to all players so clients
-    // derive the same deadline without clock-skew between messages.
-    auto re_now = std::chrono::system_clock::now();
-    auto re_at  = re_now + std::chrono::seconds(cfg_.game.round_duration_seconds);
-    auto re_t   = std::chrono::system_clock::to_time_t(re_at);
-    std::tm re_gmt{};
-    gmtime_r(&re_t, &re_gmt);
-    char re_buf[32];
-    std::strftime(re_buf, sizeof(re_buf), "%Y-%m-%dT%H:%M:%S.000Z", &re_gmt);
-    const std::string round_end_at_str(re_buf);
-
-    for (int slot = 0; slot < cfg_.game.player_count; ++slot) {
-        WsHandle ws = player_slots_[slot];
-        if (!ws) {
-            server_log_.warn("round",
-                "slot=" + std::to_string(slot) +
-                " disconnected during countdown — hand not sent");
-            continue;
-        }
-        if (available_cash_[slot] < cfg_.scoring.buy_in) {
-            server_log_.warn("round",
-                "slot=" + std::to_string(slot) + " insufficient balance for buy-in" +
-                " (available=" + std::to_string(available_cash_[slot]) +
-                " buy_in=" + std::to_string(cfg_.scoring.buy_in) + ")");
-        }
-        available_cash_[slot] -= cfg_.scoring.buy_in;
-        ws->send(serialise::round_start_payload(
-                     slot, deal.hands[slot], round_end_at_str, available_cash_[slot]),
-                 uWS::OpCode::TEXT);
-        server_log_.info("send",
-            "player=" + std::to_string(slot) + " type=round_start" +
-            " round_end_at=" + round_end_at_str +
-            " clubs="    + std::to_string(deal.hands[slot].suit_counts[0]) +
-            " diamonds=" + std::to_string(deal.hands[slot].suit_counts[1]) +
-            " hearts="   + std::to_string(deal.hands[slot].suit_counts[2]) +
-            " spades="   + std::to_string(deal.hands[slot].suit_counts[3]));
-    }
-
-    server_log_.info("round",
-        "round started — goal_suit=" +
-        std::string(engine::suit_name(deal.goal_suit)) +
-        " round_end_at=" + round_end_at_str +
-        " (goal_suit withheld from clients until round end)");
-
-    // AGENT-CTX: Capture `this` not by reference to individual members.
-    // GameSession outlives the thread — shutdown() joins before destruction.
-    round_timer_thread_.emplace([this]() {
-        std::this_thread::sleep_for(
-            std::chrono::seconds(cfg_.game.round_duration_seconds));
-        if (!running_) return;
-        loop_->defer([this]() {
-            handle_round_expiry();
-        });
-    });
 }
 
-void GameSession::begin_countdown() {
-    countdown_in_progress_ = true;
+// ─── ISO timestamp helpers ────────────────────────────────────────────────────
 
-    // AGENT-CTX: Absolute ISO 8601 UTC timestamp so API clients can compute
-    // remaining time regardless of when they receive the message.
-    auto now     = std::chrono::system_clock::now();
-    auto fire_at = now + std::chrono::seconds(cfg_.game.countdown_seconds);
-    auto fire_t  = std::chrono::system_clock::to_time_t(fire_at);
+std::string GameSession::to_iso_string(std::chrono::system_clock::time_point tp) {
+    auto t = std::chrono::system_clock::to_time_t(tp);
     std::tm gmt{};
-    gmtime_r(&fire_t, &gmt);
+    gmtime_r(&t, &gmt);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000Z", &gmt);
-    const std::string starts_at_str(buf);
-
-    const std::string payload = nlohmann::json{
-        {"type",         "round_starting"},
-        {"starts_at",    starts_at_str},
-        {"player_count", cfg_.game.player_count},
-    }.dump();
-    for (WsHandle ws : connections_)
-        ws->send(payload, uWS::OpCode::TEXT);
-    server_log_.info("round",
-                    "round_starting broadcast starts_at=" + starts_at_str +
-                    " player_count=" + std::to_string(cfg_.game.player_count));
-
-    countdown_thread_.emplace([this]() {
-        std::this_thread::sleep_for(std::chrono::seconds(cfg_.game.countdown_seconds));
-        if (!running_) return;
-        loop_->defer([this]() {
-            handle_deal_and_start();
-        });
-    });
+    return buf;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Connection callbacks
-// ─────────────────────────────────────────────────────────────────────────────
-
-void GameSession::on_connect(WsHandle ws) {
-    int slot = -1;
-    for (int i = 0; i < static_cast<int>(player_slots_.size()); ++i) {
-        if (!player_slots_[i]) { slot = i; break; }
-    }
-    if (slot == -1) {
-        serialise::error(ws, WsErrorCode::ServerFull,
-                         "no player slots available", server_log_);
-        ws->close();
-        server_log_.warn("open", "connection rejected — all slots filled");
-        return;
-    }
-
-    player_slots_[slot] = ws;
-    connected_count_++;
-    ws->getUserData()->player_slot = static_cast<int32_t>(slot);
-    connections_.insert(ws);
-    server_log_.info("open",
-                    "slot=" + std::to_string(slot) +
-                    " connected=" + std::to_string(connected_count_) +
-                    "/" + std::to_string(cfg_.game.player_count));
-
-    ws->send(nlohmann::json{{"type","player_hello"},{"player_id",slot}}.dump(),
-             uWS::OpCode::TEXT);
-    server_log_.info("send",
-                    "player=" + std::to_string(slot) +
-                    " type=player_hello player_id=" + std::to_string(slot));
-
-    for (auto s : engine::kAllSuits) {
-        const int si = engine::suit_index(s);
-        if (!active_suits_[si]) continue;
-        const auto& book     = books_[si];
-        const std::string ss = std::string(engine::suit_name(s));
-        ws->send(serialise::book_update_payload(ss, book.best_bid(), book.best_ask()),
-                 uWS::OpCode::TEXT);
-        server_log_.info("send",
-                        "player=" + std::to_string(slot) +
-                        " type=book_update(on-connect) suit=" + ss +
-                        " best_bid=" + serialise::opt_price(book.best_bid()) +
-                        " best_ask=" + serialise::opt_price(book.best_ask()));
-    }
-
-    broadcast_waiting_for_start();
-}
-
-void GameSession::on_message(WsHandle ws, std::string_view msg, uWS::OpCode op) {
-    if (op != uWS::OpCode::TEXT) {
-        server_log_.warn("recv", "ignored non-TEXT frame");
-        return;
-    }
-
-    const int32_t player_slot = ws->getUserData()->player_slot;
-    log_recv(player_slot, msg, server_log_);
-
-    nlohmann::json j;
-    try {
-        j = nlohmann::json::parse(msg);
-    } catch (const nlohmann::json::exception& ex) {
-        server_log_.error("recv",
-                         "player=" + std::to_string(player_slot) +
-                         " JSON parse failed: " + ex.what());
-        serialise::error(ws, WsErrorCode::MalformedMessage, "invalid JSON", server_log_);
-        return;
-    }
-
-    std::string type;
-    try {
-        type = j.at("type").get<std::string>();
-    } catch (const nlohmann::json::exception& ex) {
-        server_log_.error("recv",
-                         "player=" + std::to_string(player_slot) +
-                         " missing 'type': " + ex.what());
-        serialise::error(ws, WsErrorCode::MalformedMessage,
-                         "missing or invalid 'type' field", server_log_);
-        return;
-    }
-
-    if      (type == "submit_order") handle_submit    (ws, j, player_slot);
-    else if (type == "nudge")        handle_nudge     (ws, j, player_slot);
-    else if (type == "cancel_order") handle_cancel    (ws, j, player_slot);
-    else if (type == "start_game")   handle_start_game();
-    else {
-        server_log_.warn("recv",
-                        "player=" + std::to_string(player_slot) +
-                        " unknown type: '" + type + "'");
-        serialise::error(ws, WsErrorCode::MalformedMessage,
-                         "unknown message type: '" + type + "'", server_log_);
-    }
-}
-
-void GameSession::on_close(WsHandle ws, int code, std::string_view /*reason*/) {
-    const int32_t slot = ws->getUserData()->player_slot;
-    connections_.erase(ws);
-    if (slot >= 0 && slot < static_cast<int32_t>(player_slots_.size())) {
-        player_slots_[slot] = nullptr;
-        if (!round_started_) connected_count_--;
-    }
-    server_log_.info("close",
-                    "slot=" + std::to_string(slot) +
-                    " code=" + std::to_string(code) +
-                    " total=" + std::to_string(connections_.size()));
-    broadcast_waiting_for_start();
+std::string GameSession::steady_to_iso(std::chrono::steady_clock::time_point tp) {
+    const auto sys_now    = std::chrono::system_clock::now();
+    const auto steady_now = std::chrono::steady_clock::now();
+    const auto delta      = tp - steady_now;
+    return to_iso_string(sys_now +
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(delta));
 }
 
 } // namespace anjeer::server

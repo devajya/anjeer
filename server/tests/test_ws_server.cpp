@@ -1,10 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include "server/ws_server.h"
+#include "server/auth_service.h"
 #include "server/config.h"
 #include "server/db.h"
 #include "server/event_bus.h"
 #include "server/lobby_gateway.h"
 #include "server/lobby_repo.h"
+#include "server/player_repo.h"
 
 // POSIX networking
 #include <arpa/inet.h>
@@ -27,6 +29,10 @@ using anjeer::server::WsServer;
 static anjeer::server::DbPool& test_db_pool() {
     static anjeer::server::DbPool pool(TEST_DB_CONN, 1);
     return pool;
+}
+static anjeer::server::PlayerRepo& test_player_repo() {
+    static anjeer::server::PlayerRepo repo;
+    return repo;
 }
 static anjeer::server::LobbyRepo& test_lobby_repo() {
     static anjeer::server::LobbyRepo repo;
@@ -201,16 +207,8 @@ private:
 // Test server — started once per process, shared by all TEST_CASEs
 // ═══════════════════════════════════════════════════════════════════════════
 
-static constexpr int WS_TEST_PORT    = 19002;
-static constexpr int WS_LOBBY_PORT   = 19007;
-static constexpr int WS_ROUND_PORT   = 19003;
-static constexpr int WS_TIMER_PORT   = 19004;
-static constexpr int WS_DISCONN_PORT = 19005;
-// WS_ENDED_PORT hosts a server that expires after 1 s and transitions to Ended phase.
-// Used exclusively by "order rejected after round ends" — needs its own port because
-// Ended phase is terminal (no new rounds start on this server).
-static constexpr int WS_ENDED_PORT   = 19006;
-static constexpr int WS_WIPE_PORT    = 19014;
+static constexpr int WS_TEST_PORT  = 19002;
+static constexpr int WS_LOBBY_PORT = 19007;
 
 // Base config shared across all test servers. Callers override only what differs.
 static ServerConfig make_test_server_config(int port) {
@@ -230,12 +228,29 @@ static ServerConfig make_test_server_config(int port) {
     cfg.game.card_distribution      = {12, 10, 10, 8};
     cfg.game.countdown_seconds      = 0;
     cfg.game.round_duration_seconds = 3600;
+    cfg.game.inter_round_seconds    = 5;
     cfg.scoring.starting_balance    = 100;
-    cfg.scoring.buy_in              = 50;
+    cfg.scoring.round_buy_in_pct    = 0.20;
     cfg.scoring.points_per_card     = 20;
     cfg.db.connection_string        = TEST_DB_CONN;
     cfg.db.pool_size                = 1;
+    cfg.db.migrations_dir           = TEST_MIGRATIONS_DIR;
+    // AGENT-CTX: Auth config is required by WsServer to validate JWTs in the
+    // upgrade handler. Test clients don't send cookies, so validate_access_token
+    // is never called — but AuthService construction requires the fields.
+    cfg.auth.jwt_secret                = "test-secret-must-be-at-least-32-chars!!";
+    cfg.auth.access_token_ttl_seconds  = 3600;
+    cfg.auth.refresh_token_ttl_seconds = 86400;
+    cfg.auth.secure_cookies            = false;
     return cfg;
+}
+
+// AGENT-CTX: AuthService is a per-server singleton in tests, not shared across
+// server instances (each test server uses make_test_server_config which returns
+// a copy). test_auth_service() is only used where WS_TEST_PORT server is created.
+static anjeer::server::AuthService& test_auth_service(const ServerConfig& cfg) {
+    static anjeer::server::AuthService svc(test_db_pool(), test_player_repo(), cfg);
+    return svc;
 }
 
 static void ensure_server_running() {
@@ -257,12 +272,14 @@ static void ensure_server_running() {
     }
 
     // player_count=99 prevents any round from starting (tests never connect 99 clients).
-    ServerConfig cfg       = make_test_server_config(WS_TEST_PORT);
-    cfg.game.player_count  = 99;
+    static ServerConfig cfg = make_test_server_config(WS_TEST_PORT);
+    cfg.game.player_count      = 99;
     cfg.game.countdown_seconds = 3;
 
-    std::thread([cfg]() {
-        WsServer srv(cfg, test_lobby_gateway());
+    std::thread([&cfg]() {
+        WsServer srv(cfg, test_lobby_gateway(),
+                     test_db_pool(), test_lobby_repo(),
+                     test_auth_service(cfg), test_event_bus());
         srv.run();  // blocks; detached — OS cleans up on process exit
     }).detach();
 
@@ -280,67 +297,13 @@ static void ensure_server_running() {
     throw std::runtime_error("test server failed to start");
 }
 
-// ensure_round_server_running starts a second server (port 19003) with player_count=2
-// and countdown_seconds=0. Two primer clients connect to trigger the round immediately,
-// then disconnect. Subsequent test clients connect into an already-Active server.
-static void ensure_round_server_running() {
-    static std::atomic<bool> started{false};
-    if (started.exchange(true)) {
-        for (int i = 0; i < 200; ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-            sockaddr_in addr{};
-            addr.sin_family = AF_INET;
-            addr.sin_port   = htons(WS_ROUND_PORT);
-            ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-            const bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
-            ::close(fd);
-            if (ok) return;
-        }
-        throw std::runtime_error("round test server did not become ready in time");
-    }
-
-    const ServerConfig cfg = make_test_server_config(WS_ROUND_PORT);
-
-    std::thread([cfg]() {
-        WsServer srv(cfg, test_lobby_gateway());
-        srv.run();
-    }).detach();
-
-    for (int i = 0; i < 200; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port   = htons(WS_ROUND_PORT);
-        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-        const bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
-        ::close(fd);
-        if (ok) break;
-        if (i == 199) throw std::runtime_error("round server failed to start");
-    }
-
-    // Primer: connect two clients, send start_game, wait for round_start.
-    // Both clients wait for round_start before disconnecting so the server is
-    // definitely in Active phase when this function returns.
-    {
-        WsTestClient c0(WS_ROUND_PORT);
-        c0.recv_of_type("player_hello");
-        WsTestClient c1(WS_ROUND_PORT);
-        c1.recv_of_type("player_hello");
-        c0.send_json({ {"type","start_game"} });
-        c0.recv_of_type("round_starting");
-        c1.recv_of_type("round_starting");
-        // deal fires on next loop iteration
-        c0.recv_of_type("round_start");
-        c1.recv_of_type("round_start");
-    }  // c0, c1 disconnect here; server remains Active; slots freed for tests
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
+// AGENT-CTX: player_id is -1 for unauthenticated lobby sockets (no JWT cookie).
+// The old architecture assigned slots (0,1,2,...) on connect; the new one only
+// assigns slots when the player is in an active game session with a valid JWT.
 TEST_CASE("WS server — player_hello sent on connect", "[ws_server]") {
     ensure_server_running();
     WsTestClient client(WS_TEST_PORT);
@@ -348,96 +311,13 @@ TEST_CASE("WS server — player_hello sent on connect", "[ws_server]") {
     const auto hello = client.recv_of_type("player_hello");
     REQUIRE(hello.contains("player_id"));
     REQUIRE(hello["player_id"].is_number_integer());
-    CHECK(hello["player_id"].get<int>() >= 0);  // 0-indexed slots
+    CHECK(hello["player_id"].get<int>() == -1);  // unauthenticated: no JWT cookie
 }
 
-TEST_CASE("WS server — book_update snapshot sent on connect", "[ws_server]") {
-    ensure_server_running();
-    WsTestClient client(WS_TEST_PORT);
-
-    client.recv_of_type("player_hello");
-    const auto upd = client.recv_of_type("book_update");
-    CHECK(upd.value("suit", "") == "clubs");
-    CHECK(upd.contains("best_bid"));
-    CHECK(upd.contains("best_ask"));
-}
-
-TEST_CASE("WS server — submit_order returns order_ack", "[ws_server]") {
-    ensure_round_server_running();
-    WsTestClient client(WS_ROUND_PORT);
-
-    client.recv_of_type("player_hello");
-
-    client.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
-
-    const auto ack = client.recv_of_type("order_ack");
-    REQUIRE(ack.value("suit","") == "clubs");
-    REQUIRE(ack.value("side","") == "buy");
-    REQUIRE(ack.value("price",0) == 30);
-    REQUIRE(ack.contains("order_id"));
-
-    // Cancel the order to leave the book clean for subsequent tests.
-    client.send_json({ {"type","cancel_order"}, {"order_id", ack["order_id"]} });
-    client.recv_of_type("order_cancel_ack");
-}
-
-TEST_CASE("WS server — unknown suit returns UNKNOWN_SUIT error", "[ws_server]") {
-    ensure_round_server_running();
-    WsTestClient client(WS_ROUND_PORT);
-
-    client.recv_of_type("player_hello");
-
-    client.send_json({ {"type","submit_order"}, {"suit","BOGUS"}, {"side","buy"}, {"price",50} });
-
-    const auto err = client.recv_of_type("error");
-    REQUIRE(err.value("code","") == "UNKNOWN_SUIT");
-}
-
-TEST_CASE("WS server — crossing orders produce trade then global book wipe", "[ws_server]") {
-    ensure_round_server_running();
-
-    WsTestClient buyer(WS_ROUND_PORT);
-    WsTestClient seller(WS_ROUND_PORT);
-
-    // Each client receives hello + initial book snapshot on connect.
-    buyer.recv_of_type("player_hello");
-    buyer.recv_of_type("book_update");
-    seller.recv_of_type("player_hello");
-    seller.recv_of_type("book_update");
-
-    // Post a resting bid; both clients receive the resulting book_update.
-    buyer.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",50} });
-    buyer.recv_of_type("order_ack");
-    buyer.recv_of_type("book_update");   // broadcast: best_bid=50
-    seller.recv_of_type("book_update");  // same broadcast received by seller
-
-    // Aggress with a crossing sell — should match at the resting (maker) price.
-    seller.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","sell"}, {"price",50} });
-    seller.recv_of_type("order_ack");
-
-    // Both clients receive the trade notification.
-    const auto trade_b = buyer.recv_of_type("trade");
-    const auto trade_s = seller.recv_of_type("trade");
-    REQUIRE(trade_b.value("suit","")  == "clubs");
-    REQUIRE(trade_b.value("price", 0) == 50);
-    REQUIRE(trade_s.value("suit","")  == "clubs");
-
-    // After any trade, all books are wiped — both clients see null bid and ask.
-    const auto wipe_b = buyer.recv_of_type("book_update");
-    const auto wipe_s = seller.recv_of_type("book_update");
-    REQUIRE(wipe_b["best_bid"].is_null());
-    REQUIRE(wipe_b["best_ask"].is_null());
-    REQUIRE(wipe_s["best_bid"].is_null());
-    REQUIRE(wipe_s["best_ask"].is_null());
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Phase gate tests — Slice 4 bug fix
-// Tests use the Waiting-phase server (WS_TEST_PORT, player_count=99) so the
-// round never starts and orders must be rejected.
-// ═══════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("WS server — submit_order rejected before round is active", "[ws_server][phase]") {
+// AGENT-CTX: submit_order / nudge / cancel_order on a lobby socket (not in a
+// game session) must return ROUND_NOT_ACTIVE. These tests remain valid because
+// the error guard in WsServer's message handler fires before any session lookup.
+TEST_CASE("WS server — submit_order rejected when not in game session", "[ws_server][phase]") {
     ensure_server_running();
     WsTestClient client(WS_TEST_PORT);
 
@@ -449,7 +329,7 @@ TEST_CASE("WS server — submit_order rejected before round is active", "[ws_ser
     REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
 }
 
-TEST_CASE("WS server — nudge rejected before round is active", "[ws_server][phase]") {
+TEST_CASE("WS server — nudge rejected when not in game session", "[ws_server][phase]") {
     ensure_server_running();
     WsTestClient client(WS_TEST_PORT);
 
@@ -461,7 +341,7 @@ TEST_CASE("WS server — nudge rejected before round is active", "[ws_server][ph
     REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
 }
 
-TEST_CASE("WS server — cancel_order rejected before round is active", "[ws_server][phase]") {
+TEST_CASE("WS server — cancel_order rejected when not in game session", "[ws_server][phase]") {
     ensure_server_running();
     WsTestClient client(WS_TEST_PORT);
 
@@ -470,168 +350,6 @@ TEST_CASE("WS server — cancel_order rejected before round is active", "[ws_ser
     client.send_json({ {"type","cancel_order"}, {"order_id",1} });
 
     const auto err = client.recv_of_type("error");
-    REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Round timer tests — Slice 4
-//
-TEST_CASE("WS server — waiting_for_start broadcast on connect, no auto-start", "[ws_server][start_game]") {
-    ensure_server_running();
-    WsTestClient client(WS_TEST_PORT);
-
-    client.recv_of_type("player_hello");
-    const auto wfs = client.recv_of_type("waiting_for_start");
-    REQUIRE(wfs.contains("connected"));
-    REQUIRE(wfs.contains("required"));
-    CHECK(wfs["connected"].get<int>() >= 1);
-    CHECK(wfs["required"].get<int>() == 99);  // WS_TEST_PORT uses player_count=99
-}
-
-TEST_CASE("WS server — start_game ignored when not enough players", "[ws_server][start_game]") {
-    ensure_server_running();
-    WsTestClient client(WS_TEST_PORT);
-
-    client.recv_of_type("player_hello");
-    client.recv_of_type("waiting_for_start");
-
-    // Send start_game with only 1/99 players — server should NOT start.
-    // We verify by confirming no round_starting arrives within the frame window.
-    client.send_json({ {"type","start_game"} });
-
-    // With player_count=99 the server logs a warning and does nothing.
-    // Drain a few frames — should only see waiting_for_start, never round_starting.
-    bool got_round_starting = false;
-    for (int i = 0; i < 5; ++i) {
-        try {
-            const auto msg = client.recv_json();
-            if (msg.value("type","") == "round_starting") got_round_starting = true;
-        } catch (...) { break; }
-    }
-    CHECK(!got_round_starting);
-}
-
-// Each timer test gets its own server port because after the round expires the
-// server transitions to Ended and cannot host a second round.
-// ═══════════════════════════════════════════════════════════════════════════
-
-static void start_server_on_port(int port) {
-    ServerConfig cfg                 = make_test_server_config(port);
-    cfg.game.round_duration_seconds  = 1;  // timer tests need fast expiry
-
-    std::thread([cfg]() {
-        WsServer srv(cfg, test_lobby_gateway());
-        srv.run();
-    }).detach();
-
-    for (int i = 0; i < 200; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port   = htons(static_cast<uint16_t>(port));
-        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-        const bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
-        ::close(fd);
-        if (ok) return;
-    }
-    throw std::runtime_error("timer test server failed to start on port " + std::to_string(port));
-}
-
-TEST_CASE("WS server — round_start includes round_end_at and round_end received", "[ws_server][timer]") {
-    static std::atomic<bool> started{false};
-    if (!started.exchange(true)) start_server_on_port(WS_TIMER_PORT);
-
-    WsTestClient c0(WS_TIMER_PORT);
-    WsTestClient c1(WS_TIMER_PORT);
-
-    c0.recv_of_type("player_hello");
-    c1.recv_of_type("player_hello");
-    c0.send_json({ {"type","start_game"} });
-    c0.recv_of_type("round_starting");
-    c1.recv_of_type("round_starting");
-
-    const auto rs0 = c0.recv_of_type("round_start");
-    const auto rs1 = c1.recv_of_type("round_start");
-
-    REQUIRE(rs0.contains("round_end_at"));
-    REQUIRE(rs1.contains("round_end_at"));
-    CHECK(rs0["round_end_at"].is_string());
-    CHECK(rs0["round_end_at"].get<std::string>().size() >= 20);  // ISO 8601 sanity
-
-    // Wait for round_end (round_duration_seconds=1; allow 3 s of slack).
-    const auto re0 = c0.recv_of_type("round_end");
-    const auto re1 = c1.recv_of_type("round_end");
-
-    REQUIRE(re0.contains("goal_suit"));
-    REQUIRE(re0.contains("results"));
-    CHECK(re0["results"].is_array());
-    CHECK(re0["results"].size() == 2);
-
-    // Both clients receive the same goal_suit and results array.
-    CHECK(re0["goal_suit"] == re1["goal_suit"]);
-    CHECK(re0["results"]   == re1["results"]);
-
-    // Both connected players are marked not disconnected.
-    for (const auto& pr : re0["results"]) {
-        CHECK(pr["disconnected"] == false);
-    }
-}
-
-TEST_CASE("WS server — books wiped when round expires", "[ws_server][timer]") {
-    static std::atomic<bool> started{false};
-    if (!started.exchange(true)) start_server_on_port(WS_WIPE_PORT);
-
-    WsTestClient c0(WS_WIPE_PORT);
-    WsTestClient c1(WS_WIPE_PORT);
-
-    c0.recv_of_type("player_hello");
-    c1.recv_of_type("player_hello");
-    c0.send_json({ {"type","start_game"} });
-    c0.recv_of_type("round_starting");
-    c1.recv_of_type("round_starting");
-    c0.recv_of_type("round_start");
-    c1.recv_of_type("round_start");
-
-    // Place a resting bid so there is an order to wipe.
-    c0.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
-    c0.recv_of_type("order_ack");
-    c0.recv_of_type("book_update");  // broadcast: best_bid=30
-    c1.recv_of_type("book_update");
-
-    // Wait for expiry. The wipe sends null book_updates before round_end.
-    const auto wipe = c0.recv_of_type("book_update");
-    REQUIRE(wipe["best_bid"].is_null());
-    REQUIRE(wipe["best_ask"].is_null());
-
-    // round_end follows the wipe.
-    REQUIRE(c0.recv_of_type("round_end").contains("goal_suit"));
-}
-
-// Scoring phase executes synchronously on the event-loop thread (microseconds).
-// Testing it directly is impractical; Ended phase uses the same guard (phase != Active),
-// so ROUND_NOT_ACTIVE rejection is identical — we verify via Ended phase here.
-TEST_CASE("WS server — order rejected after round ends (Ended phase)", "[ws_server][phase]") {
-    static std::atomic<bool> started{false};
-    if (!started.exchange(true)) start_server_on_port(WS_ENDED_PORT);
-
-    WsTestClient c0(WS_ENDED_PORT);
-    WsTestClient c1(WS_ENDED_PORT);
-
-    c0.recv_of_type("player_hello");
-    c1.recv_of_type("player_hello");
-    c0.send_json({ {"type","start_game"} });
-    c0.recv_of_type("round_starting");
-    c1.recv_of_type("round_starting");
-    c0.recv_of_type("round_start");
-    c1.recv_of_type("round_start");
-
-    // round_duration_seconds=1 — wait for expiry.
-    c0.recv_of_type("round_end");
-
-    // Server is now in Ended phase; all order commands must return ROUND_NOT_ACTIVE.
-    c0.send_json({ {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",30} });
-    const auto err = c0.recv_of_type("error");
     REQUIRE(err.value("code","") == "ROUND_NOT_ACTIVE");
 }
 
@@ -667,7 +385,7 @@ static LobbySetup setup_lobby_in_db() {
         pqxx::work txn(conn);
         // Remove any leftover waiting lobby from a prior test run for this player.
         txn.exec_params(
-            "DELETE FROM lobbies WHERE owner_id = $1 AND status = 'waiting'",
+            "DELETE FROM lobbies WHERE creator_id = $1 AND status = 'waiting'",
             player_id
         );
         const auto lobby = test_lobby_repo().create(txn, player_id, 2, 8);
@@ -676,6 +394,12 @@ static LobbySetup setup_lobby_in_db() {
         txn.commit();
     }
     return { player_id, lobby_id };
+}
+
+static anjeer::server::AuthService& test_lobby_auth_service() {
+    static ServerConfig cfg = make_test_server_config(WS_LOBBY_PORT);
+    static anjeer::server::AuthService svc(test_db_pool(), test_player_repo(), cfg);
+    return svc;
 }
 
 static void ensure_lobby_sub_server_running() {
@@ -694,12 +418,14 @@ static void ensure_lobby_sub_server_running() {
         throw std::runtime_error("WS lobby sub server did not become ready");
     }
 
-    ServerConfig cfg    = make_test_server_config(WS_LOBBY_PORT);
-    cfg.game.player_count   = 99;
+    static ServerConfig cfg = make_test_server_config(WS_LOBBY_PORT);
+    cfg.game.player_count      = 99;
     cfg.game.countdown_seconds = 3;
 
-    std::thread([cfg]() {
-        WsServer srv(cfg, test_lobby_gateway());
+    std::thread([&cfg]() {
+        WsServer srv(cfg, test_lobby_gateway(),
+                     test_db_pool(), test_lobby_repo(),
+                     test_lobby_auth_service(), test_event_bus());
         srv.run();
     }).detach();
 
@@ -755,38 +481,4 @@ TEST_CASE("WS server — subscribed client receives event_bus messages", "[ws_se
     const auto fwd = client.recv_of_type("player_joined");
     CHECK(fwd.value("lobby_id",  "") == setup.lobby_id);
     CHECK(fwd.value("player_id", -1) == static_cast<int>(setup.player_id));
-}
-
-TEST_CASE("WS server — disconnected player excluded from round_end delivery", "[ws_server][round_end]") {
-    static std::atomic<bool> started{false};
-    if (!started.exchange(true)) start_server_on_port(WS_DISCONN_PORT);
-
-    WsTestClient c0(WS_DISCONN_PORT);
-    {
-        WsTestClient c1(WS_DISCONN_PORT);
-
-        c0.recv_of_type("player_hello");
-        c1.recv_of_type("player_hello");
-        c0.send_json({ {"type","start_game"} });
-        c0.recv_of_type("round_starting");
-        c1.recv_of_type("round_starting");
-        c0.recv_of_type("round_start");
-        c1.recv_of_type("round_start");
-
-        // c1 goes out of scope here → TCP close → server nulls player_slots[1]
-    }
-
-    // c0 still connected. Wait for round_end (~1 s expiry + 3 s recv timeout).
-    const auto re = c0.recv_of_type("round_end");
-    REQUIRE(re.contains("results"));
-
-    // The disconnected player (slot 1) must be marked disconnected in results.
-    bool found_disconnected = false;
-    for (const auto& pr : re["results"]) {
-        if (pr["disconnected"].get<bool>()) {
-            found_disconnected = true;
-            break;
-        }
-    }
-    CHECK(found_disconnected);
 }
