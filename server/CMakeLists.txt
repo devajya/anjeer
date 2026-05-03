@@ -15,6 +15,7 @@ add_executable(server
     src/player_repo.cpp
     src/lobby_repo.cpp
     src/session_repo.cpp
+    src/keybinds_repo.cpp
     src/oauth_provider.cpp
     src/auth_service.cpp
     src/http_server.cpp
@@ -188,6 +189,7 @@ add_executable(http_lobby_tests
     src/oauth_provider.cpp
     src/auth_service.cpp
     src/http_server.cpp
+    src/keybinds_repo.cpp
     src/event_bus.cpp
     src/logger.cpp
 )

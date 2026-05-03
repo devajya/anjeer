@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
+import { useKeyBinds } from '../hooks/useKeyBinds'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { ConnectionBanner } from '../components/ConnectionBanner'
 import { RoundCountdown } from '../components/RoundCountdown'
-import { HandPanel } from '../components/HandPanel'
-import { SuitPanel } from '../components/SuitPanel'
+import { MarketOverview } from '../components/MarketOverview'
+import { SuitPanel, type SuitPanelHandle } from '../components/SuitPanel'
 import { TradeFeed } from '../components/TradeFeed'
 import { MyOrders } from '../components/MyOrders'
 import { RoundEndModal } from '../components/RoundEndModal'
@@ -13,6 +15,8 @@ import { InterRoundScreen } from '../components/InterRoundScreen'
 import { GameEndScreen } from '../components/GameEndScreen'
 import { SessionError } from '../components/SessionError'
 import { PlayerBadge } from '../components/PlayerBadge'
+import { ShortcutHelp } from '../components/ShortcutHelp'
+import { slotColorSemi } from '../utils/playerColors'
 import '../App.css'
 
 // AGENT-CTX: App.css is imported here (not a Game.css) because all .app__* class
@@ -23,12 +27,23 @@ const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 export function Game() {
   const [searchParams] = useSearchParams()
   const { user, logout } = useAuth()
+  const { binds } = useKeyBinds()
   const {
     connected, playerId, books, trades, myOrders, errors, sendMessage,
     startsAt, roundEndAt, hand, initialHand, playerSlot, roundEnd, balance,
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
     interRound, voteTally, gameEnded, sessionError,
+    roster, deltas, allBalances, allHandTotals,
   } = useWebSocket('/ws')
+
+  // AGENT-CTX: selectedSuit drives keyboard order submission. null = no suit
+  // focused; keyboard buy/sell/nudge are no-ops until a suit is focused.
+  const [selectedSuit, setSelectedSuit] = useState<string | null>(null)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  // Imperative refs to each active SuitPanel — used by keyboard shortcuts to
+  // focus the bid/offer price input without submitting at market.
+  const suitPanelRefs = useRef<Record<string, SuitPanelHandle | null>>({})
 
   // AGENT-CTX: fromLobby is true when the player arrived via LobbyRoom after
   // lobby_started fired. When true, start_game is sent automatically as soon
@@ -103,10 +118,81 @@ export function Game() {
     sendMessage({ type: 'cancel_order', order_id: orderId })
   }
 
+  // AGENT-CTX: submit_buy/sell keyboard shortcuts focus the price input rather
+  // than hitting market immediately — the flow is: suit key → b/a → type price → Enter.
+  // Market buy/sell remains a button click only.
+  const handleSubmitBuy = useCallback(() => {
+    if (!selectedSuit) return
+    suitPanelRefs.current[selectedSuit]?.focusBid()
+  }, [selectedSuit])
+
+  const handleSubmitSell = useCallback(() => {
+    if (!selectedSuit) return
+    suitPanelRefs.current[selectedSuit]?.focusOffer()
+  }, [selectedSuit])
+
+  // Accept the standing bid = sell to the buyer at their price (hit the bid).
+  const handleAcceptBuy = useCallback(() => {
+    if (!selectedSuit) return
+    const bid = books[selectedSuit]?.best_bid
+    if (bid == null) return
+    sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'sell', price: bid })
+  }, [selectedSuit, books, sendMessage])
+
+  // Accept the standing ask = buy from the seller at their price (lift the offer).
+  const handleAcceptSell = useCallback(() => {
+    if (!selectedSuit) return
+    const ask = books[selectedSuit]?.best_ask
+    if (ask == null) return
+    sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'buy', price: ask })
+  }, [selectedSuit, books, sendMessage])
+
+  const handleNudgeBuy = useCallback(() => {
+    if (!selectedSuit) return
+    sendMessage({ type: 'nudge', suit: selectedSuit, side: 'buy' })
+  }, [selectedSuit, sendMessage])
+
+  const handleNudgeSell = useCallback(() => {
+    if (!selectedSuit) return
+    sendMessage({ type: 'nudge', suit: selectedSuit, side: 'sell' })
+  }, [selectedSuit, sendMessage])
+
+  // AGENT-CTX: Cancel targets the player's own best bid/ask for the selected
+  // suit. myOrders is sorted newest-first; we cancel the first matching order.
+  const handleCancelBestBuy = useCallback(() => {
+    const order = myOrders.find(o => o.suit === selectedSuit && o.side === 'buy')
+    if (order) sendMessage({ type: 'cancel_order', order_id: order.order_id })
+  }, [selectedSuit, myOrders, sendMessage])
+
+  const handleCancelBestSell = useCallback(() => {
+    const order = myOrders.find(o => o.suit === selectedSuit && o.side === 'sell')
+    if (order) sendMessage({ type: 'cancel_order', order_id: order.order_id })
+  }, [selectedSuit, myOrders, sendMessage])
+
+  // AGENT-CTX: Shortcuts are disabled while any modal overlay is visible to
+  // prevent accidental order submission during inter-round or round-end screens.
+  useKeyboardShortcuts({
+    binds,
+    enabled: !showRoundEnd && !showInterRound && !showShortcuts,
+    onSuitFocus:       setSelectedSuit,
+    onSubmitBuy:       handleSubmitBuy,
+    onSubmitSell:      handleSubmitSell,
+    onAcceptBuy:       handleAcceptBuy,
+    onAcceptSell:      handleAcceptSell,
+    onNudgeBuy:        handleNudgeBuy,
+    onNudgeSell:       handleNudgeSell,
+    onCancelBestBuy:   handleCancelBestBuy,
+    onCancelBestSell:  handleCancelBestSell,
+    onToggleShortcuts: () => setShowShortcuts(v => !v),
+  })
+
   const displayBalance = balance ?? null
 
   return (
     <>
+      {showShortcuts && (
+        <ShortcutHelp binds={binds} onClose={() => setShowShortcuts(false)} />
+      )}
       {showRoundEnd && (
         <RoundEndModal
           roundEnd={roundEnd!}
@@ -155,38 +241,87 @@ export function Game() {
         </header>
 
         <div className="app__layout">
-          <section className="app__suits">
-            {activeSuits.length === 0 ? (
-              <p className="app__waiting">Waiting for book data…</p>
-            ) : (
-              activeSuits.map(suit => (
-                <SuitPanel
-                  key={suit}
-                  suit={suit}
-                  book={books[suit]}
-                  playerId={playerId}
-                  error={errors[suit] ?? null}
-                  lastTradePrice={lastTradePrices[suit] ?? null}
-                  suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
-                  isOwnBestBid={ownsBestBidBySuit[suit] ?? false}
-                  isOwnBestAsk={ownsBestAskBySuit[suit] ?? false}
-                  myOrdersForSuit={myOrders.filter(o => o.suit === suit)}
-                  onSendMessage={sendMessage}
+
+          {/* ── LEFT: Trade feed + My Orders ── */}
+          <div className="app__left-col">
+            <div className="panel panel--feed" data-panel-id="trade-feed">
+              <div className="panel__header">
+                <span className="panel__title">Trade History</span>
+              </div>
+              <div className="panel__body">
+                <TradeFeed trades={trades} roster={roster} />
+              </div>
+            </div>
+
+            <div className="panel" data-panel-id="my-orders">
+              <div className="panel__header">
+                <span className="panel__title">My Orders</span>
+              </div>
+              <div className="panel__body">
+                <MyOrders orders={myOrders} onCancel={handleCancel} />
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT: Action + info column ── */}
+          <div className="app__right-col">
+
+            {/* 1. Market Overview — merged hand + all-player deltas */}
+            <div className="panel" data-panel-id="market-overview">
+              <div className="panel__header">
+                <span className="panel__title">Market Overview</span>
+              </div>
+              <div className="panel__body">
+                <MarketOverview
+                  hand={hand}
+                  initialHand={initialHand}
+                  deltas={deltas}
+                  roster={roster}
+                  mySlot={playerSlot}
+                  balance={displayBalance}
+                  allBalances={allBalances}
+                  allHandTotals={allHandTotals}
                 />
-              ))
-            )}
-          </section>
+              </div>
+            </div>
 
-          <section className="app__right">
-            <HandPanel hand={hand} initialHand={initialHand} balance={displayBalance} />
-            <MyOrders orders={myOrders} onCancel={handleCancel} />
-            <TradeFeed trades={trades} />
-          </section>
+            {/* 2. Suit panels — share remaining height equally */}
+            <div className="app__suits">
+              {activeSuits.length === 0 ? (
+                <p className="app__waiting">Waiting for book data…</p>
+              ) : (
+                activeSuits.map(suit => (
+                  <div key={suit} className="app__suit-wrapper" data-panel-id={`suit-${suit}`}>
+                    <SuitPanel
+                      ref={el => { suitPanelRefs.current[suit] = el }}
+                      suit={suit}
+                      book={books[suit]}
+                      playerId={playerId}
+                      error={errors[suit] ?? null}
+                      lastTradePrice={lastTradePrices[suit] ?? null}
+                      suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
+                      isOwnBestBid={ownsBestBidBySuit[suit] ?? false}
+                      isOwnBestAsk={ownsBestAskBySuit[suit] ?? false}
+                      myOrdersForSuit={myOrders.filter(o => o.suit === suit)}
+                      balance={displayBalance}
+                      bidPlayerColor={
+                        books[suit]?.best_bid_slot != null
+                          ? slotColorSemi(books[suit].best_bid_slot!) : null
+                      }
+                      askPlayerColor={
+                        books[suit]?.best_ask_slot != null
+                          ? slotColorSemi(books[suit].best_ask_slot!) : null
+                      }
+                      onSendMessage={sendMessage}
+                      selected={suit === selectedSuit}
+                      onSelect={setSelectedSuit}
+                    />
+                  </div>
+                ))
+              )}
+            </div>
 
-          {/* AGENT-CTX: Reserved for eval engine, position tracker, chat panel.
-              Slice 8 populates this with a configurable widget system.
-              Hidden below 900px to keep layout clean on smaller screens. */}
-          <aside className="app__future" aria-label="Future widgets panel" />
+          </div>
         </div>
       </main>
     </>

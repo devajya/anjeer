@@ -52,7 +52,6 @@ static ServerConfig make_cfg() {
     cfg.order_book.active_suits             = {"clubs"};
     cfg.game.player_count           = 2;
     cfg.game.total_cards            = 40;
-    cfg.game.card_distribution      = {12, 10, 10, 8};
     cfg.game.countdown_seconds      = 0;
     cfg.game.round_duration_seconds = 60;
     cfg.game.inter_round_seconds    = 60;

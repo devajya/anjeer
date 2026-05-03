@@ -1,72 +1,88 @@
 .trade-feed {
   width: 100%;
-}
-
-.trade-feed__title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #888;
-  margin-bottom: 0.5rem;
+  height: 100%;
 }
 
 .trade-feed__empty {
   color: #555;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
+  padding: 0.75rem;
 }
 
-.trade-feed__list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+.trade-feed__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  table-layout: fixed;
 }
 
-.trade-feed__item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  padding: 0.3rem 0.5rem;
-  border-radius: 4px;
-  background: #161616;
-  border: 1px solid #222;
+.trade-feed__header {
+  border-bottom: 1px solid var(--color-border, #333);
 }
 
-/* AGENT-CTX: Highlight trades the local player was party to so they stand out
-   from the general trade stream without revealing counterparty identity. */
-.trade-feed__item--mine {
-  border-color: #3a3a1a;
+.trade-feed__th {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #888);
+  text-align: left;
+  position: sticky;
+  top: 0;
+  background: #111;
+  z-index: 1;
+}
+
+.trade-feed__th--suit,
+.trade-feed__th--price {
+  text-align: center;
+}
+
+.trade-feed__th--buyer  { width: 32%; }
+.trade-feed__th--suit   { width: 12%; }
+.trade-feed__th--seller { width: 32%; }
+.trade-feed__th--price  { width: 24%; }
+
+.trade-feed__row {
+  border-bottom: 1px solid var(--color-border-faint, #1e1e1e);
+}
+
+/* AGENT-CTX: Highlight rows where the local player was a party to the trade.
+   Uses a warm tint distinct from the DeltaTable accent so the two panels
+   don't visually bleed together. */
+.trade-feed__row--mine {
   background: #1e1e0e;
 }
 
-.trade-feed__suit {
-  color: #aaa;
-  font-weight: 600;
-  min-width: 2.5rem;
+.trade-feed__td {
+  padding: 0.22rem 0.6rem;
+  color: var(--color-text, #e0e0e0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.trade-feed__price {
-  color: #e0e0e0;
+.trade-feed__td--suit {
+  text-align: center;
+  font-size: 1rem;
+  color: var(--color-text-muted, #aaa);
+}
+
+.trade-feed__td--price {
+  text-align: center;
   font-variant-numeric: tabular-nums;
-}
-
-.trade-feed__side {
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
-}
-
-.trade-feed__side--buy  { background: #14532d; color: #4ade80; }
-.trade-feed__side--sell { background: #450a0a; color: #f87171; }
-
-.trade-feed__you {
-  margin-left: auto;
-  font-size: 0.75rem;
-  color: #facc15;
   font-weight: 600;
+  color: var(--color-text, #e0e0e0);
+}
+
+.trade-feed__td--buyer,
+.trade-feed__td--seller {
+  color: var(--color-text-muted, #ccc);
+  font-size: 0.78rem;
+}
+
+.trade-feed__th--seller,
+.trade-feed__td--seller {
+  text-align: right;
 }

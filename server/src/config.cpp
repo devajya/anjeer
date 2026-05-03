@@ -55,21 +55,12 @@ ServerConfig load_config(const std::string& path) {
         cfg.order_book.nudge_initial_sell_price = ob.at("nudge_initial_sell_price").get<int32_t>();
         cfg.order_book.active_suits             = ob.at("active_suits").get<std::vector<std::string>>();
 
-        // card_distribution parsed as vector then copied into fixed array —
-        // nlohmann has no direct std::array deserialiser.
         const auto& gm = j.at("game");
         cfg.game.player_count            = gm.at("player_count").get<int>();
         cfg.game.total_cards             = gm.at("total_cards").get<int>();
         cfg.game.countdown_seconds       = gm.at("countdown_seconds").get<int>();
         cfg.game.round_duration_seconds  = gm.at("round_duration_seconds").get<int>();
         cfg.game.inter_round_seconds     = gm.at("inter_round_seconds").get<int>();
-
-        const auto dist_vec = gm.at("card_distribution").get<std::vector<int>>();
-        if (dist_vec.size() != 4) {
-            throw std::runtime_error(
-                "game.card_distribution must have exactly 4 elements");
-        }
-        for (int i = 0; i < 4; ++i) cfg.game.card_distribution[i] = dist_vec[i];
 
         const auto& sc = j.at("scoring");
         cfg.scoring.starting_balance = sc.at("starting_balance").get<int>();

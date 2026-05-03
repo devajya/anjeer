@@ -37,10 +37,10 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 
 **Role:** Pure game logic. No network, no JSON, no file I/O. Returns structured events; callers own dispatch.
 
-**Current modules (Slice 7):**
-- `OrderBook` — price-time priority limit order matching. Operations: submit, nudge (best±1), cancel, wipe (global clear). Returns a vector of typed events per operation.
-- `GameState` — deals deck, derives goal suit, tracks per-player hand counts. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules.
-- `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, pre-buyin balances, and `ScoringConfig`. Computes pot, per-card payout, majority/plurality bonus, and new balances. No I/O; server owns dispatch of `RoundResult`.
+**Current modules (Slice 8):**
+- `OrderBook` — price-time priority limit order matching. Operations: submit, nudge (best±1), cancel, wipe (global clear). Returns a vector of typed events per operation. `BookUpdateEvent` carries `best_bid_player_id` / `best_ask_player_id` (slot indices) so the frontend can colour quote owners.
+- `GameState` — deals deck, tracks per-player hand counts. Goal suit is **explicit per-deck** (passed in `Config::goal_suit`); it is no longer derived from the distribution. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules.
+- `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, disconnected flags, and `ScoringConfig`. `ScoringConfig::bonus_pool` is explicit (deck-supplied); it is no longer computed from the distribution. Computes pot, per-card payout, majority/plurality bonus, and payouts. No I/O; server owns dispatch.
 
 **Planned modules (future slices):**
 - `BotAgent` (Slice 10) — strategy implementations connecting via the same WS interface as human players
@@ -62,9 +62,12 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - `leave_lobby` — removes player from `lobby_players`, calls `delete_if_empty`, tears down session if empty
 - HTTP POST `/api/log` — frontend log batches → `logs/frontend_logs.txt`
 
-`GameSession` (Slice 7):
+`GameSession` (Slice 7+):
 - Runs on a dedicated game-loop thread; communicates with WsServer exclusively via two lock-free SPSC queues (`session_queue.h`: `NetEvent` inbound, `GameEvent` outbound)
 - `SessionPhase` state machine: `Lobby → Countdown → RoundActive → InterRound → Ended`
+- Deck selection: 12 pre-defined `DeckDef` entries in a static `kDecks` table. Each deck specifies per-suit distribution, explicit goal suit, and bonus pool. One deck is picked uniformly at `begin_round` and stored as `current_deck_` — the single authoritative source for all per-round deck properties.
+- Post-trade pipeline (`apply_post_trade_state`): card transfers → balance settlements → delta accumulation → `delta_update` broadcast. Called only when a trade occurred; `apply_global_wipe` follows.
+- Delta table: 4×4 `delta_table_[player_slot][suit_index]` — net cards gained this round, broadcast as a full snapshot after each trade.
 - Collects buy-ins at round start; runs multi-round loop until majority vote or all players leave
 - Timers via `std::chrono::steady_clock` on the game thread — no uWS involvement
 - Persists session + round records to DB via `SessionRepo`; writes `session_errors` on unhandled exceptions
@@ -79,6 +82,8 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - `GET /lobbies` — list waiting + active lobbies with player counts
 - `POST /lobbies/:id/join` — add authenticated player; 409 on full/not-waiting
 - `POST /lobbies/:id/start` — owner-only; transitions status `waiting → starting`; publishes `lobby_started` to `IEventBus`
+- `GET /players/me/keybinds` — returns array of `{action, key_combo}` overrides for the authenticated player
+- `PUT /players/me/keybinds` — full-replace keybind overrides via `KeybindsRepo`; server stores only explicit overrides, frontend supplies defaults
 
 `SessionRepo` (Slice 7):
 - Writes session lifecycle records to `game_sessions`, `rounds`, `session_errors` tables
@@ -111,27 +116,32 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 **Component tree:**
 ```
 App
-├── /login      → Login
-├── /lobby      → LobbyBrowser   — list waiting + active lobbies; create; join by code
-├── /lobby/:code → LobbyRoom     — player roster; WS lobby_state/player_joined/left;
-│                                   Start button (owner + count ≥ min_players only);
-│                                   emits leave_lobby on back-nav
-└── /game       → Game           — reads lobby_id from ?lobby_id= query param (Slice 6+)
-                    ├── GameEndScreen      — full-screen on game_ended: final standings + per-round breakdown
-                    ├── SessionError       — full-screen on session_error: message + return button
-                    ├── InterRoundScreen   — overlay on inter_round: standings + vote-to-end + countdown
-                    │    └── VoteTally     — live vote count display
-                    ├── ConnectionBanner   — connection status indicator
-                    ├── RoundCountdown     — pre-deal countdown; MM:SS timer during round (red in final 30 s)
-                    ├── SuitPanel (×N)     — per-suit order form + best bid/ask display
-                    ├── HandPanel          — per-suit card counts for the local player
-                    ├── MyOrders           — resting orders list + cancel buttons
-                    ├── TradeFeed          — recent trade history, newest first
-                    └── RoundEndModal      — goal suit reveal, standings, payout + new balance; dismiss on click
+├── /login               → Login
+├── /lobby               → LobbyBrowser      — list waiting + active lobbies; create; join by code
+├── /lobby/:code         → LobbyRoom         — player roster; WS lobby_state/player_joined/left;
+│                                               Start button (owner + count ≥ min_players only);
+│                                               emits leave_lobby on back-nav
+├── /settings/keybinds   → KeybindSettings   — keybind customisation; GET/PUT /players/me/keybinds
+└── /game                → Game              — reads lobby_id from ?lobby_id= query param (Slice 6+)
+                              ├── GameEndScreen      — full-screen on game_ended: final standings + per-round breakdown
+                              ├── SessionError       — full-screen on session_error: message + return button
+                              ├── InterRoundScreen   — overlay on inter_round: standings + vote-to-end + countdown
+                              │    └── VoteTally     — live vote count display
+                              ├── ShortcutHelp       — shortcut reference overlay (toggle_shortcuts action)
+                              ├── ConnectionBanner   — connection status indicator
+                              ├── RoundCountdown     — pre-deal countdown; MM:SS timer during round (red in final 30 s)
+                              ├── MarketOverview     — own hand counts + DeltaTable for all players
+                              │    └── DeltaTable    — per-player per-suit net card flow this round
+                              ├── SuitPanel (×N)     — per-suit order form + best bid/ask display (with quote-owner colour)
+                              ├── MyOrders           — resting orders list + cancel buttons
+                              ├── TradeFeed          — recent trade history with player names, newest first
+                              └── RoundEndModal      — goal suit reveal, standings, payout + new balance; dismiss on click
 ```
 
 **Hooks:**
 - `useWebSocket` — single WS connection, message type dispatch, all game state; handles `lobby_state`, `player_joined`, `player_left`, `lobby_started` in addition to game messages
+- `useKeyBinds` — fetches per-player keybind overrides from `/players/me/keybinds`; merges with `DEFAULT_BINDS`; exposes stable `binds` map and `update()` method
+- `useKeyboardShortcuts` — attaches global `keydown` listener; dispatches 11 trading actions via inverted combo map; disabled during modal overlays
 - `useOrderForm` — form state for order submission
 
 **Wire protocol types:** `frontend/src/types/messages.ts` — discriminated unions, single source of truth. Any protocol change must update this file.
@@ -157,6 +167,11 @@ Server receives message
                          if a trade occurred, this event is suppressed (wipe overrides it)
       OrderErrorEvent  → send to submitting player only
   → if dispatch_events() returned had_trade=true:
+      apply_post_trade_state() runs in order:
+        apply_card_transfers()     → broadcasts hand_totals[] to all
+        apply_trade_settlements()  → broadcasts all_balances[] to all
+        delta accumulation         → updates delta_table_[buyer][suit]++ / [seller]--
+        broadcast_delta_update()   → broadcasts delta_update (full 4×4 snapshot) to all
       apply_global_wipe() calls wipe() on EVERY active book (not just the matched suit)
         → each wipe() returns BookUpdateEvent(suit, null, null)
         → each is broadcast to all connected clients
@@ -166,6 +181,9 @@ Frontend on receiving messages:
   trade              → prepends to trades[], clears myOrders[] entirely
                        (client mirrors the global wipe: any trade = all orders gone)
   book_update        → updates books[suit] record; null bid/ask renders as empty
+  hand_totals        → updates allHandTotals[] (total cards per slot)
+  all_balances       → updates allBalances[] and derives own balance from allBalances[playerSlot]
+  delta_update       → replaces deltas[][] snapshot (full replace, never accumulated)
   error              → stored under the suit key of the last sent command (or '_' for cancel)
 ```
 
@@ -182,10 +200,12 @@ N connections reach the server (N = game.player_count in config)
   → clients display a countdown derived from starts_at
   → server sleeps countdown_seconds, then defers to the event-loop thread:
 
+  GameSession picks a DeckDef from the static kDecks table (12 variants, uniform random)
+    → deck specifies: per-suit distribution, explicit goal_suit, bonus_pool
+
   GameState.deal(rng)
-    → shuffles card_distribution across suits
-    → derive_goal_suit() — color_partner of the suit with the most cards
-    → distributes cards round-robin to player slots (one slot gets remainder if uneven)
+    → distributes cards per deck's distribution, round-robin to player slots (one slot gets remainder if uneven)
+    → goal_suit is taken directly from the deck — not derived from the distribution
 
   Server routes:
     per-player round_start { player_slot, hand, round_end_at } → sent to that player's WS only
@@ -202,10 +222,10 @@ Round expiry timer fires
   → server transitions RoundPhase: Active → Scoring
   → apply_global_wipe() — all active books wiped; null book_update broadcast to all
 
-  score_round(hands, goal_suit, balances, disconnected, ScoringConfig)
+  score_round(hands, goal_suit, disconnected, ScoringConfig)
     → pot      = player_count × buy_in
     → per-card = points_per_card × goal_cards_held (per player)
-    → bonus_pool = pot − (points_per_card × total_goal_cards_in_deck)
+    → bonus_pool = ScoringConfig::bonus_pool (explicit from the deck — not derived)
     → majority threshold = total_goal_cards / 2 + 1 (strict)
         if exactly one player holds ≥ threshold → they receive full bonus_pool
         else → bonus split evenly among player(s) holding the most goal cards (integer division)
@@ -235,6 +255,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Auth (Slice 5+) | `waiting_for_start` (WS broadcast); auth via HTTP cookies, not WS |
 | Lobby (Slice 6+) | `lobby_state` (snapshot on subscribe), `player_joined`, `player_left`, `lobby_started` |
 | Game lifecycle (Slice 7+) | `inter_round`, `vote_tally`, `game_ended`, `game_player_left`, `session_error` |
+| Market state (Slice 8+) | `delta_update` (full per-player per-suit net flow snapshot), `all_balances` (all slots after each trade), `hand_totals` (total cards per slot after each trade) |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
 
 **Client → Server categories:**

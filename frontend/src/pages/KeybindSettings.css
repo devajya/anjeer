@@ -1,0 +1,142 @@
+.keybinds {
+  max-width: 540px;
+  margin: 2.5rem auto;
+  padding: 0 1.25rem;
+}
+
+.keybinds__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.keybinds__back {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #888;
+  padding: 0.25rem 0;
+  line-height: 1;
+}
+
+.keybinds__back:hover {
+  color: #ddd;
+}
+
+.keybinds__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.keybinds__hint {
+  font-size: 0.8rem;
+  color: #777;
+  margin: 0 0 1rem;
+}
+
+.keybinds__loading {
+  color: #888;
+}
+
+.keybinds__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.keybinds__table thead th {
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #666;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.keybinds__col-action { width: 65%; }
+.keybinds__col-key    { width: 35%; }
+
+.keybinds__row {
+  cursor: pointer;
+  border-bottom: 1px solid #1e1e1e;
+  outline: none;
+}
+
+.keybinds__row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.keybinds__row:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  outline: 2px solid #6366f1;
+  outline-offset: -2px;
+}
+
+.keybinds__row--editing {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.keybinds__action,
+.keybinds__key {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.keybinds__kbd {
+  display: inline-block;
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0.1rem 0.45rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #ccc;
+}
+
+.keybinds__capture {
+  color: #818cf8;
+  font-style: italic;
+  font-size: 0.825rem;
+}
+
+.keybinds__footer {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin-top: 1.5rem;
+}
+
+.keybinds__save {
+  padding: 0.45rem 1.25rem;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 120ms;
+}
+
+.keybinds__save:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+.keybinds__save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.keybinds__saved-msg {
+  color: #4ade80;
+  font-size: 0.875rem;
+}
+
+.keybinds__error-msg {
+  color: #f87171;
+  font-size: 0.875rem;
+}

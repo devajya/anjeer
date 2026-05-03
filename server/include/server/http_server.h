@@ -13,6 +13,7 @@
 #include "server/config.h"
 #include "server/db.h"
 #include "server/event_bus.h"
+#include "server/keybinds_repo.h"
 #include "server/lobby_repo.h"
 #include "server/logger.h"
 #include "server/oauth_provider.h"
@@ -26,6 +27,7 @@ public:
                         AuthService&        auth_service,
                         PlayerRepo&         player_repo,
                         LobbyRepo&          lobby_repo,
+                        KeybindsRepo&       keybinds_repo,
                         IEventBus&          event_bus,
                         DbPool&             db_pool);
 
@@ -39,9 +41,10 @@ private:
     void add_state    (const std::string& nonce, const std::string& provider);
 
     // Template avoids pulling crow::App<CORSHandler> into this header.
-    template<typename App> void register_auth_routes  (App& app);
-    template<typename App> void register_player_routes(App& app);
-    template<typename App> void register_lobby_routes (App& app);
+    template<typename App> void register_auth_routes     (App& app);
+    template<typename App> void register_player_routes   (App& app);
+    template<typename App> void register_lobby_routes    (App& app);
+    template<typename App> void register_keybinds_routes (App& app);
 
     std::string make_access_cookie (const std::string& value) const;
     std::string make_refresh_cookie(const std::string& value) const;
@@ -54,6 +57,7 @@ private:
     AuthService&        auth_service_;
     PlayerRepo&         player_repo_;
     LobbyRepo&          lobby_repo_;
+    KeybindsRepo&       keybinds_repo_;
     IEventBus&          event_bus_;
     DbPool&             db_pool_;
     Logger              http_log_;

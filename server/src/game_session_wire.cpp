@@ -38,16 +38,20 @@ std::string opt_price(std::optional<int32_t> p) noexcept {
 std::string book_update_payload(
         const std::string&     suit,
         std::optional<int32_t> best_bid,
-        std::optional<int32_t> best_ask) {
-    const nlohmann::json bid_val =
-        best_bid.has_value() ? nlohmann::json(*best_bid) : nlohmann::json(nullptr);
-    const nlohmann::json ask_val =
-        best_ask.has_value() ? nlohmann::json(*best_ask) : nlohmann::json(nullptr);
+        std::optional<int32_t> best_ask,
+        std::optional<int32_t> best_bid_slot,
+        std::optional<int32_t> best_ask_slot) {
+    const nlohmann::json bid_val      = best_bid.has_value()       ? nlohmann::json(*best_bid)       : nlohmann::json(nullptr);
+    const nlohmann::json ask_val      = best_ask.has_value()       ? nlohmann::json(*best_ask)       : nlohmann::json(nullptr);
+    const nlohmann::json bid_slot_val = best_bid_slot.has_value()  ? nlohmann::json(*best_bid_slot)  : nlohmann::json(nullptr);
+    const nlohmann::json ask_slot_val = best_ask_slot.has_value()  ? nlohmann::json(*best_ask_slot)  : nlohmann::json(nullptr);
     return nlohmann::json{
-        {"type",     "book_update"},
-        {"suit",     suit},
-        {"best_bid", bid_val},
-        {"best_ask", ask_val},
+        {"type",           "book_update"},
+        {"suit",           suit},
+        {"best_bid",       bid_val},
+        {"best_ask",       ask_val},
+        {"best_bid_slot",  bid_slot_val},
+        {"best_ask_slot",  ask_slot_val},
     }.dump();
 }
 
@@ -130,21 +134,36 @@ std::string round_end_payload(
 }
 
 std::string round_start_payload(
-        int                       slot,
-        const engine::PlayerHand& hand,
-        const std::string&        round_end_at,
-        int                       effective_balance) {
+        int                             slot,
+        const engine::PlayerHand&       hand,
+        const std::string&              round_end_at,
+        int                             effective_balance,
+        const std::vector<std::string>& usernames,
+        const std::vector<int>&         all_hand_totals,
+        const std::vector<int>&         all_balances) {
+    auto roster_arr = nlohmann::json::array();
+    for (int i = 0; i < static_cast<int>(usernames.size()); ++i) {
+        roster_arr.push_back({
+            {"player_slot", i},
+            {"username",    usernames[i]},
+        });
+    }
+    auto hand_totals_arr = nlohmann::json(all_hand_totals);
+    auto balances_arr    = nlohmann::json(all_balances);
     return nlohmann::json{
-        {"type",         "round_start"},
-        {"player_slot",  slot},
-        {"round_end_at", round_end_at},
-        {"balance",      effective_balance},
+        {"type",             "round_start"},
+        {"player_slot",      slot},
+        {"round_end_at",     round_end_at},
+        {"balance",          effective_balance},
         {"hand", {
             {"clubs",    hand.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
             {"diamonds", hand.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},
             {"hearts",   hand.suit_counts[engine::suit_index(engine::Suit::Hearts)]},
             {"spades",   hand.suit_counts[engine::suit_index(engine::Suit::Spades)]},
         }},
+        {"roster",           roster_arr},
+        {"all_hand_totals",  hand_totals_arr},
+        {"all_balances",     balances_arr},
     }.dump();
 }
 

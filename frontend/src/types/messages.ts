@@ -31,12 +31,15 @@ export interface OrderAckMessage {
  * Broadcast to all clients after every book mutation and on connect.
  * AGENT-CTX: best_bid / best_ask are null when no orders exist on that side.
  * Both fields become null simultaneously after a global wipe (any trade executes).
+ * best_bid_slot / best_ask_slot are the player slot indices of the quote owners.
  */
 export interface BookUpdateMessage {
   type: 'book_update'
   suit: string
   best_bid: number | null
   best_ask: number | null
+  best_bid_slot: number | null
+  best_ask_slot: number | null
 }
 
 /**
@@ -52,6 +55,8 @@ export interface TradeMessage {
   aggressor_side: 'buy' | 'sell'
   /** "buy" | "sell" if this client was a party to the trade; null for observers. */
   your_side: 'buy' | 'sell' | null
+  buyer_slot: number
+  seller_slot: number
 }
 
 /** Confirms a successfully cancelled order. Sent only to the cancelling client. */
@@ -99,6 +104,7 @@ export interface HandCounts {
  * no suit totals, no goal suit.
  * AGENT-CTX: goal_suit and suit_totals are absent by design (Slice 3
  * resolution 6 — spec error corrected: suit counts are private).
+ * roster maps slot index → username for the full DeltaTable and TradeFeed.
  */
 export interface RoundStartMessage {
   type: 'round_start'
@@ -106,6 +112,11 @@ export interface RoundStartMessage {
   hand: HandCounts
   round_end_at: string
   balance: number
+  roster: Array<{ player_slot: number; username: string }>
+  /** Total cards in hand at round start, indexed by player slot. */
+  all_hand_totals: number[]
+  /** Balance for every slot at round start (after buy-in), indexed by slot. */
+  all_balances: number[]
 }
 
 /** Per-player entry in round_end standings. */
@@ -116,18 +127,6 @@ export interface PlayerRoundResult {
   /** available_cash after payout is applied — server-owned state, not engine-computed. */
   balance: number
   disconnected: boolean
-}
-
-/**
- * Sent to buyer and seller after each executed trade.
- * Reflects available_cash after the price has been debited/credited.
- * AGENT-CTX: Single source of balance truth mid-round; replaces the round_start
- * value. When Slice 8 adds server-side balance persistence, only the server
- * write path changes — this message shape stays the same.
- */
-export interface BalanceUpdateMessage {
-  type: 'balance_update'
-  balance: number
 }
 
 /**
@@ -265,6 +264,36 @@ export interface SessionErrorMessage {
 }
 
 /**
+ * Broadcast to all clients after each trade. Carries the full delta snapshot
+ * for the current round so clients never need to accumulate increments.
+ * AGENT-CTX: deltas[player_slot][suit_index] where suit_index matches
+ * engine::kAllSuits order: 0=clubs 1=diamonds 2=hearts 3=spades.
+ * Reset to all-zero at each round_start.
+ */
+export interface DeltaUpdateMessage {
+  type: 'delta_update'
+  deltas: number[][]
+}
+
+/**
+ * Broadcast to all clients after every trade, after balances are settled.
+ * balances[slot] = current available cash for that player slot.
+ */
+export interface AllBalancesMessage {
+  type: 'all_balances'
+  balances: number[]
+}
+
+/**
+ * Broadcast to all clients after every trade, after card transfers complete.
+ * totals[slot] = total cards in hand for that player slot.
+ */
+export interface HandTotalsMessage {
+  type: 'hand_totals'
+  totals: number[]
+}
+
+/**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
  * useWebSocket.ts is exhaustive — TypeScript will error on unhandled variants
@@ -280,7 +309,6 @@ export type ServerMessage =
   | RoundStartingMessage
   | RoundStartMessage
   | RoundEndMessage
-  | BalanceUpdateMessage
   | WaitingForStartMessage
   | LobbyStateMessage
   | PlayerJoinedMessage
@@ -291,6 +319,9 @@ export type ServerMessage =
   | GameEndedMessage
   | GamePlayerLeftMessage
   | SessionErrorMessage
+  | DeltaUpdateMessage
+  | AllBalancesMessage
+  | HandTotalsMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)

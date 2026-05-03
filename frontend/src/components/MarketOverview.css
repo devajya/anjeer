@@ -1,0 +1,168 @@
+/* ── Shell ── */
+.mo {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.mo__empty {
+  color: #555;
+  font-style: italic;
+  font-size: 0.82rem;
+  padding-top: 0.4rem;
+}
+
+/* ── Horizontal card row ── */
+.mo__cards {
+  display: flex;
+  gap: 0.4rem;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #333 transparent;
+}
+
+.mo__cards::-webkit-scrollbar       { height: 4px; }
+.mo__cards::-webkit-scrollbar-track  { background: transparent; }
+.mo__cards::-webkit-scrollbar-thumb  { background: #333; border-radius: 2px; }
+
+/* ── Player card ── */
+.mo__card {
+  flex: 1;
+  min-width: 80px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid #2a2a2a;
+}
+
+.mo__card--me {
+  border-color: #444;
+}
+
+/* ── Card header: single row with name + stats ── */
+.mo__card-header {
+  padding: 0.3rem 0.45rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.mo__card-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Stat group: card-count + cash, right of name */
+.mo__card-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.mo__stat {
+  display: flex;
+  align-items: center;
+  gap: 0.12rem;
+  background: rgba(0,0,0,0.35);
+  border-radius: 4px;
+  padding: 0.05rem 0.28rem;
+  line-height: 1.4;
+}
+
+.mo__stat-icon {
+  font-size: 0.6rem;
+  line-height: 1;
+}
+
+.mo__stat-icon--cards {
+  color: #93c5fd;
+}
+
+.mo__stat-icon--cash {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.mo__stat-val {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Card body: suit rows ── */
+.mo__card-body {
+  flex: 1;
+  background: #111;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  padding: 0.35rem 0.45rem;
+  gap: 0.18rem;
+}
+
+.mo__card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+}
+
+/* ── Suit symbol circles ── */
+.mo__suit-circle {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.mo__suit-circle--hearts   { color: #f87171; }
+.mo__suit-circle--diamonds { color: #f87171; }
+.mo__suit-circle--clubs    { color: #c8c8c8; }
+.mo__suit-circle--spades   { color: #c8c8c8; }
+
+/* ── Right-side values: count + delta ── */
+.mo__card-values {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  flex: 1;
+}
+
+.mo__card-count {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e8e8e8;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.mo__delta {
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.mo__delta--pos { color: #4caf7d; }
+.mo__delta--neg { color: #e05c5c; }

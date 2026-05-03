@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <string>
 #include <vector>
 
@@ -47,7 +46,6 @@ struct ServerConfig {
     struct GameConfig {
         int                  player_count;
         int                  total_cards;
-        std::array<int, 4>   card_distribution;
         int                  countdown_seconds;
         int                  round_duration_seconds;
         int                  inter_round_seconds;

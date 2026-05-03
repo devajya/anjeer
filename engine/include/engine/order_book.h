@@ -43,10 +43,14 @@ struct TradeEvent {
 
 // Broadcast to all clients after every mutation that changes best bid or ask.
 // best_bid / best_ask are nullopt when no orders exist on that side.
+// best_bid_player_id / best_ask_player_id are nullopt when no orders exist.
+// In this codebase player_id passed to the engine equals the player's slot index.
 struct BookUpdateEvent {
     std::string            suit;
     std::optional<int32_t> best_bid;
     std::optional<int32_t> best_ask;
+    std::optional<int32_t> best_bid_player_id;
+    std::optional<int32_t> best_ask_player_id;
 };
 
 // Confirms a successfully cancelled order. Sent only to the cancelling client.

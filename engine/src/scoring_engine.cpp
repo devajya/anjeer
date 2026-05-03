@@ -21,7 +21,7 @@ RoundResult score_round(
         total_goal_cards += h.suit_counts[goal_si];
 
     const int pot        = N * cfg.buy_in;
-    const int bonus_pool = pot - (cfg.points_per_card * total_goal_cards);
+    const int bonus_pool = cfg.bonus_pool;
 
     // AGENT-CTX: threshold uses total cards held at round end, not the original
     // deal distribution. In a fair game these are the same (cards are conserved

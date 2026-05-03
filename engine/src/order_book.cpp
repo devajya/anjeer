@@ -34,7 +34,9 @@ BookUpdateEvent OrderBook::make_book_update() const {
     // AGENT-CTX: Returns a snapshot of best bid/ask AFTER the mutation that
     // caused this call. The server broadcasts this immediately — callers must
     // not cache this value across mutations.
-    return BookUpdateEvent{cfg_.suit, best_bid(), best_ask()};
+    const std::optional<int32_t> bid_pid = bids_.empty() ? std::nullopt : std::optional<int32_t>(bids_.front().player_id);
+    const std::optional<int32_t> ask_pid = asks_.empty() ? std::nullopt : std::optional<int32_t>(asks_.front().player_id);
+    return BookUpdateEvent{cfg_.suit, best_bid(), best_ask(), bid_pid, ask_pid};
 }
 
 std::optional<TradeEvent> OrderBook::try_match() {

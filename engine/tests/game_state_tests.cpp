@@ -19,11 +19,14 @@ using namespace anjeer::engine;
 // production default.json (40 cards, {12,10,10,8} distribution, price 1–99).
 // Tests that need a different count call make_test_config(N) explicitly.
 // ---------------------------------------------------------------------------
-static GameState::Config make_test_config(int player_count = 5) {
+// Uses Deck 1: clubs=10, diamonds=8, hearts=10, spades=12, goal=Clubs.
+static GameState::Config make_test_config(int player_count = 5,
+                                          Suit goal = Suit::Clubs) {
     return GameState::Config{
         .player_count      = player_count,
         .total_cards       = 40,
-        .card_distribution = {12, 10, 10, 8},
+        .card_distribution = {10, 8, 10, 12},
+        .goal_suit         = goal,
     };
 }
 
@@ -85,43 +88,6 @@ TEST_CASE("suit_name_matches_expected_strings", "[suit]") {
     REQUIRE(suit_name(Suit::Spades)   == "spades");
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// derive_goal_suit — static, testable without a full GameState (all FAIL RED)
-// ═══════════════════════════════════════════════════════════════════════════
-
-TEST_CASE("goal_suit_all_four_assignments", "[game_state][goal_suit]") {
-    // AC4: For each of the 4 possible suits holding 12 cards, derive_goal_suit
-    // must return color_partner of that suit.
-    // AGENT-CTX: Tests the static method directly so the goal-suit rule can be
-    // verified without going through a full shuffle/deal cycle. Each case
-    // places 12 cards on one suit (clearly the max) and uses small values for
-    // the others — derive_goal_suit only needs to find the maximum, not sum.
-    struct Case {
-        std::array<int, 4> totals;
-        Suit expected_goal;
-    };
-
-    const std::array<Case, 4> cases{{
-        // Clubs=12 → goal=Spades (Black partner)
-        { {12, 10,  8, 10}, color_partner(Suit::Clubs)    },
-        // Diamonds=12 → goal=Hearts (Red partner)
-        { {10, 12, 10,  8}, color_partner(Suit::Diamonds) },
-        // Hearts=12 → goal=Diamonds (Red partner)
-        { { 8, 10, 12, 10}, color_partner(Suit::Hearts)   },
-        // Spades=12 → goal=Clubs (Black partner)
-        { {10,  8, 10, 12}, color_partner(Suit::Spades)   },
-    }};
-
-    for (const auto& c : cases) {
-        REQUIRE(GameState::derive_goal_suit(c.totals) == c.expected_goal);
-        // Also verify the color invariant holds
-        Suit max_suit = static_cast<Suit>(
-            static_cast<int>(std::distance(c.totals.begin(),
-                std::max_element(c.totals.begin(), c.totals.end())))
-        );
-        REQUIRE(same_color(max_suit, c.expected_goal));
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Full deal() tests (all FAIL RED against stub — go GREEN in T6)
@@ -151,24 +117,13 @@ TEST_CASE("deal_suit_totals_are_valid_distribution", "[game_state][deal]") {
     REQUIRE(totals == (std::array<int, 4>{8, 10, 10, 12}));
 }
 
-TEST_CASE("goal_suit_is_color_partner_of_twelve_suit", "[game_state][deal][goal_suit]") {
-    // AC3: result.goal_suit == color_partner of the suit that received 12 cards.
-    // Verified over 20 seeds so we cover multiple shuffle outcomes.
-    for (int seed = 0; seed < 20; ++seed) {
-        GameState gs(make_test_config(5));
-        std::mt19937 rng(seed);
+TEST_CASE("deal_returns_configured_goal_suit", "[game_state][deal][goal_suit]") {
+    // goal_suit is explicit in the deck config; deal() must return it unchanged.
+    for (auto goal : {Suit::Clubs, Suit::Diamonds, Suit::Hearts, Suit::Spades}) {
+        GameState gs(make_test_config(5, goal));
+        std::mt19937 rng(42);
         auto result = gs.deal(rng);
-
-        // Confirm a suit really got 12 cards
-        auto max_it = std::max_element(result.suit_totals.begin(), result.suit_totals.end());
-        REQUIRE(*max_it == 12);
-
-        int max_si = static_cast<int>(
-            std::distance(result.suit_totals.begin(), max_it));
-        Suit twelve_suit = static_cast<Suit>(max_si);
-
-        REQUIRE(result.goal_suit == color_partner(twelve_suit));
-        REQUIRE(same_color(twelve_suit, result.goal_suit));
+        REQUIRE(result.goal_suit == goal);
     }
 }
 
@@ -247,27 +202,6 @@ TEST_CASE("no_extra_card_on_even_deal", "[game_state][deal]") {
     }
 }
 
-TEST_CASE("deal_randomizes_suit_assignment", "[game_state][deal]") {
-    // AC10: Over many seeds, each of the 4 suits must appear as the 12-card suit
-    // at least once. Guards against a degenerate stub that always assigns 12 to Clubs.
-    // AGENT-CTX: std::shuffle on a 4-element array with a seed-varied rng produces
-    // all 4! = 24 permutations across 100 seeds with overwhelming probability.
-    std::array<bool, 4> max_suit_seen{};
-
-    for (int seed = 0; seed < 100; ++seed) {
-        GameState gs(make_test_config(5));
-        std::mt19937 rng(seed);
-        auto result = gs.deal(rng);
-
-        auto max_it = std::max_element(result.suit_totals.begin(), result.suit_totals.end());
-        int max_si = static_cast<int>(
-            std::distance(result.suit_totals.begin(), max_it));
-        max_suit_seen[max_si] = true;
-    }
-
-    REQUIRE(std::all_of(max_suit_seen.begin(), max_suit_seen.end(),
-                        [](bool b) { return b; }));
-}
 
 TEST_CASE("hand_suit_counts_sum_to_hand_size", "[game_state][deal]") {
     // AC11: For each player, sum of suit_counts equals their expected hand size.

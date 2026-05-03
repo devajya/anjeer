@@ -24,12 +24,6 @@
   "game": {
     "player_count": 2,
     "total_cards": 40,
-    "card_distribution": [
-      12,
-      10,
-      10,
-      8
-    ],
     "countdown_seconds": 3,
     "round_duration_seconds": 240,
     "inter_round_seconds": 30
@@ -37,7 +31,7 @@
   "scoring": {
     "starting_balance": 100,
     "round_buy_in_pct": 0.20,
-    "points_per_card": 20
+    "points_per_card": 10
   },
   "db": {
     "connection_string": "postgresql:///anjeer_dev",

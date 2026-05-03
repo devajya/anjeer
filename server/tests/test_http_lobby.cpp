@@ -5,6 +5,7 @@
 #include "server/db.h"
 #include "server/event_bus.h"
 #include "server/http_server.h"
+#include "server/keybinds_repo.h"
 #include "server/lobby_repo.h"
 #include "server/player_repo.h"
 
@@ -49,6 +50,7 @@ static ServerConfig& cfg() {
 static DbPool&        dp()  { static DbPool        p(TEST_DB_CONN, 3); return p; }
 static PlayerRepo&    pr()  { static PlayerRepo     r; return r; }
 static LobbyRepo&     lr()  { static LobbyRepo      r; return r; }
+static KeybindsRepo&  kr()  { static KeybindsRepo   r; return r; }
 static LocalEventBus& bus() { static LocalEventBus  b; return b; }
 static AuthService&   auth(){ static AuthService    s(dp(), pr(), cfg()); return s; }
 
@@ -137,7 +139,7 @@ static void ensure_http_server_running() {
     if (started.exchange(true)) { wait_for_port(k_port); return; }
 
     std::thread([] {
-        HttpServer srv(cfg(), auth(), pr(), lr(), bus(), dp());
+        HttpServer srv(cfg(), auth(), pr(), lr(), kr(), bus(), dp());
         srv.run();
     }).detach();
 

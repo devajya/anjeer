@@ -48,7 +48,10 @@ export function useOrderForm(
   function submitBid(e: React.FormEvent) {
     e.preventDefault()
     const p = parseInt(bidInput, 10)
-    if (isNaN(p)) return
+    if (isNaN(p) || p < 1 || p > 99) {
+      setSelfTradeError('Enter a price between 1 and 99')
+      return
+    }
     // A buy at price p matches any resting sell at price ≤ p.
     // Self-trade: player has a sell order for this suit at price ≤ p.
     const conflict = myOrdersForSuit.some(o => o.side === 'sell' && o.price <= p)
@@ -64,7 +67,10 @@ export function useOrderForm(
   function submitOffer(e: React.FormEvent) {
     e.preventDefault()
     const p = parseInt(offerInput, 10)
-    if (isNaN(p)) return
+    if (isNaN(p) || p < 1 || p > 99) {
+      setSelfTradeError('Enter a price between 1 and 99')
+      return
+    }
     // A sell at price p matches any resting buy at price ≥ p.
     // Self-trade: player has a buy order for this suit at price ≥ p.
     const conflict = myOrdersForSuit.some(o => o.side === 'buy' && o.price >= p)

@@ -16,9 +16,9 @@ static PlayerHand make_hand(int clubs, int diamonds, int hearts, int spades) {
     return h;
 }
 
-// Default config matching config/default.json scoring section.
+// Default config: 5 players × buy_in=50 → pot=250; bonus_pool=50 (a typical deck value).
 static ScoringConfig default_cfg() {
-    return ScoringConfig{ .buy_in = 50, .points_per_card = 20 };
+    return ScoringConfig{ .buy_in = 50, .points_per_card = 20, .bonus_pool = 50 };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -34,9 +34,7 @@ TEST_CASE("score_round: pot = player_count × buy_in", "[scoring]") {
     REQUIRE(r.pot == 250);
 }
 
-TEST_CASE("score_round: bonus_pool = pot - (points_per_card × total_goal_cards)", "[scoring]") {
-    // 5 players each hold 2 spades → total_goal_cards=10
-    // bonus_pool = 250 - (20 × 10) = 50
+TEST_CASE("score_round: bonus_pool is returned as configured", "[scoring]") {
     std::vector<PlayerHand> hands(5, make_hand(2, 2, 2, 2));
     std::vector<bool> disc(5, false);
 
@@ -143,12 +141,12 @@ TEST_CASE("score_round: disconnected player — payout computed, disconnected=tr
 // Config scaling
 // ═══════════════════════════════════════════════════════════════════════════
 
-TEST_CASE("score_round: respects custom buy_in and points_per_card", "[scoring]") {
-    // buy_in=30, points_per_card=10
-    // 5 players each hold 2 spades → total_goal=10, pot=150, bonus=150-100=50
+TEST_CASE("score_round: respects custom buy_in, points_per_card, and bonus_pool", "[scoring]") {
+    // buy_in=30, points_per_card=10, bonus_pool=50
+    // 5 players each hold 2 spades → pot=150
     // threshold=6; nobody → plurality 5 → bonus_per=10
     // payout = 2×10 + 10 = 30
-    ScoringConfig cfg{ .buy_in = 30, .points_per_card = 10 };
+    ScoringConfig cfg{ .buy_in = 30, .points_per_card = 10, .bonus_pool = 50 };
     std::vector<PlayerHand> hands(5, make_hand(2, 2, 2, 2));
     std::vector<bool> disc(5, false);
 

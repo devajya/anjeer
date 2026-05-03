@@ -1,3 +1,4 @@
+import { forwardRef, useImperativeHandle, useRef, useState, useEffect } from 'react'
 import type { BookState, MyOrder } from '../hooks/useWebSocket'
 import type { ErrorMessage, ClientCommand } from '../types/messages'
 import { useOrderForm } from '../hooks/useOrderForm'
@@ -18,6 +19,11 @@ export const PLAYER_COLORS: Record<number, string> = {
   8: '#c2410c', // orange
 }
 
+export interface SuitPanelHandle {
+  focusBid:   () => void
+  focusOffer: () => void
+}
+
 interface Props {
   suit: string
   book: BookState
@@ -25,6 +31,8 @@ interface Props {
   error: ErrorMessage | null
   /** Last executed trade price for this suit, null if no trades yet. */
   lastTradePrice: number | null
+  /** Player's available cash — used to disable BUY when best_ask exceeds balance. */
+  balance?: number | null
   /**
    * How many cards of this suit the player currently holds.
    * null/undefined = hand not yet dealt (sell controls remain enabled to avoid
@@ -59,6 +67,17 @@ interface Props {
    */
   askPlayerColor?: string | null
   onSendMessage: (cmd: ClientCommand) => void
+  /** True when this suit is keyboard-focused. Applies a focus ring to the panel. */
+  selected?: boolean
+  /** Called when the player clicks the panel to keyboard-focus it. */
+  onSelect?: (suit: string) => void
+}
+
+const SUIT_SYMBOLS: Record<string, string> = {
+  clubs:    '♣',
+  diamonds: '♦',
+  hearts:   '♥',
+  spades:   '♠',
 }
 
 // AGENT-CTX: SuitPanel shows a 3-column layout: BID side | suit centre | ASK side.
@@ -66,8 +85,8 @@ interface Props {
 // Centre col: suit badge + last trade price.
 // Right col:  ▼ nudge + best-ask price,     then  [price-input⏎] [BUY]
 // Entering a price and pressing Enter (or ↑/↓ button) submits the order.
-// Slice 8 will add keyboard shortcuts and a deeper book ladder.
-export function SuitPanel({
+// Keyboard shortcuts b/a focus the bid/offer input; market buy/sell is button-only.
+export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   suit,
   book,
   playerId,
@@ -77,12 +96,40 @@ export function SuitPanel({
   isOwnBestBid = false,
   isOwnBestAsk = false,
   myOrdersForSuit = [],
+  balance = null,
   bidPlayerColor = null,
   askPlayerColor = null,
   onSendMessage,
-}: Props) {
+  selected = false,
+  onSelect,
+}, ref) {
   const { bidInput, offerInput, setBidInput, setOfferInput, submitBid, submitOffer, selfTradeError } =
     useOrderForm(suit, onSendMessage, myOrdersForSuit)
+
+  const bidInputRef   = useRef<HTMLInputElement>(null)
+  const offerInputRef = useRef<HTMLInputElement>(null)
+
+  useImperativeHandle(ref, () => ({
+    focusBid:   () => { bidInputRef.current?.focus(); bidInputRef.current?.select() },
+    focusOffer: () => { offerInputRef.current?.focus(); offerInputRef.current?.select() },
+  }))
+
+  // Ephemeral server error — auto-clears after 2 seconds so it never blocks interaction.
+  const [visibleError, setVisibleError] = useState<ErrorMessage | null>(null)
+  useEffect(() => {
+    if (!error) { setVisibleError(null); return }
+    setVisibleError(error)
+    const t = setTimeout(() => setVisibleError(null), 2000)
+    return () => clearTimeout(t)
+  }, [error])
+
+  const [visibleSelfTradeError, setVisibleSelfTradeError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!selfTradeError) { setVisibleSelfTradeError(null); return }
+    setVisibleSelfTradeError(selfTradeError)
+    const t = setTimeout(() => setVisibleSelfTradeError(null), 2000)
+    return () => clearTimeout(t)
+  }, [selfTradeError])
 
   const disabled = playerId === null
   const hasBid = book.best_bid !== null
@@ -90,19 +137,31 @@ export function SuitPanel({
   // Disable all sell-side controls when the player holds no cards of this suit.
   // suitCardCount null means hand not yet dealt — allow sells until we know better.
   const noCards = suitCardCount !== null && suitCardCount === 0
+  // Disable BUY when the player can't afford the best ask.
+  const cantAffordAsk = balance !== null && book.best_ask !== null && book.best_ask > balance
 
-  // Neutral dark background when no player colour is known yet.
   const BID_NEUTRAL = '#0e0e0e'
   const ASK_NEUTRAL = '#0e0e0e'
+  const bidBackground = bidPlayerColor
+    ? `linear-gradient(to right, ${bidPlayerColor}, transparent)`
+    : BID_NEUTRAL
+  const askBackground = askPlayerColor
+    ? `linear-gradient(to left, ${askPlayerColor}, transparent)`
+    : ASK_NEUTRAL
 
   return (
-    <div className="sp">
+    // AGENT-CTX: onClick selects this suit for keyboard shortcuts. The panel
+    // itself is not focusable via Tab — keyboard suit selection uses bound keys.
+    <div
+      className={['sp', selected ? 'sp--selected' : ''].join(' ').trim()}
+      onClick={() => onSelect?.(suit)}
+    >
       <div className="sp__columns">
 
         {/* ── LEFT: BID side ── */}
         <div
           className="sp__col sp__col--bid"
-          style={{ background: bidPlayerColor ?? BID_NEUTRAL }}
+          style={{ background: bidBackground }}
         >
           {/* Price row: bid price + nudge-up */}
           <div className="sp__price-row">
@@ -143,8 +202,9 @@ export function SuitPanel({
             >
               SELL
             </button>
-            <form className="sp__price-form" onSubmit={submitBid}>
+            <form className="sp__price-form" noValidate onSubmit={e => { submitBid(e); bidInputRef.current?.blur() }}>
               <input
+                ref={bidInputRef}
                 className="sp__price-input"
                 type="number"
                 min={1}
@@ -161,7 +221,7 @@ export function SuitPanel({
 
         {/* ── MIDDLE: suit badge + last trade ── */}
         <div className="sp__col sp__col--centre">
-          <div className="sp__badge">{suit}</div>
+          <div className={`sp__badge sp__badge--${suit}`}>{SUIT_SYMBOLS[suit] ?? suit}</div>
           {lastTradePrice !== null ? (
             <span className="sp__last-trade">{lastTradePrice}</span>
           ) : (
@@ -172,7 +232,7 @@ export function SuitPanel({
         {/* ── RIGHT: ASK side ── */}
         <div
           className="sp__col sp__col--ask"
-          style={{ background: askPlayerColor ?? ASK_NEUTRAL }}
+          style={{ background: askBackground }}
         >
           {/* Price row: nudge-down + ask price */}
           <div className="sp__price-row sp__price-row--ask">
@@ -192,8 +252,9 @@ export function SuitPanel({
 
           {/* Action row: [price-input → Enter to submit offer] [BUY] */}
           <div className="sp__action-row sp__action-row--ask">
-            <form className="sp__price-form" onSubmit={submitOffer}>
+            <form className="sp__price-form" noValidate onSubmit={e => { submitOffer(e); offerInputRef.current?.blur() }}>
               <input
+                ref={offerInputRef}
                 className="sp__price-input"
                 type="number"
                 min={1}
@@ -208,11 +269,12 @@ export function SuitPanel({
             <button
               className="sp__action-btn sp__action-btn--buy"
               type="button"
-              disabled={disabled || !hasAsk || isOwnBestAsk}
+              disabled={disabled || !hasAsk || isOwnBestAsk || cantAffordAsk}
               title={
-                isOwnBestAsk ? 'Cannot buy your own sell order' :
-                hasAsk       ? `Buy at ${book.best_ask}` :
-                               'No ask to buy from'
+                isOwnBestAsk  ? 'Cannot buy your own sell order' :
+                cantAffordAsk ? `Insufficient balance (need ${book.best_ask})` :
+                hasAsk        ? `Buy at ${book.best_ask}` :
+                                'No ask to buy from'
               }
               onClick={() =>
                 onSendMessage({
@@ -230,12 +292,12 @@ export function SuitPanel({
 
       </div>
 
-      {error && (
-        <p className="sp__error">✗ {error.code}: {error.message}</p>
+      {visibleError && (
+        <p className="sp__error">✗ {visibleError.code}: {visibleError.message}</p>
       )}
-      {selfTradeError && (
-        <p className="sp__error">✗ {selfTradeError}</p>
+      {!visibleError && visibleSelfTradeError && (
+        <p className="sp__error">✗ {visibleSelfTradeError}</p>
       )}
     </div>
   )
-}
+})

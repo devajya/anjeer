@@ -14,6 +14,7 @@ import type {
   VoteTallyMessage,
   GameEndedMessage,
   SessionErrorMessage,
+  AllBalancesMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -22,6 +23,8 @@ import { logger } from '../logger'
 export interface BookState {
   best_bid: number | null
   best_ask: number | null
+  best_bid_slot: number | null
+  best_ask_slot: number | null
 }
 
 // AGENT-CTX: MyOrder is a client-side snapshot of an acknowledged resting order.
@@ -47,6 +50,8 @@ export interface TradeEntry {
   price: number
   aggressor_side: 'buy' | 'sell'
   your_side: 'buy' | 'sell' | null
+  buyer_slot: number
+  seller_slot: number
   ts: number  // Date.now() at receipt — used for display only
 }
 
@@ -94,7 +99,7 @@ export interface WsState {
   roundEndAt: string | null
   /** Last round_end payload. null until first round completes. */
   roundEnd: RoundEndMessage | null
-  /** Available cash. Updated on round_start (after buy-in deducted), balance_update (after trade), and round_end (after payout). null until first round_start. */
+  /** Available cash. Updated on round_start (after buy-in deducted), all_balances (after trade), and round_end (after payout). null until first round_start. */
   balance: number | null
   /**
    * Current lobby fill state. Non-null while phase == Waiting (before countdown).
@@ -133,6 +138,21 @@ export interface WsState {
    * players greyed out even after multiple departures.
    */
   departedSlots: number[]
+  /**
+   * Full delta snapshot for the current round. deltas[player_slot][suit_index]
+   * where suit_index: 0=clubs 1=diamonds 2=hearts 3=spades.
+   * Reset to empty array on each round_start; updated by delta_update.
+   */
+  deltas: number[][]
+  /**
+   * Slot→username mapping for the current game. Populated from roster field
+   * in round_start; stable for the round duration.
+   */
+  roster: Array<{ player_slot: number; username: string }>
+  /** Current total cards per slot. Set at round_start; updated after each trade. */
+  allHandTotals: number[]
+  /** Current balance per slot. Set at round_start; updated after each trade. */
+  allBalances: number[]
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -181,6 +201,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     gameEnded: null,
     sessionError: null,
     departedSlots: [],
+    deltas: [],
+    roster: [],
+    allHandTotals: [],
+    allBalances: [],
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -264,7 +288,12 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             ...s,
             books: {
               ...s.books,
-              [update.suit]: { best_bid: update.best_bid, best_ask: update.best_ask },
+              [update.suit]: {
+                best_bid:      update.best_bid,
+                best_ask:      update.best_ask,
+                best_bid_slot: update.best_bid_slot,
+                best_ask_slot: update.best_ask_slot,
+              },
             },
           }))
           break
@@ -279,6 +308,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             price: trade.price,
             aggressor_side: trade.aggressor_side,
             your_side: trade.your_side,
+            buyer_slot: trade.buyer_slot,
+            seller_slot: trade.seller_slot,
             ts: Date.now(),
           }
           setState(s => {
@@ -352,6 +383,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             // AGENT-CTX: Clear inter-round screen when the next round begins.
             interRound: null,
             voteTally: null,
+            roster: msg.roster,
+            deltas: [],
+            allHandTotals: msg.all_hand_totals ?? [],
+            allBalances: msg.all_balances ?? [],
           }))
           break
 
@@ -361,11 +396,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             const own = msg.results.find(r => r.player_slot === s.playerSlot) ?? null
             return { ...s, roundEndAt: null, roundEnd: msg, balance: own?.balance ?? s.balance }
           })
-          break
-
-        case 'balance_update':
-          logger.info('ws/recv', `balance_update balance=${msg.balance}`)
-          setState(s => ({ ...s, balance: msg.balance }))
           break
 
         case 'lobby_state':
@@ -446,6 +476,24 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         case 'session_error':
           logger.warn('ws/recv', `session_error message=${msg.message}`)
           setState(s => ({ ...s, sessionError: msg, interRound: null }))
+          break
+
+        case 'delta_update':
+          setState(s => ({ ...s, deltas: msg.deltas }))
+          break
+
+        case 'all_balances': {
+          const ab: AllBalancesMessage = msg
+          setState(s => ({
+            ...s,
+            allBalances: ab.balances,
+            balance: s.playerSlot !== null ? (ab.balances[s.playerSlot] ?? s.balance) : s.balance,
+          }))
+          break
+        }
+
+        case 'hand_totals':
+          setState(s => ({ ...s, allHandTotals: msg.totals }))
           break
 
         default: {

@@ -106,6 +106,23 @@ private:
     void apply_card_transfers (const std::vector<engine::OrderEvent>&);
     void apply_trade_settlements(const std::vector<engine::OrderEvent>&);
 
+    // ── Post-trade state pipeline ─────────────────────────────────────────────
+    // AGENT-CTX: apply_post_trade_state groups all post-trade mutations and
+    // broadcasts in a single call so the sequence is legible at each call site
+    // (handle_submit / handle_nudge). Order: card transfers → settlements →
+    // delta accumulation → broadcast. Each step is a broadcast; sequence matters.
+    void apply_post_trade_state(const std::vector<engine::OrderEvent>&);
+
+    // ── Delta table ───────────────────────────────────────────────────────────
+    // AGENT-CTX: delta_table_ tracks net card flow per player per suit for the
+    // current round. Indexed [player_slot][suit_index] matching engine::kAllSuits
+    // order (0=clubs 1=diamonds 2=hearts 3=spades). Reset at each begin_round.
+    // buyer +1, seller -1 per trade. Broadcast as a full snapshot after each trade
+    // so clients never accumulate increments and risk desync.
+    void apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx);
+    void reset_delta_table();
+    void broadcast_delta_update();
+
     // ── Outbound helpers ──────────────────────────────────────────────────────
     void emit_broadcast(const std::string& json);
     void emit_targeted (int32_t slot, const std::string& json);
@@ -153,11 +170,20 @@ private:
     SessionPhase phase_        = SessionPhase::Lobby;
     int          round_number_ = 0;
     std::string  current_round_id_;
-    std::string  current_goal_suit_;
+    // AGENT-CTX: current_deck_ is the single authoritative source for all per-round
+    // deck properties (goal_suit, bonus_pool, distribution). Points into the static
+    // kDecks table — always valid after begin_round, null in Lobby/Countdown phase.
+    const struct DeckDef* current_deck_ = nullptr;
+
+    std::string current_goal_suit_str() const;  // convenience: suit_name(current_deck_->goal_suit)
 
     std::array<engine::OrderBook, 4>   books_;
     std::array<bool, 4>                active_suits_{};
     std::unique_ptr<engine::GameState> game_state_;
+
+    // AGENT-CTX: delta_table_[player_slot][suit_index] — net cards gained this
+    // round visible to all players. Suit indices match engine::kAllSuits order.
+    std::array<std::array<int,4>, 4>   delta_table_{};
 
     // Per-round result accumulation for game_ended summary
     struct RoundSummary {

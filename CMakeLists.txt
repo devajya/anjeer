@@ -55,6 +55,11 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(nlohmann_json Catch2 uwebsockets)
 
+# Expose nlohmann_json's binary dir so jwt-cpp's internal find_package(nlohmann_json)
+# resolves to the already-fetched copy instead of printing "Could NOT find" each configure.
+FetchContent_GetProperties(nlohmann_json)
+list(APPEND CMAKE_PREFIX_PATH "${nlohmann_json_BINARY_DIR}")
+
 # ---------------------------------------------------------------------------
 # System dependencies (must be installed on the build machine)
 # ---------------------------------------------------------------------------

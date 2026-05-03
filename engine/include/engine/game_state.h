@@ -60,7 +60,8 @@ public:
     struct Config {
         int player_count;
         int total_cards;                       // sum(card_distribution) must equal this
-        std::array<int, 4> card_distribution;  // shuffled and assigned to suits in deal()
+        std::array<int, 4> card_distribution;  // per-suit counts indexed by suit_index(); fixed by the selected deck
+        Suit goal_suit;                        // explicit per-deck value; not derived from distribution
     };
 
     explicit GameState(Config cfg);
@@ -97,9 +98,6 @@ public:
     // Asserts in debug; caller must ensure validity.
     void transfer_card(int from_slot, int to_slot, Suit suit);
 
-    // Rule: color_partner of the suit with the highest card count.
-    // Static so unit tests can call it without constructing a full GameState.
-    [[nodiscard]] static Suit derive_goal_suit(const std::array<int, 4>& suit_totals);
 
 private:
     Config cfg_;

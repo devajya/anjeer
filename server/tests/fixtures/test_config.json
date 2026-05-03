@@ -18,7 +18,6 @@
   "game": {
     "player_count": 5,
     "total_cards": 40,
-    "card_distribution": [12, 10, 10, 8],
     "countdown_seconds": 3,
     "round_duration_seconds": 240,
     "inter_round_seconds": 5

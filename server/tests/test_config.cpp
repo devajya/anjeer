@@ -43,10 +43,6 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     CHECK(cfg.game.total_cards                   == 40);
     CHECK(cfg.game.countdown_seconds             == 3);
     CHECK(cfg.game.round_duration_seconds        == 240);
-    REQUIRE(cfg.game.card_distribution[0]        == 12);
-    REQUIRE(cfg.game.card_distribution[1]        == 10);
-    REQUIRE(cfg.game.card_distribution[2]        == 10);
-    REQUIRE(cfg.game.card_distribution[3]        == 8);
 
     // AGENT-CTX: scoring section added in Slice 4. Extend here if ScoringConfig grows.
     CHECK(cfg.scoring.starting_balance           == 100);

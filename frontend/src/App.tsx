@@ -5,6 +5,7 @@ import { Login } from './pages/Login'
 import { Game } from './pages/Game'
 import { LobbyBrowser } from './pages/LobbyBrowser'
 import { LobbyRoom } from './pages/LobbyRoom'
+import { KeybindSettings } from './pages/KeybindSettings'
 
 // AGENT-CTX: App.tsx is the route map. Lobby pages sit between login and game.
 // Default route redirects to /lobby so new users land in the lobby browser.
@@ -36,6 +37,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Game />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings/keybinds"
+          element={
+            <ProtectedRoute>
+              <KeybindSettings />
             </ProtectedRoute>
           }
         />

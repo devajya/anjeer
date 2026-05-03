@@ -3,6 +3,7 @@
 #include "server/db.h"
 #include "server/event_bus.h"
 #include "server/http_server.h"
+#include "server/keybinds_repo.h"
 #include "server/lobby_gateway.h"
 #include "server/lobby_repo.h"
 #include "server/player_repo.h"
@@ -51,11 +52,13 @@ int main(int argc, char* argv[]) {
     static anjeer::server::DbPool         db_pool(cfg.db.connection_string, cfg.db.pool_size);
     static anjeer::server::PlayerRepo     player_repo;
     static anjeer::server::LobbyRepo      lobby_repo;
+    static anjeer::server::KeybindsRepo   keybinds_repo;
     static anjeer::server::LocalEventBus  event_bus;  // Slice 16: swap for RedisEventBus
     static anjeer::server::LobbyGateway   lobby_gateway(db_pool, lobby_repo, event_bus);
     static anjeer::server::AuthService    auth_service(db_pool, player_repo, cfg);
     static anjeer::server::HttpServer     http_server(cfg, auth_service, player_repo,
-                                                      lobby_repo, event_bus, db_pool);
+                                                      lobby_repo, keybinds_repo,
+                                                      event_bus, db_pool);
 
     std::thread http_thread([&http_server] { http_server.run(); });
     http_thread.detach();

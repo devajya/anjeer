@@ -25,18 +25,16 @@ DealResult GameState::deal(std::mt19937& rng) {
     assert(!dealt_ && "deal() called twice on the same GameState instance");
     dealt_ = true;
 
-    // ── Step 1: Randomly assign card counts to suits ──────────────────────
+    // ── Step 1: Use pre-selected deck distribution and goal suit ─────────
     //
-    // AGENT-CTX: cfg_.card_distribution is {12,10,10,8} in the default config
-    // but is treated as an unordered multiset here. std::shuffle maps each
-    // element to a random suit index. After shuffle, distribution[suit_index(s)]
-    // is the number of cards suit s receives this round.
-    std::array<int, 4> distribution = cfg_.card_distribution;
-    std::shuffle(distribution.begin(), distribution.end(), rng);
+    // cfg_.card_distribution holds per-suit counts indexed by suit_index()
+    // for the randomly selected deck. goal_suit is explicit per deck — it
+    // cannot be derived from the distribution (4 of 12 decks break color_partner).
+    const std::array<int, 4>& distribution = cfg_.card_distribution;
 
     DealResult result;
     result.suit_totals = distribution;
-    result.goal_suit   = derive_goal_suit(distribution);
+    result.goal_suit   = cfg_.goal_suit;
     goal_suit_         = result.goal_suit;
 
     // ── Step 2: Build the deck as a flat vector of Suit values ────────────
@@ -172,27 +170,5 @@ void GameState::transfer_card(int from_slot, int to_slot, Suit suit) {
     hands_[to_slot].suit_counts[si]++;
 }
 
-// ---------------------------------------------------------------------------
-// GameState::derive_goal_suit — static, pure function
-// ---------------------------------------------------------------------------
-
-Suit GameState::derive_goal_suit(const std::array<int, 4>& suit_totals) {
-    // AGENT-CTX: Rule: goal = color_partner(suit with the maximum card count).
-    // For the standard distribution {12,10,10,8}, the max is always 12 and is
-    // unique. std::max_element returns the FIRST maximum in case of ties — this
-    // is deterministic but ties are not expected with the current distribution.
-    // If the card_distribution config ever allows ties for the maximum (e.g.
-    // {12,12,8,8}), the goal suit would be determined by iteration order (i.e.
-    // whichever suit with 12 appears first in the Suit enum). Document that
-    // constraint in the config if tie-distributions are ever considered.
-    //
-    // AGENT-CTX: std::max_element on a 4-element fixed-size array is O(4) and
-    // inlined by the compiler. No performance concern at call frequency (once
-    // per round start). std::distance on random-access iterators is O(1).
-    auto max_it = std::max_element(suit_totals.begin(), suit_totals.end());
-    const int max_si = static_cast<int>(
-        std::distance(suit_totals.begin(), max_it));
-    return color_partner(static_cast<Suit>(max_si));
-}
 
 } // namespace anjeer::engine

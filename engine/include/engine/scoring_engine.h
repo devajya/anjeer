@@ -8,6 +8,7 @@ namespace anjeer::engine {
 struct ScoringConfig {
     int buy_in;
     int points_per_card;
+    int bonus_pool;
 };
 
 struct PlayerResult {

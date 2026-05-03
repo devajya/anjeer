@@ -102,15 +102,17 @@ HttpServer::HttpServer(const ServerConfig& config,
                        AuthService&        auth_service,
                        PlayerRepo&         player_repo,
                        LobbyRepo&          lobby_repo,
+                       KeybindsRepo&       keybinds_repo,
                        IEventBus&          event_bus,
                        DbPool&             db_pool)
-    : config_      (config)
-    , auth_service_(auth_service)
-    , player_repo_ (player_repo)
-    , lobby_repo_  (lobby_repo)
-    , event_bus_   (event_bus)
-    , db_pool_     (db_pool)
-    , http_log_    ("logs/http_logs.txt")
+    : config_        (config)
+    , auth_service_  (auth_service)
+    , player_repo_   (player_repo)
+    , lobby_repo_    (lobby_repo)
+    , keybinds_repo_ (keybinds_repo)
+    , event_bus_     (event_bus)
+    , db_pool_       (db_pool)
+    , http_log_      ("logs/http_logs.txt")
 {
     providers_["github"] = std::make_unique<GitHubOAuthProvider>(config.auth.github);
     providers_["google"] = std::make_unique<GoogleOAuthProvider>(config.auth.google);
@@ -127,6 +129,7 @@ void HttpServer::run()
         .origin(config_.cors_origin)
         .methods(crow::HTTPMethod::Get,
                  crow::HTTPMethod::Post,
+                 crow::HTTPMethod::Put,
                  crow::HTTPMethod::Options)
         .headers("Content-Type", "Cookie")
         .allow_credentials();
@@ -134,6 +137,7 @@ void HttpServer::run()
     register_auth_routes(app);
     register_player_routes(app);
     register_lobby_routes(app);
+    register_keybinds_routes(app);
 
     app.loglevel(crow::LogLevel::Warning);
     http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
@@ -550,6 +554,91 @@ std::string HttpServer::make_clear_cookie(const std::string& name,
     std::string s = name + "=; Max-Age=0; HttpOnly; SameSite=Lax; Path=" + path;
     if (config_.auth.secure_cookies) s += "; Secure";
     return s;
+}
+
+// ---------------------------------------------------------------------------
+// Keybinds routes
+// ---------------------------------------------------------------------------
+
+template<typename App>
+void HttpServer::register_keybinds_routes(App& app)
+{
+    // GET /players/me/keybinds
+    // Returns the authenticated player's saved keybind overrides.
+    // Empty array means "use frontend defaults" — the server stores only explicit
+    // overrides, never the full default set.
+    CROW_ROUTE(app, "/players/me/keybinds")
+    ([this](const crow::request& req) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            const auto binds = keybinds_repo_.get(txn, player.id);
+            txn.commit();
+
+            nlohmann::json j = nlohmann::json::array();
+            for (const auto& b : binds) {
+                nlohmann::json entry;
+                entry["action"]    = b.action;
+                entry["key_combo"] = b.key_combo;
+                j.push_back(entry);
+            }
+
+            crow::response res(200, j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("keybinds", std::string("get failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    // PUT /players/me/keybinds
+    // Full replace: body is [{action, key_combo}, ...].
+    // AGENT-CTX: Full replace (not patch) keeps the server logic trivial — the
+    // frontend always sends the complete set of overrides. No merge needed server-side.
+    CROW_ROUTE(app, "/players/me/keybinds").methods(crow::HTTPMethod::Put)
+    ([this](const crow::request& req) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        nlohmann::json body;
+        try {
+            body = nlohmann::json::parse(req.body);
+        } catch (...) {
+            return make_error(400, "MALFORMED_JSON");
+        }
+
+        if (!body.is_array()) return make_error(400, "BODY_MUST_BE_ARRAY");
+
+        std::vector<KeyBind> binds;
+        binds.reserve(body.size());
+        for (const auto& item : body) {
+            if (!item.contains("action")    || !item["action"].is_string() ||
+                !item.contains("key_combo") || !item["key_combo"].is_string()) {
+                return make_error(400, "INVALID_BIND_ENTRY");
+            }
+            binds.push_back({ item["action"].get<std::string>(),
+                               item["key_combo"].get<std::string>() });
+        }
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            keybinds_repo_.set(txn, player.id, binds);
+            txn.commit();
+            return crow::response(204);
+        } catch (const std::exception& e) {
+            http_log_.error("keybinds", std::string("set failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
 }
 
 } // namespace anjeer::server

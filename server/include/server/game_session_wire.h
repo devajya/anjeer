@@ -95,16 +95,25 @@ std::string opt_price      (std::optional<int32_t> p) noexcept;
 
 // Shared between on-connect snapshot and broadcast_book_update so the wire
 // format stays in sync regardless of call site.
+// best_bid_slot / best_ask_slot are null when no orders exist on that side.
 std::string book_update_payload(const std::string&     suit,
                                  std::optional<int32_t> best_bid,
-                                 std::optional<int32_t> best_ask);
+                                 std::optional<int32_t> best_ask,
+                                 std::optional<int32_t> best_bid_slot = std::nullopt,
+                                 std::optional<int32_t> best_ask_slot = std::nullopt);
 
 std::string round_end_payload  (const engine::RoundResult& result,
                                  const std::vector<int>&    available_cash);
-std::string round_start_payload(int                       slot,
-                                 const engine::PlayerHand& hand,
-                                 const std::string&        round_end_at,
-                                 int                       effective_balance);
+// AGENT-CTX: usernames is a slot-indexed vector (usernames[i] = username for slot i).
+// Passed as plain strings rather than SlotInfo to avoid pulling game_session.h
+// into this header (circular dependency risk). Slot index = position in vector.
+std::string round_start_payload(int                             slot,
+                                 const engine::PlayerHand&       hand,
+                                 const std::string&              round_end_at,
+                                 int                             effective_balance,
+                                 const std::vector<std::string>& usernames,
+                                 const std::vector<int>&         all_hand_totals,
+                                 const std::vector<int>&         all_balances);
 
 void error      (WsHandle ws, WsErrorCode code, std::string_view msg, Logger& slog);
 

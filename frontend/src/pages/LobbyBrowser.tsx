@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
@@ -18,6 +18,21 @@ export function LobbyBrowser() {
   const [creating, setCreating] = useState(false)
   const [codeInput, setCodeInput] = useState('')
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  // AGENT-CTX: menuRef used for click-outside detection — closes the dropdown when
+  // the user clicks anywhere outside the hamburger + menu container.
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function handleOutsideClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [menuOpen])
 
   async function loadLobbies() {
     setError(null)
@@ -92,7 +107,29 @@ export function LobbyBrowser() {
         </div>
         <div className="lp__header-right">
           <span className="lp__brand">Anjeer</span>
-          <button className="lp__hamburger" aria-label="Menu">☰</button>
+          {/* AGENT-CTX: menuRef wraps both trigger and dropdown so click-outside
+              detection (mousedown on document) ignores clicks within this subtree. */}
+          <div className="lp__menu-wrap" ref={menuRef}>
+            <button
+              className="lp__hamburger"
+              aria-label="Menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen(o => !o)}
+            >
+              ☰
+            </button>
+            {menuOpen && (
+              <div className="lp__menu" role="menu">
+                <button
+                  className="lp__menu-item"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); navigate('/settings/keybinds') }}
+                >
+                  Key Bindings
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

@@ -13,6 +13,34 @@
 
 namespace anjeer::server {
 
+// ─── Deck table ───────────────────────────────────────────────────────────────
+//
+// 12 fixed deck variants per the game specification. Each entry specifies
+// per-suit card counts (indexed by engine::suit_index: clubs=0, diamonds=1,
+// hearts=2, spades=3), the goal suit, and the bonus pool for that deck.
+// Goal suits are explicit — 4 of 12 decks break the color_partner() rule so
+// the goal suit cannot be derived from the distribution.
+struct DeckDef {
+    std::array<int, 4> distribution;
+    engine::Suit       goal_suit;
+    int                bonus_pool;
+};
+
+static constexpr std::array<DeckDef, 12> kDecks = {{
+    { {10,  8, 10, 12}, engine::Suit::Clubs,    100 },
+    { {10, 10,  8, 12}, engine::Suit::Clubs,    100 },
+    { { 8, 10, 10, 12}, engine::Suit::Clubs,    120 },
+    { {12, 10, 10,  8}, engine::Suit::Spades,   120 },
+    { {12,  8, 10, 10}, engine::Suit::Diamonds, 100 },
+    { {12, 10,  8, 10}, engine::Suit::Spades,   100 },
+    { { 8, 10, 12, 10}, engine::Suit::Diamonds, 100 },
+    { {10, 10, 12,  8}, engine::Suit::Spades,   100 },
+    { {10,  8, 12, 10}, engine::Suit::Diamonds, 120 },
+    { {10, 12,  8, 10}, engine::Suit::Hearts,   120 },
+    { { 8, 12, 10, 10}, engine::Suit::Clubs,    100 },
+    { {10, 12, 10,  8}, engine::Suit::Spades,   100 },
+}};
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 static std::array<engine::OrderBook, 4> build_books(const ServerConfig& cfg) {
@@ -231,9 +259,10 @@ void GameSession::handle_submit(const NetSubmit& ev) {
     }
     auto events = books_[engine::suit_index(*suit_opt)].submit(ev.slot, ev.side, ev.price);
     const bool had_trade = dispatch_events(ev.slot, events);
-    apply_card_transfers(events);
-    apply_trade_settlements(events);
-    if (had_trade) apply_global_wipe();
+    if (had_trade) {
+        apply_post_trade_state(events);
+        apply_global_wipe();
+    }
 }
 
 void GameSession::handle_nudge(const NetNudge& ev) {
@@ -248,9 +277,10 @@ void GameSession::handle_nudge(const NetNudge& ev) {
     }
     auto events = books_[engine::suit_index(*suit_opt)].nudge(ev.side, ev.slot);
     const bool had_trade = dispatch_events(ev.slot, events);
-    apply_card_transfers(events);
-    apply_trade_settlements(events);
-    if (had_trade) apply_global_wipe();
+    if (had_trade) {
+        apply_post_trade_state(events);
+        apply_global_wipe();
+    }
 }
 
 void GameSession::handle_cancel(const NetCancel& ev) {
@@ -356,24 +386,29 @@ void GameSession::begin_round() {
     all_disconnected_ = false;
     round_number_++;
 
+    reset_delta_table();
+
     std::fill(vote_to_end_.begin(),      vote_to_end_.end(),      false);
     std::fill(funded_this_round_.begin(), funded_this_round_.end(), false);
+
+    std::uniform_int_distribution<int> deck_pick(0, static_cast<int>(kDecks.size()) - 1);
+    current_deck_ = &kDecks[deck_pick(rng_)];
 
     engine::GameState::Config gs_cfg{
         static_cast<int>(slots_.size()),
         cfg_.game.total_cards,
-        cfg_.game.card_distribution,
+        current_deck_->distribution,
+        current_deck_->goal_suit,
     };
-    game_state_        = std::make_unique<engine::GameState>(gs_cfg);
-    auto deal          = game_state_->deal(rng_);
-    current_goal_suit_ = std::string(engine::suit_name(deal.goal_suit));
+    game_state_ = std::make_unique<engine::GameState>(gs_cfg);
+    auto deal   = game_state_->deal(rng_);
 
     try {
         auto conn = db_pool_.acquire();
         pqxx::work txn(conn.get());
         const int pot  = cfg_.scoring.round_buy_in() * active_player_count_;
         current_round_id_ = SessionRepo{}.create_round(
-            txn, session_id_, round_number_, current_goal_suit_, pot);
+            txn, session_id_, round_number_, current_goal_suit_str(), pot);
         txn.commit();
     } catch (const std::exception& ex) {
         server_log_.warn("db", "create_round failed: " + std::string(ex.what()));
@@ -385,15 +420,29 @@ void GameSession::begin_round() {
                       std::chrono::seconds(cfg_.game.round_duration_seconds);
     const std::string round_end_at = steady_to_iso(round_deadline_);
 
+    std::vector<std::string> usernames;
+    std::vector<int>         all_hand_totals;
+    std::vector<int>         all_balances;
+    usernames.reserve(slots_.size());
+    all_hand_totals.reserve(slots_.size());
+    all_balances.reserve(slots_.size());
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        usernames.push_back(slots_[i].username);
+        const auto& sc = deal.hands[i].suit_counts;
+        all_hand_totals.push_back(sc[0] + sc[1] + sc[2] + sc[3]);
+        all_balances.push_back(slots_[i].balance);
+    }
+
     for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
         if (!slots_[i].connected) continue;
         emit_targeted(i, serialise::round_start_payload(
-            i, deal.hands[i], round_end_at, slots_[i].balance));
+            i, deal.hands[i], round_end_at, slots_[i].balance,
+            usernames, all_hand_totals, all_balances));
     }
 
     server_log_.info("round",
         "round=" + std::to_string(round_number_) +
-        " goal=" + current_goal_suit_ +
+        " goal=" + current_goal_suit_str() +
         " round_end_at=" + round_end_at);
 }
 
@@ -416,12 +465,12 @@ void GameSession::end_round() {
         disconnected.push_back(!slots_[i].connected);
     }
 
-    const engine::ScoringConfig sc{cfg_.scoring.round_buy_in(), cfg_.scoring.points_per_card};
+    const engine::ScoringConfig sc{cfg_.scoring.round_buy_in(), cfg_.scoring.points_per_card, current_deck_->bonus_pool};
     const auto result = engine::score_round(
         hands, game_state_->goal_suit(), disconnected, sc);
 
     engine_log_.info("score_round",
-        "round=" + std::to_string(round_number_) + " goal=" + current_goal_suit_);
+        "round=" + std::to_string(round_number_) + " goal=" + current_goal_suit_str());
 
     for (int i = 0; i < static_cast<int>(slots_.size()); ++i)
         slots_[i].balance += result.player_results[i].payout;
@@ -446,9 +495,9 @@ void GameSession::end_round() {
         server_log_.warn("db", "end_round failed: " + std::string(ex.what()));
     }
 
-    round_history_.push_back({round_number_, current_goal_suit_, wire_results});
+    round_history_.push_back({round_number_, current_goal_suit_str(), wire_results});
 
-    begin_inter_round(wire_results, current_goal_suit_);
+    begin_inter_round(wire_results, current_goal_suit_str());
 }
 
 void GameSession::begin_inter_round(
@@ -508,6 +557,12 @@ void GameSession::check_end_condition() {
     }
 }
 
+// ─── Round config helper ──────────────────────────────────────────────────────
+
+std::string GameSession::current_goal_suit_str() const {
+    return current_deck_ ? std::string(engine::suit_name(current_deck_->goal_suit)) : "";
+}
+
 // ─── Engine event pipeline ────────────────────────────────────────────────────
 
 bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderEvent>& events) {
@@ -526,25 +581,37 @@ bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderE
         else if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
             engine_log_.info("trade",
                 "suit=" + t->suit + " price=" + std::to_string(t->price));
+
+            // AGENT-CTX: buyer_id/seller_id in TradeEvent are slot indices (not
+            // DB player IDs). The engine uses them as array subscripts into the
+            // slots_ vector. Exposed as buyer_slot/seller_slot on the wire so the
+            // frontend can look them up in the roster for the trade feed display.
+            const int buyer_slot  = t->buyer_id;
+            const int seller_slot = t->seller_id;
+
             for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
                 if (!slots_[i].connected) continue;
                 nlohmann::json your_side = nullptr;
-                if (i == t->buyer_id)  your_side = "buy";
-                if (i == t->seller_id) your_side = "sell";
+                if (i == buyer_slot)  your_side = "buy";
+                if (i == seller_slot) your_side = "sell";
                 emit_targeted(i, nlohmann::json{
                     {"type",           "trade"},
                     {"suit",           t->suit},
                     {"price",          t->price},
                     {"aggressor_side", serialise::side(t->aggressor_side)},
                     {"your_side",      your_side},
+                    {"buyer_slot",     buyer_slot},
+                    {"seller_slot",    seller_slot},
                 }.dump());
             }
+
             had_trade = true;
         }
         else if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
             if (!had_trade) {
                 emit_broadcast(serialise::book_update_payload(
-                    upd->suit, upd->best_bid, upd->best_ask));
+                    upd->suit, upd->best_bid, upd->best_ask,
+                    upd->best_bid_player_id, upd->best_ask_player_id));
             }
         }
         else if (const auto* cack = std::get_if<engine::OrderCancelAckEvent>(&ev)) {
@@ -561,6 +628,41 @@ bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderE
     }
 
     return had_trade;
+}
+
+void GameSession::apply_post_trade_state(const std::vector<engine::OrderEvent>& events) {
+    apply_card_transfers(events);
+    apply_trade_settlements(events);
+    for (const auto& ev : events) {
+        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
+            const auto suit_opt = engine::suit_from_string(t->suit);
+            if (suit_opt) apply_trade_delta(t->buyer_id, t->seller_id, engine::suit_index(*suit_opt));
+        }
+    }
+    broadcast_delta_update();
+}
+
+void GameSession::apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx) {
+    if (buyer_slot  >= 0 && buyer_slot  < 4) delta_table_[buyer_slot][suit_idx]++;
+    if (seller_slot >= 0 && seller_slot < 4) delta_table_[seller_slot][suit_idx]--;
+}
+
+void GameSession::reset_delta_table() {
+    for (auto& row : delta_table_) row.fill(0);
+}
+
+void GameSession::broadcast_delta_update() {
+    // AGENT-CTX: Full snapshot sent every trade — clients never accumulate.
+    // 4×4 array: outer index = player slot, inner index = suit (clubs/diamonds/hearts/spades).
+    nlohmann::json deltas = nlohmann::json::array();
+    for (const auto& row : delta_table_) {
+        deltas.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
+    }
+    engine_log_.info("delta_update", "broadcast");
+    emit_broadcast(nlohmann::json{
+        {"type",   "delta_update"},
+        {"deltas", deltas},
+    }.dump());
 }
 
 void GameSession::apply_global_wipe() {
@@ -580,29 +682,44 @@ void GameSession::apply_global_wipe() {
 
 void GameSession::apply_card_transfers(const std::vector<engine::OrderEvent>& events) {
     if (!game_state_) return;
+    bool had_trade = false;
     for (const auto& ev : events) {
         if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
             const auto suit_opt = engine::suit_from_string(t->suit);
             if (!suit_opt) continue;
             game_state_->transfer_card(t->seller_id, t->buyer_id, *suit_opt);
+            had_trade = true;
         }
+    }
+    if (had_trade) {
+        nlohmann::json totals = nlohmann::json::array();
+        for (int i = 0; i < game_state_->player_count(); ++i) {
+            const auto& sc = game_state_->hand(i).suit_counts;
+            totals.push_back(sc[0] + sc[1] + sc[2] + sc[3]);
+        }
+        emit_broadcast(nlohmann::json{
+            {"type",   "hand_totals"},
+            {"totals", totals},
+        }.dump());
     }
 }
 
 void GameSession::apply_trade_settlements(const std::vector<engine::OrderEvent>& events) {
+    bool had_trade = false;
     for (const auto& ev : events) {
         if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
             slots_[t->buyer_id].balance  -= t->price;
             slots_[t->seller_id].balance += t->price;
-            for (int party : {t->buyer_id, t->seller_id}) {
-                if (slots_[party].connected) {
-                    emit_targeted(party, nlohmann::json{
-                        {"type",    "balance_update"},
-                        {"balance", slots_[party].balance},
-                    }.dump());
-                }
-            }
+            had_trade = true;
         }
+    }
+    if (had_trade) {
+        nlohmann::json balances = nlohmann::json::array();
+        for (const auto& s : slots_) balances.push_back(s.balance);
+        emit_broadcast(nlohmann::json{
+            {"type",     "all_balances"},
+            {"balances", balances},
+        }.dump());
     }
 }
 

@@ -15,7 +15,6 @@ interface Props {
 export function MyOrders({ orders, onCancel }: Props) {
   return (
     <div className="my-orders">
-      <h2 className="my-orders__title">My Orders</h2>
       {orders.length === 0 ? (
         <p className="my-orders__empty">No active orders.</p>
       ) : (

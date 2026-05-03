@@ -1,0 +1,86 @@
+.delta-table {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.delta-table__grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  table-layout: fixed;
+}
+
+.delta-table__corner {
+  width: 1.8rem;
+}
+
+.delta-table__col-header {
+  padding: 0.25rem 0.4rem;
+  text-align: center;
+  font-weight: 500;
+  color: var(--color-text-muted, #aaa);
+  border-bottom: 1px solid var(--color-border, #333);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* AGENT-CTX: --me variant draws the eye to the local player's column using a
+   subtle background tint. Avoid bright colours — this is ambient info, not an alert. */
+.delta-table__col-header--me {
+  color: var(--color-accent, #7c6af7);
+  background: var(--color-accent-dim, rgba(124, 106, 247, 0.08));
+}
+
+.delta-table__username {
+  display: block;
+  max-width: 5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.delta-table__me-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent, #7c6af7);
+  margin-top: 0.1rem;
+}
+
+.delta-table__suit-label {
+  text-align: center;
+  font-size: 1rem;
+  color: var(--color-text-muted, #aaa);
+  padding: 0.2rem 0.1rem;
+  user-select: none;
+}
+
+.delta-table__row:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-faint, #222);
+}
+
+.delta-table__cell {
+  text-align: center;
+  padding: 0.25rem 0.2rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+.delta-table__cell--me {
+  background: var(--color-accent-dim, rgba(124, 106, 247, 0.08));
+}
+
+.delta-table__pos {
+  color: var(--color-pos, #4caf7d);
+  font-weight: 600;
+}
+
+.delta-table__neg {
+  color: var(--color-neg, #e05c5c);
+  font-weight: 600;
+}
+
+.delta-table__zero {
+  color: var(--color-text-faint, #555);
+}

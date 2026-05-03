@@ -3,8 +3,8 @@ import { describe, test, expect, vi } from 'vitest'
 import { SuitPanel } from './SuitPanel'
 import type { BookState } from '../hooks/useWebSocket'
 
-const BOOK_EMPTY: BookState = { best_bid: null, best_ask: null }
-const BOOK_FULL: BookState  = { best_bid: 45, best_ask: 55 }
+const BOOK_EMPTY: BookState = { best_bid: null, best_ask: null, best_bid_slot: null, best_ask_slot: null }
+const BOOK_FULL: BookState  = { best_bid: 45, best_ask: 55, best_bid_slot: null, best_ask_slot: null }
 
 function renderPanel(overrides: Partial<Parameters<typeof SuitPanel>[0]> = {}) {
   const onSendMessage = vi.fn()
