@@ -269,3 +269,78 @@
     gap: 0.4rem;
   }
 }
+
+/* ── SpectatorBadge ─────────────────────────────────────────────────────────── */
+.spectator-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--color-muted, #888);
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 999px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* ── ScriptLogPanel ─────────────────────────────────────────────────────────── */
+.script-log-panel {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.script-log-panel__header {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted, #888);
+  background: var(--color-panel-header, #1a1a1a);
+  border-bottom: 1px solid var(--color-border, #333);
+  flex-shrink: 0;
+}
+
+.script-log-panel__body {
+  overflow-y: auto;
+  height: 180px;
+  padding: 0.4rem 0.6rem;
+  font-family: monospace;
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.script-log-panel__empty {
+  color: var(--color-muted, #888);
+  font-style: italic;
+}
+
+.script-log-panel__entry {
+  display: flex;
+  gap: 0.5rem;
+  line-height: 1.4;
+}
+
+.script-log-panel__ts {
+  color: var(--color-muted, #888);
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+
+.script-log-panel__slot {
+  color: var(--color-accent, #aaa);
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+.script-log-panel__msg {
+  word-break: break-all;
+}

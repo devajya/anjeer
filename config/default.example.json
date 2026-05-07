@@ -42,6 +42,7 @@
     "jwt_secret": "CHANGE_ME",
     "access_token_ttl_seconds": 900,
     "refresh_token_ttl_seconds": 604800,
+    "spectate_token_ttl_minutes": 30,
     "secure_cookies": false,
     "github": {
       "client_id": "YOUR_GITHUB_CLIENT_ID",
@@ -58,5 +59,11 @@
     "min_players": 2,
     "max_players": 8
   },
-  "event_bus": "local"
+  "event_bus": "local",
+  "rate_limit": {
+    "capacity": 20,
+    "refill_rate": 5.0,
+    "suspend_threshold": 50,
+    "suspend_seconds": 30
+  }
 }

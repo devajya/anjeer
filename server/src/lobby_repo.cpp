@@ -18,7 +18,8 @@ Lobby LobbyRepo::row_to_lobby(const pqxx::row& row) {
         parse_status(row["status"].as<std::string>()),
         row["min_players"].as<int>(),
         row["max_players"].as<int>(),
-        row["created_at"].as<std::string>()
+        row["created_at"].as<std::string>(),
+        parse_lobby_mode(row["mode"].as<std::string>())
     };
 }
 
@@ -42,7 +43,22 @@ std::string lobby_status_string(LobbyStatus s) {
     throw std::runtime_error("lobby_status_string: unknown LobbyStatus value");
 }
 
+std::string lobby_mode_string(LobbyMode m) {
+    switch (m) {
+        case LobbyMode::UI:  return "ui";
+        case LobbyMode::API: return "api";
+    }
+    throw std::runtime_error("lobby_mode_string: unknown LobbyMode value");
+}
+
+LobbyMode parse_lobby_mode(const std::string& s) {
+    if (s == "ui")  return LobbyMode::UI;
+    if (s == "api") return LobbyMode::API;
+    throw std::runtime_error("parse_lobby_mode: unknown mode string: " + s);
+}
+
 std::string LobbyRepo::status_str(LobbyStatus s) { return lobby_status_string(s); }
+std::string LobbyRepo::mode_str  (LobbyMode m)   { return lobby_mode_string(m);   }
 
 LobbyStatus LobbyRepo::parse_status(const std::string& s) {
     if (s == "waiting")  return LobbyStatus::Waiting;
@@ -72,7 +88,7 @@ std::string LobbyRepo::generate_code() {
 // SELECT-before-INSERT avoids pqxx::subtransaction, which requires dbtransaction&
 // (incompatible with our DbTxn = transaction_base signature).
 Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
-                         int min_players, int max_players) {
+                         int min_players, int max_players, LobbyMode mode) {
     for (int attempt = 0; attempt < 10; ++attempt) {
         const auto code = generate_code();
         const auto exists = txn.exec_params(
@@ -81,10 +97,10 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
         if (!exists.empty()) continue;
 
         const auto r = txn.exec_params(
-            "INSERT INTO lobbies (code, creator_id, min_players, max_players) "
-            "VALUES ($1, $2, $3, $4) "
-            "RETURNING id, code, creator_id, status, min_players, max_players, created_at",
-            code, creator_id, min_players, max_players
+            "INSERT INTO lobbies (code, creator_id, min_players, max_players, mode) "
+            "VALUES ($1, $2, $3, $4, $5) "
+            "RETURNING id, code, creator_id, status, min_players, max_players, created_at, mode",
+            code, creator_id, min_players, max_players, mode_str(mode)
         );
         if (r.empty())
             throw std::runtime_error("LobbyRepo::create: INSERT RETURNING returned no rows");
@@ -107,7 +123,7 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
 std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
                                              const std::string& lobby_id) {
     const auto r = txn.exec_params(
-        "SELECT id, code, creator_id, status, min_players, max_players, created_at "
+        "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode "
         "FROM lobbies WHERE id = $1",
         lobby_id
     );
@@ -118,7 +134,7 @@ std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
 std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
                                                const std::string& code) {
     const auto r = txn.exec_params(
-        "SELECT id, code, creator_id, status, min_players, max_players, created_at "
+        "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode "
         "FROM lobbies WHERE code = $1",
         code
     );
@@ -126,16 +142,18 @@ std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
     return row_to_lobby(r[0]);
 }
 
-std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn) {
-    const auto r = txn.exec(
+std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn,
+                                                  std::optional<LobbyMode> mode) {
+    std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, COUNT(lp.player_id) AS player_count "
+        "       l.created_at, l.mode, COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
-        "WHERE l.status = 'waiting' "
-        "GROUP BY l.id "
-        "ORDER BY l.created_at DESC"
-    );
+        "WHERE l.status = 'waiting'";
+    if (mode) sql += " AND l.mode = '" + mode_str(*mode) + "'";
+    sql += " GROUP BY l.id ORDER BY l.created_at DESC";
+
+    const auto r = txn.exec(sql);
     std::vector<LobbyView> views;
     views.reserve(r.size());
     for (const auto& row : r) {
@@ -147,16 +165,18 @@ std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn) {
     return views;
 }
 
-std::vector<LobbyView> LobbyRepo::list_active(pqxx::transaction_base& txn) {
-    const auto r = txn.exec(
+std::vector<LobbyView> LobbyRepo::list_active(pqxx::transaction_base& txn,
+                                                std::optional<LobbyMode> mode) {
+    std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, COUNT(lp.player_id) AS player_count "
+        "       l.created_at, l.mode, COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
-        "WHERE l.status = 'in_game' "
-        "GROUP BY l.id "
-        "ORDER BY l.created_at DESC"
-    );
+        "WHERE l.status = 'in_game'";
+    if (mode) sql += " AND l.mode = '" + mode_str(*mode) + "'";
+    sql += " GROUP BY l.id ORDER BY l.created_at DESC";
+
+    const auto r = txn.exec(sql);
     std::vector<LobbyView> views;
     views.reserve(r.size());
     for (const auto& row : r) {

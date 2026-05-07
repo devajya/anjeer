@@ -20,6 +20,10 @@ add_executable(server
     src/auth_service.cpp
     src/http_server.cpp
     src/event_bus.cpp
+    src/crypto_util.cpp
+    src/api_key_repo.cpp
+    src/spectate_token_repo.cpp
+    src/rate_limiter.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -33,6 +37,7 @@ target_link_libraries(server PRIVATE
     Crow::Crow
     jwt-cpp::jwt-cpp
     readerwriterqueue
+    crypto
     pthread
 )
 
@@ -79,6 +84,9 @@ add_executable(ws_server_tests
     src/lobby_repo.cpp
     src/auth_service.cpp
     src/event_bus.cpp
+    src/crypto_util.cpp
+    src/api_key_repo.cpp
+    src/rate_limiter.cpp
 )
 
 target_include_directories(ws_server_tests PRIVATE include)
@@ -192,6 +200,9 @@ add_executable(http_lobby_tests
     src/keybinds_repo.cpp
     src/event_bus.cpp
     src/logger.cpp
+    src/crypto_util.cpp
+    src/api_key_repo.cpp
+    src/spectate_token_repo.cpp
 )
 
 target_include_directories(http_lobby_tests PRIVATE include)
@@ -326,3 +337,45 @@ add_test(NAME session_queue_tsan_tests COMMAND session_queue_tsan_tests)
 # with this one. Under ThreadSanitizer, concurrent test processes sharing the
 # same shadow-memory region can produce spurious cross-test race reports.
 set_tests_properties(session_queue_tsan_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# API key repo + crypto_util integration tests
+# ---------------------------------------------------------------------------
+add_executable(api_key_repo_tests
+    tests/test_api_key_repo.cpp
+    src/db.cpp
+    src/crypto_util.cpp
+    src/api_key_repo.cpp
+)
+
+target_include_directories(api_key_repo_tests PRIVATE include)
+
+target_compile_definitions(api_key_repo_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(api_key_repo_tests PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+
+add_test(NAME api_key_repo_tests COMMAND api_key_repo_tests)
+set_tests_properties(api_key_repo_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# Rate limiter unit tests — no DB, no network, pure in-process logic
+# ---------------------------------------------------------------------------
+add_executable(rate_limiter_tests
+    tests/test_rate_limiter.cpp
+    src/rate_limiter.cpp
+)
+
+target_include_directories(rate_limiter_tests PRIVATE include)
+
+target_link_libraries(rate_limiter_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+catch_discover_tests(rate_limiter_tests)

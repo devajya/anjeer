@@ -23,6 +23,11 @@ std::string error_code_str(WsErrorCode c) noexcept {
         case WsErrorCode::ServerFull:          return "SERVER_FULL";
         case WsErrorCode::RoundNotActive:      return "ROUND_NOT_ACTIVE";
         case WsErrorCode::InsufficientBalance: return "INSUFFICIENT_BALANCE";
+        case WsErrorCode::ApiKeyInvalid:       return "API_KEY_INVALID";
+        case WsErrorCode::LobbyModeMismatch:   return "LOBBY_MODE_MISMATCH";
+        case WsErrorCode::SpectatorNotAllowed: return "SPECTATOR_NOT_ALLOWED";
+        case WsErrorCode::RateLimitWarning:    return "RATE_LIMIT_WARNING";
+        case WsErrorCode::RateLimitExceeded:   return "RATE_LIMIT_EXCEEDED";
     }
     return "UNKNOWN_ERROR";
 }

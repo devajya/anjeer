@@ -1,9 +1,11 @@
 #include "server/ws_server.h"
+#include "server/crypto_util.h"
 #include "server/game_session_wire.h"
 
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
 
+#include <algorithm>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -40,19 +42,30 @@ static std::string parse_cookie_value(std::string_view header, std::string_view 
     return {};
 }
 
+// ─── Open-role resolution ─────────────────────────────────────────────────
+enum class OpenRole { Player, SpectatorFallthrough, Reject };
+
+static OpenRole resolve_open_role(AuthType auth, LobbyMode mode)
+{
+    if (auth == AuthType::ApiKey && mode == LobbyMode::UI)  return OpenRole::Reject;
+    if (auth == AuthType::JWT    && mode == LobbyMode::API) return OpenRole::SpectatorFallthrough;
+    return OpenRole::Player;
+}
+
 // ─── Constructor ──────────────────────────────────────────────────────────
-WsServer::WsServer(const ServerConfig& cfg,
-                   LobbyGateway&       lobby_gateway,
-                   DbPool&             db_pool,
-                   LobbyRepo&          lobby_repo,
-                   AuthService&        auth_service,
-                   IEventBus&          event_bus)
+WsServer::WsServer(const ServerConfig& cfg, WsServerDeps deps)
     : cfg_          (cfg)
-    , lobby_gateway_(lobby_gateway)
-    , db_pool_      (db_pool)
-    , lobby_repo_   (lobby_repo)
-    , auth_service_ (auth_service)
-    , event_bus_    (event_bus)
+    , lobby_gateway_(deps.lobby_gateway)
+    , db_pool_      (deps.db_pool)
+    , lobby_repo_   (deps.lobby_repo)
+    , auth_service_ (deps.auth_service)
+    , api_key_repo_ (deps.api_key_repo)
+    , event_bus_    (deps.event_bus)
+    , rate_limiter_ (RateLimitConfig{
+          cfg.rate_limit.capacity,
+          cfg.rate_limit.refill_rate,
+          cfg.rate_limit.suspend_threshold,
+          cfg.rate_limit.suspend_seconds})
     , server_log_   ("logs/server_logs.txt")
     , engine_log_   ("logs/engine_logs.txt")
     , frontend_log_ ("logs/frontend_logs.txt")
@@ -92,28 +105,75 @@ void WsServer::run() {
 
         // AGENT-CTX: .upgrade fires before .open and has access to the HTTP
         // request headers (including cookies). This is the only place we can
-        // read the JWT because uWS does not expose request headers in .open.
-        // We store the validated player_id in PerSocketData so .open and
-        // .message can use it without re-parsing the cookie.
-        .upgrade = [this](uWS::HttpResponse<false>* res,
-                          uWS::HttpRequest*          req,
-                          us_socket_context_t*       ctx) {
-            std::string_view cookie_hdr = req->getHeader("cookie");
-            int64_t player_id = -1;
-            if (!cookie_hdr.empty()) {
-                std::string token = parse_cookie_value(cookie_hdr, "access_token");
-                if (!token.empty()) {
-                    auto opt = auth_service_.validate_access_token(token);
-                    if (opt) player_id = *opt;
+        // read auth credentials because uWS does not expose request headers
+        // in .open. Auth priority: (1) Authorization: Bearer <api_key> header,
+        // (2) ?api_key= query param (insecure fallback, logged as warning),
+        // (3) JWT access_token cookie. Rejected connections (invalid key,
+        // suspended player) are still upgraded so they receive a typed JSON
+        // error before the server closes the frame.
+        // ARCHITECTURE-NOTE: find_valid_by_hash() is a synchronous DB call on
+        // the uWS event-loop thread (~1 ms on local HW). Accepted single-node
+        // risk for Slice 9; flagged for async migration in Slice 16.
+        .upgrade = [this, loop](uWS::HttpResponse<false>* res,
+                                uWS::HttpRequest*          req,
+                                us_socket_context_t*       ctx) {
+            int64_t    player_id   = -1;
+            AuthType   auth_type   = AuthType::JWT;
+            std::optional<WsErrorCode> pending_close;
+
+            std::string_view auth_hdr = req->getHeader("authorization");
+            std::string_view api_key_qp = req->getQuery("api_key");
+
+            auto try_api_key = [&](std::string_view raw_key) {
+                try {
+                    auto handle = db_pool_.acquire();
+                    pqxx::work txn(handle.get());
+                    auto maybe = api_key_repo_.find_valid_by_hash(txn, sha256_hex(raw_key));
+                    if (maybe) {
+                        player_id = maybe->player_id;
+                        auth_type = AuthType::ApiKey;
+                    } else {
+                        pending_close = WsErrorCode::ApiKeyInvalid;
+                    }
+                } catch (...) {
+                    pending_close = WsErrorCode::ApiKeyInvalid;
+                }
+            };
+
+            // --- Bearer header (preferred) ---
+            if (auth_hdr.size() > 7 && auth_hdr.substr(0, 7) == "Bearer ") {
+                try_api_key(auth_hdr.substr(7));
+            }
+            // --- Query-param fallback (insecure) ---
+            else if (!api_key_qp.empty()) {
+                server_log_.warn("upgrade",
+                    "API key supplied via query param — use Authorization: Bearer in production");
+                try_api_key(api_key_qp);
+            }
+            // --- JWT cookie ---
+            else {
+                std::string_view cookie_hdr = req->getHeader("cookie");
+                if (!cookie_hdr.empty()) {
+                    std::string token = parse_cookie_value(cookie_hdr, "access_token");
+                    if (!token.empty()) {
+                        auto opt = auth_service_.validate_access_token(token);
+                        if (opt) player_id = *opt;
+                    }
                 }
             }
+
+            // Reject suspended players before they re-enter
+            if (player_id >= 0 && !pending_close &&
+                rate_limiter_.is_suspended(static_cast<int32_t>(player_id))) {
+                pending_close = WsErrorCode::RateLimitExceeded;
+            }
+
             // AGENT-CTX: Username is not in the JWT (the token only carries player_id
-            // as subject). We fetch it here in .upgrade — the only place HTTP request
-            // headers are available — so handle_leave_lobby can build player_left
-            // broadcasts without a per-event DB round-trip. Non-fatal if the query
-            // fails (username stays empty and the broadcast will omit the name).
+            // as subject). We fetch it here in .upgrade so handle_leave_lobby can
+            // build player_left broadcasts without a per-event DB round-trip. Skip
+            // the query for connections we are about to reject.
             std::string username;
-            if (player_id >= 0) {
+            if (player_id >= 0 && !pending_close) {
                 try {
                     auto handle = db_pool_.acquire();
                     pqxx::work txn(handle.get());
@@ -122,16 +182,36 @@ void WsServer::run() {
                     if (!rows.empty()) username = rows[0][0].as<std::string>();
                 } catch (...) {}
             }
+
+            PerSocketData psd;
+            psd.player_id    = player_id;
+            psd.auth_type    = auth_type;
+            psd.pending_close = pending_close;
+            psd.username     = username;
+
             res->template upgrade<PerSocketData>(
-                PerSocketData{-1, player_id, "", username},
+                std::move(psd),
                 req->getHeader("sec-websocket-key"),
                 req->getHeader("sec-websocket-protocol"),
                 req->getHeader("sec-websocket-extensions"),
                 ctx);
         },
 
-        .open = [this](WsHandle ws) {
+        .open = [this, loop](WsHandle ws) {
             auto* data = ws->getUserData();
+
+            // Auth rejection or rate-limit suspension set in .upgrade: send
+            // a typed error then close before the connection is used.
+            if (data->pending_close) {
+                ws->send(nlohmann::json{
+                    {"type",    "error"},
+                    {"code",    serialise::error_code_str(*data->pending_close)},
+                    {"message", "connection rejected"}
+                }.dump(), uWS::OpCode::TEXT);
+                loop->defer([ws]() { ws->end(1008, "rejected"); });
+                return;
+            }
+
             const int64_t player_id = data->player_id;
 
             // Check if this player belongs to an active game session
@@ -143,28 +223,45 @@ void WsServer::run() {
                     auto& as = session_it->second;
                     // Find the slot for this player
                     int32_t slot = -1;
-                    for (int i = 0; i < static_cast<int>(as.slots.size()); ++i) {
-                        if (as.slots[i].player_id == player_id) { slot = i; break; }
+                    for (int i = 0; i < static_cast<int>(as.slots_.size()); ++i) {
+                        if (as.slots_[i].player_id == player_id) { slot = i; break; }
                     }
                     if (slot >= 0) {
-                        // Handle reconnect: evict stale handle for this slot if present
-                        auto old_it = as.slot_to_ws.find(slot);
-                        if (old_it != as.slot_to_ws.end()) {
-                            as.ws_to_slot.erase(old_it->second);
+                        switch (resolve_open_role(data->auth_type, as.lobby_mode_)) {
+                        case OpenRole::Reject:
+                            ws->send(nlohmann::json{
+                                {"type",    "error"},
+                                {"code",    serialise::error_code_str(WsErrorCode::LobbyModeMismatch)},
+                                {"message", "auth type does not match lobby mode"}
+                            }.dump(), uWS::OpCode::TEXT);
+                            server_log_.warn("open",
+                                "mode mismatch for player " + std::to_string(player_id) +
+                                " in lobby " + lobby_id);
+                            loop->defer([ws]() { ws->end(1008, "lobby mode mismatch"); });
+                            return;
+                        case OpenRole::SpectatorFallthrough:
+                            break;
+                        case OpenRole::Player: {
+                            // Handle reconnect: evict stale handle for this slot if present
+                            auto old_it = as.slot_to_ws_.find(slot);
+                            if (old_it != as.slot_to_ws_.end()) {
+                                as.ws_to_slot_.erase(old_it->second);
+                            }
+                            as.slot_to_ws_[slot] = ws;
+                            as.ws_to_slot_[ws]   = slot;
+                            data->lobby_id    = lobby_id;
+                            data->player_slot = slot;
+                            as.inbound->enqueue(NetConnect{slot, player_id,
+                                                           as.slots_[slot].username});
+                            ws->send(nlohmann::json{
+                                {"type","player_hello"}, {"player_id", player_id}
+                            }.dump(), uWS::OpCode::TEXT);
+                            server_log_.info("open", "player " + std::to_string(player_id) +
+                                " connected as slot " + std::to_string(slot) +
+                                " in lobby " + lobby_id);
+                            return;
                         }
-                        as.slot_to_ws[slot] = ws;
-                        as.ws_to_slot[ws]   = slot;
-                        data->lobby_id    = lobby_id;
-                        data->player_slot = slot;
-                        as.inbound->enqueue(NetConnect{slot, player_id,
-                                                       as.slots[slot].username});
-                        ws->send(nlohmann::json{
-                            {"type","player_hello"}, {"player_id", player_id}
-                        }.dump(), uWS::OpCode::TEXT);
-                        server_log_.info("open", "player " + std::to_string(player_id) +
-                            " connected as slot " + std::to_string(slot) +
-                            " in lobby " + lobby_id);
-                        return;
+                        } // switch
                     }
                 }
             }
@@ -180,6 +277,22 @@ void WsServer::run() {
         .message = [this, loop](WsHandle ws, std::string_view msg, uWS::OpCode op) {
             if (op != uWS::OpCode::TEXT) return;
             auto* data = ws->getUserData();
+
+            // Rate limiting — skip for unauthenticated connections (player_id == -1)
+            if (data->player_id >= 0) {
+                auto rl = rate_limiter_.check(static_cast<int32_t>(data->player_id));
+                if (rl == RateLimitResult::Warn) {
+                    serialise::error(ws, WsErrorCode::RateLimitWarning,
+                                     "message rate too high — slow down", server_log_);
+                    // warn but continue processing this message
+                } else if (rl == RateLimitResult::Suspend) {
+                    serialise::error(ws, WsErrorCode::RateLimitExceeded,
+                                     "connection suspended due to sustained rate excess", server_log_);
+                    loop->defer([ws]() { ws->end(1008, "rate limit exceeded"); });
+                    return;
+                }
+            }
+
             try {
                 const auto j    = nlohmann::json::parse(msg);
                 const auto type = j.value("type", "");
@@ -208,6 +321,25 @@ void WsServer::run() {
                     handle_leave_lobby(ws, fields->lobby_id);
                     return;
                 }
+                if (type == "spectate_lobby") {
+                    std::string sid = j.value("lobby_id", "");
+                    const std::string code = j.value("lobby_code", "");
+                    if (sid.empty() && !code.empty()) {
+                        try {
+                            auto handle = db_pool_.acquire();
+                            pqxx::work txn(handle.get());
+                            if (auto lobby = lobby_repo_.find_by_code(txn, code))
+                                sid = lobby->id;
+                        } catch (...) {}
+                    }
+                    if (sid.empty()) {
+                        serialise::error(ws, WsErrorCode::MalformedMessage,
+                                         "spectate_lobby requires lobby_id or lobby_code", server_log_);
+                        return;
+                    }
+                    handle_spectate_lobby(ws, sid);
+                    return;
+                }
 
                 // All game commands require an active session
                 if (data->lobby_id.empty()) {
@@ -223,6 +355,46 @@ void WsServer::run() {
                 }
                 auto& as        = session_it->second;
                 const int32_t slot = data->player_slot;
+
+                // script_log: API-lobby players only — WsServer passthrough to spectators.
+                // Never touches the SPSC queue; forwarded directly to spectator_handles_.
+                if (type == "script_log") {
+                    if (data->auth_type != AuthType::ApiKey ||
+                        as.lobby_mode_   != LobbyMode::API) return;
+                    const auto msg_it = j.find("message");
+                    if (msg_it == j.end() || !msg_it->is_string()) return;
+                    std::string text = msg_it->get<std::string>();
+                    text.erase(std::remove_if(text.begin(), text.end(),
+                        [](unsigned char c) { return c < 0x20 && c != '\n'; }),
+                        text.end());
+                    if (text.size() > 500) text.resize(500);
+                    const int64_t ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    const std::string payload = nlohmann::json{
+                        {"type",        "script_log"},
+                        {"player_slot", slot},
+                        {"message",     text},
+                        {"timestamp",   ts},
+                    }.dump();
+                    for (auto& [spec_id, spec_ws] : as.spectator_handles_)
+                        spec_ws->send(payload, uWS::OpCode::TEXT);
+                    return;
+                }
+
+                // AGENT-CTX: Spectators share the same .message path as players
+                // but must never mutate game state. Guard here (not per-branch) so
+                // every future trading message type is automatically blocked.
+                if (data->role == ConnectionRole::Spectator) {
+                    if (type == "submit_order" || type == "nudge" ||
+                        type == "cancel_order" || type == "vote_to_end") {
+                        serialise::error(ws, WsErrorCode::SpectatorNotAllowed,
+                                         "spectators cannot send game commands", server_log_);
+                        return;
+                    }
+                    // Non-trading message types from spectators fall through and
+                    // are silently dropped below (unknown type path).
+                    return;
+                }
 
                 if (type == "submit_order") {
                     auto f = parse::submit_order(j);
@@ -242,8 +414,6 @@ void WsServer::run() {
                     as.inbound->enqueue(NetCancel{slot, f->order_id});
                 } else if (type == "vote_to_end") {
                     as.inbound->enqueue(NetVoteToEnd{slot});
-                } else if (type == "start_game") {
-                    as.inbound->enqueue(NetStartGame{});
                 }
                 // Unknown game-command types are silently dropped — prevents log
                 // spam when old client versions send now-unknown messages.
@@ -255,17 +425,34 @@ void WsServer::run() {
 
         .close = [this](WsHandle ws, int /*code*/, std::string_view /*reason*/) {
             auto* data = ws->getUserData();
-            // Enqueue disconnect if this socket was in a game session
             if (!data->lobby_id.empty()) {
                 auto it = active_sessions_.find(data->lobby_id);
                 if (it != active_sessions_.end()) {
                     auto& as = it->second;
-                    auto ws_it = as.ws_to_slot.find(ws);
-                    if (ws_it != as.ws_to_slot.end()) {
-                        const int32_t slot = ws_it->second;
-                        as.ws_to_slot.erase(ws);
-                        as.slot_to_ws.erase(slot);
-                        as.inbound->enqueue(NetDisconnect{slot});
+                    if (data->role == ConnectionRole::Spectator) {
+                        auto sp_it = as.ws_to_spectator_.find(ws);
+                        if (sp_it != as.ws_to_spectator_.end()) {
+                            const int32_t spec_id = sp_it->second;
+                            as.ws_to_spectator_.erase(sp_it);
+                            as.spectator_handles_.erase(spec_id);
+                            as.spectator_count_ = std::max(0, as.spectator_count_ - 1);
+                            const std::string count_msg = nlohmann::json{
+                                {"type","spectator_count"}, {"count", as.spectator_count_}
+                            }.dump();
+                            for (auto& [s, wh] : as.slot_to_ws_)
+                                wh->send(count_msg, uWS::OpCode::TEXT);
+                            for (auto& [sid, wh] : as.spectator_handles_)
+                                wh->send(count_msg, uWS::OpCode::TEXT);
+                            as.inbound->enqueue(NetSpectatorLeave{spec_id});
+                        }
+                    } else {
+                        auto ws_it = as.ws_to_slot_.find(ws);
+                        if (ws_it != as.ws_to_slot_.end()) {
+                            const int32_t slot = ws_it->second;
+                            as.ws_to_slot_.erase(ws);
+                            as.slot_to_ws_.erase(slot);
+                            as.inbound->enqueue(NetDisconnect{slot});
+                        }
                     }
                 }
             }
@@ -340,6 +527,19 @@ void WsServer::run() {
         self->drain_all_on_loop();
     }, 16, 16);
 
+    // Rate-limiter GC: remove expired suspension entries on the event-loop thread
+    // (rate_limiter_ is not thread-safe by design — no mutex needed here).
+    // Fire at suspend_seconds cadence so entries are cleaned up as soon as they expire.
+    const unsigned int rl_gc_ms = static_cast<unsigned int>(
+        cfg_.rate_limit.suspend_seconds) * 1000u;
+    auto* rl_cleanup_timer = us_create_timer(
+        reinterpret_cast<struct us_loop_t*>(loop), 0, sizeof(void*));
+    *(WsServer**)us_timer_ext(rl_cleanup_timer) = this;
+    us_timer_set(rl_cleanup_timer, [](struct us_timer_t* t) {
+        auto* self = *(WsServer**)us_timer_ext(t);
+        self->rate_limiter_.cleanup_expired();
+    }, rl_gc_ms, rl_gc_ms);
+
     bool listen_ok = false;
     app.listen(cfg_.host, cfg_.port, [this, &listen_ok](auto* token) {
         if (token) {
@@ -362,6 +562,7 @@ void WsServer::run() {
     // Clean up event bus subscription before returning
     event_bus_.unsubscribe(game_start_sub_id_);
     us_timer_close(drain_timer);
+    us_timer_close(rl_cleanup_timer);
     server_log_.info("shutdown", "server stopped");
 }
 
@@ -377,6 +578,7 @@ void WsServer::create_session(const std::string& lobby_id) {
 
     std::vector<LobbyPlayer> players;
     std::string session_id;
+    LobbyMode lobby_mode = LobbyMode::UI;
     try {
         auto handle = db_pool_.acquire();
         pqxx::work txn(handle.get());
@@ -384,6 +586,9 @@ void WsServer::create_session(const std::string& lobby_id) {
         if (players.empty()) {
             server_log_.warn("create_session", "no players in lobby " + lobby_id);
             return;
+        }
+        if (auto lobby = lobby_repo_.find_by_id(txn, lobby_id)) {
+            lobby_mode = lobby->mode;
         }
         session_id = session_repo_.create_session(txn, lobby_id);
         // AGENT-CTX: Transition Starting→InGame here (not in HttpServer) because
@@ -413,21 +618,23 @@ void WsServer::create_session(const std::string& lobby_id) {
 
     // Populate the session map entry before constructing GameSession so that
     // we can pass queue refs by reference (GameSession stores refs, not copies).
-    auto& as   = active_sessions_[lobby_id];
-    as.slots   = slots;   // copy for WsServer's slot mapping
+    auto& as        = active_sessions_[lobby_id];
+    as.slots_        = slots;   // copy for WsServer's slot mapping
+    as.lobby_mode_   = lobby_mode;
     as.inbound  = std::make_unique<moodycamel::ReaderWriterQueue<NetEvent>>(256);
     as.outbound = std::make_unique<moodycamel::ReaderWriterQueue<GameEvent>>(256);
 
     as.session = std::make_unique<GameSession>(
         session_id, lobby_id,
-        as.slots,          // copy: GameSession owns its own SlotInfo vector
-        GameSessionContext{cfg_, server_log_, engine_log_, rng_, db_pool_},
+        as.slots_,          // copy: GameSession owns its own SlotInfo vector
+        GameSessionContext{cfg_, server_log_, engine_log_, std::mt19937{rng_()}, db_pool_},
         *as.inbound, *as.outbound);
 
     as.session->start();
+    as.inbound->enqueue(NetStartGame{});
 
     // Populate reverse-lookup so .open can route reconnecting players
-    for (const auto& slot_info : as.slots) {
+    for (const auto& slot_info : as.slots_) {
         player_to_lobby_[slot_info.player_id] = lobby_id;
     }
 
@@ -457,7 +664,7 @@ void WsServer::teardown_session(const std::string& lobby_id) {
                           std::string("DB error closing lobby: ") + ex.what());
     }
 
-    for (const auto& slot_info : as.slots) {
+    for (const auto& slot_info : as.slots_) {
         player_to_lobby_.erase(slot_info.player_id);
     }
     active_sessions_.erase(it);
@@ -476,14 +683,23 @@ void WsServer::drain_all_on_loop() {
             std::visit([&](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, GameBroadcast>) {
-                    for (auto& [slot, ws] : as.slot_to_ws) {
+                    for (auto& [slot, ws] : as.slot_to_ws_)
                         ws->send(arg.json, uWS::OpCode::TEXT);
-                    }
+                    // AGENT-CTX: Spectators receive all broadcasts (market data,
+                    // trade feed, balances) but never player-targeted messages.
+                    for (auto& [sid, ws] : as.spectator_handles_)
+                        ws->send(arg.json, uWS::OpCode::TEXT);
                 } else if constexpr (std::is_same_v<T, GameTargeted>) {
-                    auto wh = as.slot_to_ws.find(arg.slot);
-                    if (wh != as.slot_to_ws.end()) {
+                    auto wh = as.slot_to_ws_.find(arg.slot);
+                    if (wh != as.slot_to_ws_.end())
                         wh->second->send(arg.json, uWS::OpCode::TEXT);
-                    }
+                } else if constexpr (std::is_same_v<T, GameSpectatorTargeted>) {
+                    auto wh = as.spectator_handles_.find(arg.spectator_id);
+                    if (wh != as.spectator_handles_.end())
+                        wh->second->send(arg.json, uWS::OpCode::TEXT);
+                } else if constexpr (std::is_same_v<T, GameSpectatorBroadcast>) {
+                    for (auto& [sid, ws] : as.spectator_handles_)
+                        ws->send(arg.json, uWS::OpCode::TEXT);
                 } else if constexpr (std::is_same_v<T, GameDone>) {
                     done.push_back(lobby_id);
                 }
@@ -522,11 +738,11 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
         auto it = active_sessions_.find(lobby_id);
         if (it != active_sessions_.end()) {
             auto& as = it->second;
-            auto ws_it = as.ws_to_slot.find(ws);
-            if (ws_it != as.ws_to_slot.end()) {
+            auto ws_it = as.ws_to_slot_.find(ws);
+            if (ws_it != as.ws_to_slot_.end()) {
                 const int32_t slot = ws_it->second;
-                as.ws_to_slot.erase(ws);
-                as.slot_to_ws.erase(slot);
+                as.ws_to_slot_.erase(ws);
+                as.slot_to_ws_.erase(slot);
                 as.inbound->enqueue(NetPermanentLeave{slot});
             }
         }
@@ -556,6 +772,62 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
 
     server_log_.info("leave_lobby", "player " + std::to_string(data->player_id) +
                      " left lobby " + lobby_id);
+}
+
+// ─── handle_spectate_lobby ────────────────────────────────────────────────
+// Called on the uWS event-loop thread from the .message handler.
+void WsServer::handle_spectate_lobby(WsHandle ws, const std::string& lobby_id) {
+    auto* data = ws->getUserData();
+
+    auto it = active_sessions_.find(lobby_id);
+    if (it == active_sessions_.end()) {
+        serialise::error(ws, WsErrorCode::RoundNotActive, "no active session for lobby", server_log_);
+        return;
+    }
+    auto& as = it->second;
+
+    // AGENT-CTX: Reject any socket that already holds a player slot in this
+    // session. A player cannot downgrade to spectator mid-game; they must leave
+    // the lobby first. Checking ws_to_slot (not player_to_lobby_) ensures the
+    // guard fires only if this specific handle is registered, not just any
+    // handle for this player_id.
+    if (as.ws_to_slot_.count(ws)) {
+        serialise::error(ws, WsErrorCode::SpectatorNotAllowed,
+                         "already joined as player", server_log_);
+        return;
+    }
+
+    // Prevent double-registration of the same handle as spectator.
+    if (as.ws_to_spectator_.count(ws)) return;
+
+    const int32_t spec_id = static_cast<int32_t>(data->player_id);
+    data->role     = ConnectionRole::Spectator;
+    data->lobby_id = lobby_id;
+
+    as.spectator_handles_[spec_id] = ws;
+    as.ws_to_spectator_[ws]        = spec_id;
+    ++as.spectator_count_;
+
+    // Inform the joining spectator of their role
+    ws->send(nlohmann::json{
+        {"type","player_hello"}, {"player_id", data->player_id}, {"role","spectator"}
+    }.dump(), uWS::OpCode::TEXT);
+
+    // Broadcast updated count to all players and all spectators.
+    const std::string count_msg = nlohmann::json{
+        {"type","spectator_count"}, {"count", as.spectator_count_}
+    }.dump();
+    for (auto& [slot, wh] : as.slot_to_ws_)
+        wh->send(count_msg, uWS::OpCode::TEXT);
+    for (auto& [sid, wh] : as.spectator_handles_)
+        wh->send(count_msg, uWS::OpCode::TEXT);
+
+    as.inbound->enqueue(NetSpectatorJoin{spec_id, data->username});
+
+    server_log_.info("spectate_lobby",
+        "spectator player_id=" + std::to_string(data->player_id) +
+        " joined lobby " + lobby_id +
+        " (count=" + std::to_string(as.spectator_count_) + ")");
 }
 
 } // namespace anjeer::server

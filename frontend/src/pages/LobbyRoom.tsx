@@ -80,13 +80,17 @@ export function LobbyRoom() {
     return () => { unsubscribeLobby(lobbyId) }
   }, [lobbyId, connected, subscribeLobby, unsubscribeLobby])
 
-  // Step 3: Navigate to game when lobby_started arrives for THIS lobby.
+  // Step 3: Navigate to game (or spectate for API lobbies) when lobby_started fires.
   useEffect(() => {
     if (lobbyStarted && lobbyId && lobbyStarted.lobby_id === lobbyId) {
       navigatedToGameRef.current = true
-      navigate(`/game?lobby_id=${lobbyStarted.lobby_id}`)
+      if (lobbyState?.mode === 'api') {
+        navigate(`/spectate/${lobbyStarted.code}`)
+      } else {
+        navigate(`/game?lobby_id=${lobbyStarted.lobby_id}`)
+      }
     }
-  }, [lobbyStarted, lobbyId, navigate])
+  }, [lobbyStarted, lobbyId, lobbyState, navigate])
 
   function handleBack() {
     // AGENT-CTX: Send leave_lobby before navigate() so the message goes out

@@ -94,6 +94,7 @@ ServerConfig load_config(const std::string& path) {
         cfg.auth.jwt_secret = au.at("jwt_secret").get<std::string>();
         cfg.auth.access_token_ttl_seconds    = au.at("access_token_ttl_seconds").get<int>();
         cfg.auth.refresh_token_ttl_seconds   = au.at("refresh_token_ttl_seconds").get<int>();
+        cfg.auth.spectate_token_ttl_minutes  = au.at("spectate_token_ttl_minutes").get<int>();
         cfg.auth.secure_cookies              = au.at("secure_cookies").get<bool>();
 
         // AGENT-CTX: OAuth provider parsing is identical for both providers.
@@ -116,6 +117,12 @@ ServerConfig load_config(const std::string& path) {
         cfg.lobby.max_players = lb.at("max_players").get<int>();
 
         cfg.event_bus = j.at("event_bus").get<std::string>();
+
+        const auto& rl = j.at("rate_limit");
+        cfg.rate_limit.capacity          = rl.at("capacity").get<double>();
+        cfg.rate_limit.refill_rate       = rl.at("refill_rate").get<double>();
+        cfg.rate_limit.suspend_threshold = rl.at("suspend_threshold").get<int32_t>();
+        cfg.rate_limit.suspend_seconds   = rl.at("suspend_seconds").get<int32_t>();
 
         return cfg;
     } catch (const nlohmann::json::exception& e) {

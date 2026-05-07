@@ -8,9 +8,6 @@
 namespace anjeer::server {
 
 // ── Inbound: network thread → game-loop thread ────────────────────────────────
-// AGENT-CTX: Each NetEvent variant carries only the data needed for that event —
-// no shared pointers, no heap allocation. The SPSC queue copies the variant by
-// value, which is safe and cheap given the small payload sizes here.
 
 struct NetConnect    { int32_t slot; int64_t player_id; std::string username; };
 struct NetDisconnect { int32_t slot; };
@@ -23,11 +20,16 @@ struct NetVoteToEnd     { int32_t slot; };
 // NetDisconnect (temporary drop), this marks the slot inactive and decrements
 // active_player_count_ so check_end_condition can fire.
 struct NetPermanentLeave { int32_t slot; };
+// Spectator join/leave — routed to GameSession so Task 8 can emit a state
+// snapshot targeted at the new spectator without WsServer knowing game state.
+struct NetSpectatorJoin  { int32_t spectator_id; std::string spectator_name; };
+struct NetSpectatorLeave { int32_t spectator_id; };
 
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
-    NetStartGame, NetVoteToEnd, NetPermanentLeave>;
+    NetStartGame, NetVoteToEnd, NetPermanentLeave,
+    NetSpectatorJoin, NetSpectatorLeave>;
 
 // ── Outbound: game-loop thread → network thread ───────────────────────────────
 // AGENT-CTX: GameSession never touches WsHandle or uWS directly — it writes
@@ -38,7 +40,10 @@ using NetEvent = std::variant<
 struct GameBroadcast { std::string json; };           // send to all connected slots
 struct GameTargeted  { int32_t slot; std::string json; }; // send to one slot
 struct GameDone      {};                              // session ended; WsServer tears down
+// Targeted delivery to one spectator; used by Task 8 snapshot on join.
+struct GameSpectatorTargeted  { int32_t spectator_id; std::string json; };
+struct GameSpectatorBroadcast { std::string json; };  // send to all spectators only
 
-using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone>;
+using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone, GameSpectatorTargeted, GameSpectatorBroadcast>;
 
 } // namespace anjeer::server

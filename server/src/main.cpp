@@ -1,3 +1,4 @@
+#include "server/api_key_repo.h"
 #include "server/auth_service.h"
 #include "server/config.h"
 #include "server/db.h"
@@ -7,6 +8,7 @@
 #include "server/lobby_gateway.h"
 #include "server/lobby_repo.h"
 #include "server/player_repo.h"
+#include "server/spectate_token_repo.h"
 #include "server/ws_server.h"
 
 #include <iostream>
@@ -49,23 +51,27 @@ int main(int argc, char* argv[]) {
     }
 
     // Static storage: all objects outlive any thread that holds references to them.
-    static anjeer::server::DbPool         db_pool(cfg.db.connection_string, cfg.db.pool_size);
-    static anjeer::server::PlayerRepo     player_repo;
-    static anjeer::server::LobbyRepo      lobby_repo;
-    static anjeer::server::KeybindsRepo   keybinds_repo;
-    static anjeer::server::LocalEventBus  event_bus;  // Slice 16: swap for RedisEventBus
-    static anjeer::server::LobbyGateway   lobby_gateway(db_pool, lobby_repo, event_bus);
-    static anjeer::server::AuthService    auth_service(db_pool, player_repo, cfg);
-    static anjeer::server::HttpServer     http_server(cfg, auth_service, player_repo,
-                                                      lobby_repo, keybinds_repo,
-                                                      event_bus, db_pool);
+    static anjeer::server::DbPool              db_pool(cfg.db.connection_string, cfg.db.pool_size);
+    static anjeer::server::PlayerRepo          player_repo;
+    static anjeer::server::LobbyRepo           lobby_repo;
+    static anjeer::server::KeybindsRepo        keybinds_repo;
+    static anjeer::server::ApiKeyRepo          api_key_repo;
+    static anjeer::server::SpectateTokenRepo   spectate_token_repo(cfg.auth.spectate_token_ttl_minutes);
+    static anjeer::server::LocalEventBus       event_bus;  // Slice 16: swap for RedisEventBus
+    static anjeer::server::LobbyGateway        lobby_gateway(db_pool, lobby_repo, event_bus);
+    static anjeer::server::AuthService         auth_service(db_pool, player_repo, cfg);
+    static anjeer::server::HttpServer          http_server(cfg, anjeer::server::HttpServerDeps{
+                                                               auth_service, player_repo,
+                                                               lobby_repo, keybinds_repo,
+                                                               api_key_repo, spectate_token_repo,
+                                                               event_bus, db_pool});
 
     std::thread http_thread([&http_server] { http_server.run(); });
     http_thread.detach();
 
-    anjeer::server::WsServer ws_server(cfg, lobby_gateway,
-                                       db_pool, lobby_repo,
-                                       auth_service, event_bus);
+    anjeer::server::WsServer ws_server(cfg, anjeer::server::WsServerDeps{
+                                           lobby_gateway, db_pool, lobby_repo,
+                                           auth_service, api_key_repo, event_bus});
     ws_server.run();
 
     return 0;

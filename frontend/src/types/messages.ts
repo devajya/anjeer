@@ -7,10 +7,11 @@
 // Server → Client (inbound)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Sent to each client once on connect. Transient identity until Slice 5 auth. */
+/** Sent to each client once on connect. role is absent for player connections. */
 export interface PlayerHelloMessage {
   type: 'player_hello'
   player_id: number
+  role?: 'player' | 'spectator'
 }
 
 /**
@@ -86,8 +87,10 @@ export interface ErrorMessage {
  */
 export interface RoundStartingMessage {
   type: 'round_starting'
-  starts_at: string   // ISO 8601 UTC, e.g. "2026-04-14T18:03:03.000Z"
+  starts_at?: string     // present during pre-round countdown
+  round_end_at?: string  // present in mid-round spectator snapshot
   player_count: number
+  usernames?: string[]   // present in mid-round spectator snapshot
 }
 
 /** Per-suit card counts in a player's hand. Reused by RoundStartMessage and HandPanel. */
@@ -163,6 +166,7 @@ export interface LobbyStateMessage {
   status: 'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
   min_players: number
   max_players: number
+  mode: 'ui' | 'api'
   players: Array<{ player_id: number; username: string; joined_at: string }>
 }
 
@@ -293,6 +297,20 @@ export interface HandTotalsMessage {
   totals: number[]
 }
 
+/** Broadcast to all players and spectators when a spectator joins or leaves. */
+export interface SpectatorCountMessage {
+  type: 'spectator_count'
+  count: number
+}
+
+/** Forwarded script log from an API-lobby player; delivered to spectators only. */
+export interface ScriptLogMessage {
+  type: 'script_log'
+  player_slot: number
+  message: string
+  timestamp: number
+}
+
 /**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
@@ -322,6 +340,8 @@ export type ServerMessage =
   | DeltaUpdateMessage
   | AllBalancesMessage
   | HandTotalsMessage
+  | SpectatorCountMessage
+  | ScriptLogMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
@@ -389,6 +409,20 @@ export interface LeaveLobbyCommand {
   lobby_id: string
 }
 
+/** Sent once after WS connect to enter a session as a read-only spectator.
+ *  Prefer lobby_code (human-readable); lobby_id (UUID) accepted for backwards compat. */
+export interface SpectateLobbyCommand {
+  type: 'spectate_lobby'
+  lobby_code?: string
+  lobby_id?: string
+}
+
+/** API-lobby players only. Forwarded to spectators as ScriptLogMessage. */
+export interface ScriptLogCommand {
+  type: 'script_log'
+  message: string
+}
+
 export type ClientCommand =
   | SubmitOrderCommand
   | NudgeCommand
@@ -398,3 +432,26 @@ export type ClientCommand =
   | UnsubscribeLobbyCommand
   | VoteToEndCommand
   | LeaveLobbyCommand
+  | SpectateLobbyCommand
+  | ScriptLogCommand
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HTTP REST types (not WebSocket)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** One row from GET /players/me/api-keys. key_hash is never returned. */
+export interface ApiKeyView {
+  id:         number
+  name:       string
+  created_at: string   // ISO8601
+  expires_at: string   // ISO8601
+  revoked_at: string | null
+}
+
+/** 201 response body from POST /players/me/api-keys. key shown exactly once. */
+export interface ApiKeyCreateResponse {
+  id:         number
+  key:        string   // plaintext "ank_<64hex>" — store nowhere, show once
+  name:       string
+  expires_at: string   // ISO8601
+}

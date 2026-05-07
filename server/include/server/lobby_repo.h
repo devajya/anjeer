@@ -13,10 +13,14 @@ namespace anjeer::server {
 // string ↔ enum mapping — never inline these strings elsewhere in the server.
 enum class LobbyStatus { Waiting, Starting, InGame, Finished, Closed };
 
-// AGENT-CTX: Free function so http_server.cpp (and any other JSON serializer)
-// can convert LobbyStatus → string without depending on LobbyRepo internals.
-// LobbyRepo::status_str (private) delegates to this function — one implementation.
+// AGENT-CTX: LobbyMode mirrors the DB CHECK constraint on lobbies.mode.
+// lobby_mode_string() / parse_mode() are the single source of truth for the
+// string ↔ enum mapping — never inline "ui" / "api" elsewhere in the server.
+enum class LobbyMode { UI, API };
+
 std::string lobby_status_string(LobbyStatus s);
+std::string lobby_mode_string  (LobbyMode m);
+LobbyMode   parse_lobby_mode   (const std::string& s);
 
 struct Lobby {
     std::string id;           // UUID as string
@@ -26,6 +30,7 @@ struct Lobby {
     int         min_players;
     int         max_players;
     std::string created_at;
+    LobbyMode   mode = LobbyMode::UI;
 };
 
 // AGENT-CTX: LobbyView is a read-only projection for list responses only.
@@ -46,15 +51,18 @@ class LobbyRepo {
 public:
     // Creates lobby, generates unique 6-char code. Retries on UNIQUE collision.
     Lobby create(DbTxn& txn, int64_t creator_id,
-                 int min_players, int max_players);
+                 int min_players, int max_players,
+                 LobbyMode mode = LobbyMode::UI);
 
     std::optional<Lobby> find_by_id  (DbTxn& txn,
                                       const std::string& lobby_id);
     std::optional<Lobby> find_by_code(DbTxn& txn,
                                       const std::string& code);
 
-    std::vector<LobbyView> list_waiting(DbTxn& txn);
-    std::vector<LobbyView> list_active (DbTxn& txn);
+    std::vector<LobbyView> list_waiting(DbTxn& txn,
+                                         std::optional<LobbyMode> mode = std::nullopt);
+    std::vector<LobbyView> list_active (DbTxn& txn,
+                                         std::optional<LobbyMode> mode = std::nullopt);
 
     // AGENT-CTX: Re-joining is idempotent (returns existing joined_at) — the
     // "already joined → nullopt" guard was removed in Slice 7 so leave+rejoin
@@ -85,6 +93,7 @@ private:
     static LobbyPlayer row_to_player(const pqxx::row& row);
     static std::string status_str   (LobbyStatus s);
     static LobbyStatus parse_status (const std::string& s);
+    static std::string mode_str     (LobbyMode m);
     // Generates 6-char A-Z0-9 code via OpenSSL RAND_bytes.
     static std::string generate_code();
 };

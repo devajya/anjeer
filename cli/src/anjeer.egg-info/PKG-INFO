@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: anjeer
+Version: 0.1.0
+Summary: CLI for the Anjeer trading game — find, create and join API-mode lobbies
+Requires-Python: >=3.9
+Requires-Dist: click>=8.0
+Requires-Dist: requests>=2.28

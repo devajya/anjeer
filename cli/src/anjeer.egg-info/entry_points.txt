@@ -1,0 +1,2 @@
+[console_scripts]
+anjeer = anjeer.cli:main

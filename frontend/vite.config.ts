@@ -41,6 +41,10 @@ export default defineConfig({
         target: 'http://localhost:10000',
         changeOrigin: false,
       },
+      '/examples': {
+        target: 'http://localhost:10000',
+        changeOrigin: false,
+      },
     },
   },
   test: {

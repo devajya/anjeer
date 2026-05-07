@@ -17,6 +17,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace anjeer::server {
@@ -43,7 +44,7 @@ struct GameSessionContext {
     const ServerConfig& cfg;
     Logger&             server_log;
     Logger&             engine_log;
-    std::mt19937&       rng;
+    std::mt19937        rng;
     DbPool&             db_pool;
 };
 
@@ -81,6 +82,9 @@ private:
     void handle_start_game     ();
     void handle_vote_to_end    (int32_t slot);
     void handle_permanent_leave(int32_t slot);
+    void handle_spectator_join (const NetSpectatorJoin&);
+    void handle_spectator_leave(const NetSpectatorLeave&);
+    void send_spectator_snapshot(int32_t spectator_id);
 
     // ── Session / round lifecycle ─────────────────────────────────────────────
     void begin_countdown  ();
@@ -107,26 +111,21 @@ private:
     void apply_trade_settlements(const std::vector<engine::OrderEvent>&);
 
     // ── Post-trade state pipeline ─────────────────────────────────────────────
-    // AGENT-CTX: apply_post_trade_state groups all post-trade mutations and
-    // broadcasts in a single call so the sequence is legible at each call site
-    // (handle_submit / handle_nudge). Order: card transfers → settlements →
-    // delta accumulation → broadcast. Each step is a broadcast; sequence matters.
     void apply_post_trade_state(const std::vector<engine::OrderEvent>&);
 
     // ── Delta table ───────────────────────────────────────────────────────────
-    // AGENT-CTX: delta_table_ tracks net card flow per player per suit for the
-    // current round. Indexed [player_slot][suit_index] matching engine::kAllSuits
-    // order (0=clubs 1=diamonds 2=hearts 3=spades). Reset at each begin_round.
-    // buyer +1, seller -1 per trade. Broadcast as a full snapshot after each trade
-    // so clients never accumulate increments and risk desync.
+    // AGENT-CTX: Broadcast as a full snapshot after each trade so clients never
+    // accumulate increments and risk desync.
     void apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx);
     void reset_delta_table();
     void broadcast_delta_update();
 
     // ── Outbound helpers ──────────────────────────────────────────────────────
-    void emit_broadcast(const std::string& json);
-    void emit_targeted (int32_t slot, const std::string& json);
-    void emit_error    (int32_t slot, std::string_view code, std::string_view message);
+    void emit_broadcast           (const std::string& json);
+    void emit_targeted            (int32_t slot, const std::string& json);
+    void emit_spectator_targeted  (int32_t spectator_id, const std::string& json);
+    void emit_spectator_broadcast (const std::string& json);
+    void emit_error               (int32_t slot, std::string_view code, std::string_view message);
     void broadcast_waiting_for_start();
 
     // ── DB writes (called at game end or on crash — never per-tick) ──────────
@@ -153,10 +152,11 @@ private:
     std::string lobby_id_;
 
     // ── Player state ──────────────────────────────────────────────────────────
-    std::vector<SlotInfo> slots_;
-    std::vector<bool>     vote_to_end_;
-    std::vector<bool>     funded_this_round_;   // set by collect_buy_ins each round
-    int                   active_player_count_ = 0;
+    std::vector<SlotInfo>    slots_;
+    std::vector<bool>        vote_to_end_;
+    std::vector<bool>        funded_this_round_;   // set by collect_buy_ins each round
+    int                      active_player_count_ = 0;
+    std::unordered_set<int32_t> spectator_ids_;   // IDs only — WsHandles stay in WsServer
 
     // AGENT-CTX: Grace window before ending on all-disconnected. 500ms lets
     // WsServer reconnect a client to a freed slot (slot reuse for test compat)

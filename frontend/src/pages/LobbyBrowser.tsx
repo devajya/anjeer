@@ -9,7 +9,7 @@ type Tab = 'starting' | 'active'
 
 export function LobbyBrowser() {
   const navigate              = useNavigate()
-  const { user }              = useAuth()
+  const { user, logout }      = useAuth()
   const [tab, setTab]         = useState<Tab>('starting')
   const [lobbies, setLobbies]   = useState<LobbyView[]>([])
   const [loading, setLoading]   = useState(true)
@@ -71,7 +71,12 @@ export function LobbyBrowser() {
     setCreating(true)
     setError(null)
     try {
-      const res = await fetch('/lobbies', { method: 'POST', credentials: 'include' })
+      const res = await fetch('/lobbies', {
+        method:      'POST',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ mode: 'ui' }),
+      })
       if (res.ok) {
         const lobby: LobbyView = await res.json()
         navigate(`/lobby/${lobby.code}`)
@@ -92,7 +97,9 @@ export function LobbyBrowser() {
     await joinLobby(match)
   }
 
-  const waitingLobbies = lobbies.filter(l => l.status === 'waiting')
+  // Starting tab shows only UI-mode lobbies; API lobbies are CLI-only and
+  // appear only in the Active tab (for spectating) once the game is live.
+  const waitingLobbies = lobbies.filter(l => l.status === 'waiting' && l.mode !== 'api')
   const activeLobbies  = lobbies.filter(l => l.status === 'in_game')
 
   const userInitial = user?.username?.[0]?.toUpperCase() ?? '?'
@@ -127,6 +134,27 @@ export function LobbyBrowser() {
                 >
                   Key Bindings
                 </button>
+                <button
+                  className="lp__menu-item"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); navigate('/api-keys') }}
+                >
+                  API Keys
+                </button>
+                <button
+                  className="lp__menu-item"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); navigate('/docs') }}
+                >
+                  API Docs
+                </button>
+                <button
+                  className="lp__menu-item lp__menu-item--danger"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); logout() }}
+                >
+                  Log Out
+                </button>
               </div>
             )}
           </div>
@@ -155,14 +183,16 @@ export function LobbyBrowser() {
             >
               Active {!loading && `(${activeLobbies.length})`}
             </button>
-            <button
-              className="lp__btn lp__btn--create lp__tab-create"
-              onClick={handleCreate}
-              disabled={creating}
-              aria-label="Create a new lobby"
-            >
-              {creating ? '…' : 'Create Lobby'}
-            </button>
+            <div className="lp__create-area">
+              <button
+                className="lp__btn lp__btn--create"
+                onClick={handleCreate}
+                disabled={creating}
+                aria-label="Create a new lobby"
+              >
+                {creating ? '…' : 'Create Lobby'}
+              </button>
+            </div>
           </div>
 
           {/* ── Content ──────────────────────────────────────────────── */}
@@ -209,6 +239,9 @@ export function LobbyBrowser() {
                           <span className="lp__card-title">Game</span>
                           {/* code is in its own element so getByText(code) works in tests */}
                           <span className="lp__card-code">{lobby.code}</span>
+                          <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
+                            {(lobby.mode ?? 'ui').toUpperCase()}
+                          </span>
                         </div>
                         <span className="lp__card-meta">
                           <span className="lp__card-meta-icon">♟</span>
@@ -248,7 +281,12 @@ export function LobbyBrowser() {
                 {activeLobbies.map(lobby => (
                   <div key={lobby.id} className="lp__card">
                     <div className="lp__card-left">
-                      <span className="lp__card-title">Game {lobby.code}</span>
+                      <div className="lp__card-title-row">
+                        <span className="lp__card-title">Game {lobby.code}</span>
+                        <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
+                          {(lobby.mode ?? 'ui').toUpperCase()}
+                        </span>
+                      </div>
                       <span className="lp__card-meta">
                         <span className="lp__card-meta-icon">♟</span>
                         Standard · In progress
@@ -258,12 +296,15 @@ export function LobbyBrowser() {
                         {lobby.player_count} players
                       </span>
                     </div>
-                    {/* AGENT-CTX: Disabled button signals the lobby exists but
-                        is not joinable. Matches the card layout of waiting lobbies
-                        so the two tabs feel consistent. Spectator join is deferred. */}
-                    <button className="lp__join-btn" disabled>
-                      In Progress
-                    </button>
+                    <div className="lp__card-actions">
+                      <button
+                        className="lp__btn lp__btn--spectate"
+                        onClick={() => navigate(`/spectate/${lobby.code}`)}
+                        aria-label={`Spectate lobby ${lobby.code}`}
+                      >
+                        Spectate
+                      </button>
+                    </div>
                   </div>
                 ))}
               </>

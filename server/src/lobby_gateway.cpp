@@ -73,6 +73,7 @@ void LobbyGateway::handle_subscribe(WsHandle ws, const std::string& lobby_id,
         {"status",      lobby_status_string(lobby.status)},
         {"min_players", lobby.min_players},
         {"max_players", lobby.max_players},
+        {"mode",        lobby.mode == LobbyMode::API ? "api" : "ui"},
         {"players",     players_arr},
     };
     ws->send(snap.dump(), uWS::OpCode::TEXT);

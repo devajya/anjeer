@@ -183,6 +183,8 @@ void GameSession::process_inbound() {
             else if constexpr (std::is_same_v<T, NetStartGame>)  handle_start_game();
             else if constexpr (std::is_same_v<T, NetVoteToEnd>)      handle_vote_to_end(e.slot);
             else if constexpr (std::is_same_v<T, NetPermanentLeave>) handle_permanent_leave(e.slot);
+            else if constexpr (std::is_same_v<T, NetSpectatorJoin>)  handle_spectator_join(e);
+            else if constexpr (std::is_same_v<T, NetSpectatorLeave>) handle_spectator_leave(e);
         }, ev);
     }
 }
@@ -217,7 +219,15 @@ void GameSession::handle_connect(const NetConnect& ev) {
             books_[si].best_bid(), books_[si].best_ask()));
     }
 
-    if (phase_ == SessionPhase::Lobby) broadcast_waiting_for_start();
+    if (phase_ == SessionPhase::Lobby) {
+        broadcast_waiting_for_start();
+    } else if (phase_ == SessionPhase::Countdown) {
+        emit_targeted(ev.slot, nlohmann::json{
+            {"type",         "round_starting"},
+            {"starts_at",    steady_to_iso(countdown_deadline_)},
+            {"player_count", static_cast<int>(slots_.size())},
+        }.dump());
+    }
 }
 
 void GameSession::handle_disconnect(const NetDisconnect& ev) {
@@ -307,14 +317,6 @@ void GameSession::handle_cancel(const NetCancel& ev) {
 void GameSession::handle_start_game() {
     if (phase_ != SessionPhase::Lobby) {
         server_log_.warn("start_game", "ignored — not in Lobby phase");
-        return;
-    }
-    int connected = 0;
-    for (const auto& s : slots_) if (s.connected) connected++;
-    if (connected < cfg_.lobby.min_players) {
-        server_log_.warn("start_game",
-            "ignored — " + std::to_string(connected) +
-            "/" + std::to_string(cfg_.lobby.min_players) + " players");
         return;
     }
     server_log_.info("start_game", "beginning countdown session=" + session_id_);
@@ -604,6 +606,15 @@ bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderE
                     {"seller_slot",    seller_slot},
                 }.dump());
             }
+            emit_spectator_broadcast(nlohmann::json{
+                {"type",           "trade"},
+                {"suit",           t->suit},
+                {"price",          t->price},
+                {"aggressor_side", serialise::side(t->aggressor_side)},
+                {"your_side",      nullptr},
+                {"buyer_slot",     buyer_slot},
+                {"seller_slot",    seller_slot},
+            }.dump());
 
             had_trade = true;
         }
@@ -723,6 +734,104 @@ void GameSession::apply_trade_settlements(const std::vector<engine::OrderEvent>&
     }
 }
 
+// ─── Spectator handlers ───────────────────────────────────────────────────────
+
+void GameSession::send_spectator_snapshot(int32_t spectator_id) {
+    switch (phase_) {
+    case SessionPhase::Lobby:
+    case SessionPhase::Ended:
+        break;
+
+    case SessionPhase::Countdown:
+        emit_spectator_targeted(spectator_id, nlohmann::json{
+            {"type",         "round_starting"},
+            {"starts_at",    steady_to_iso(countdown_deadline_)},
+            {"player_count", static_cast<int>(slots_.size())},
+        }.dump());
+        break;
+
+    case SessionPhase::RoundActive: {
+        for (auto s : engine::kAllSuits) {
+            const int si = engine::suit_index(s);
+            if (!active_suits_[si]) continue;
+            emit_spectator_targeted(spectator_id,
+                serialise::book_update_payload(
+                    std::string(engine::suit_name(s)),
+                    books_[si].best_bid(),
+                    books_[si].best_ask(),
+                    std::nullopt,
+                    std::nullopt));
+        }
+        if (game_state_) {
+            nlohmann::json totals = nlohmann::json::array();
+            for (int i = 0; i < game_state_->player_count(); ++i) {
+                const auto& sc = game_state_->hand(i).suit_counts;
+                totals.push_back(sc[0] + sc[1] + sc[2] + sc[3]);
+            }
+            emit_spectator_targeted(spectator_id, nlohmann::json{
+                {"type",   "hand_totals"},
+                {"totals", totals},
+            }.dump());
+        }
+        {
+            nlohmann::json balances = nlohmann::json::array();
+            for (const auto& s : slots_) balances.push_back(s.balance);
+            emit_spectator_targeted(spectator_id, nlohmann::json{
+                {"type",     "all_balances"},
+                {"balances", balances},
+            }.dump());
+        }
+        {
+            nlohmann::json deltas = nlohmann::json::array();
+            for (const auto& row : delta_table_)
+                deltas.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
+            emit_spectator_targeted(spectator_id, nlohmann::json{
+                {"type",   "delta_update"},
+                {"deltas", deltas},
+            }.dump());
+        }
+        {
+            nlohmann::json usernames = nlohmann::json::array();
+            for (const auto& s : slots_) usernames.push_back(s.username);
+            emit_spectator_targeted(spectator_id, nlohmann::json{
+                {"type",         "round_starting"},
+                {"round_end_at", steady_to_iso(round_deadline_)},
+                {"player_count", static_cast<int>(slots_.size())},
+                {"usernames",    usernames},
+            }.dump());
+        }
+        break;
+    }
+
+    case SessionPhase::InterRound: {
+        const int votes  = static_cast<int>(
+            std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
+        const int needed = (active_player_count_ + 1) / 2;
+        const auto& last = round_history_.back();
+        emit_spectator_targeted(spectator_id,
+            serialise::inter_round_payload(
+                last.round_number, last.goal_suit, last.results,
+                votes, needed, steady_to_iso(inter_round_deadline_)));
+        break;
+    }
+    }
+}
+
+void GameSession::handle_spectator_join(const NetSpectatorJoin& ev) {
+    spectator_ids_.insert(ev.spectator_id);
+    send_spectator_snapshot(ev.spectator_id);
+    server_log_.info("spectator_join",
+        "spectator_id=" + std::to_string(ev.spectator_id) +
+        " name=" + ev.spectator_name +
+        " phase=" + std::to_string(static_cast<int>(phase_)));
+}
+
+void GameSession::handle_spectator_leave(const NetSpectatorLeave& ev) {
+    spectator_ids_.erase(ev.spectator_id);
+    server_log_.info("spectator_leave",
+        "spectator_id=" + std::to_string(ev.spectator_id));
+}
+
 // ─── Outbound helpers ─────────────────────────────────────────────────────────
 
 void GameSession::emit_broadcast(const std::string& json) {
@@ -731,6 +840,14 @@ void GameSession::emit_broadcast(const std::string& json) {
 
 void GameSession::emit_targeted(int32_t slot, const std::string& json) {
     outbound_.enqueue(GameTargeted{slot, json});
+}
+
+void GameSession::emit_spectator_targeted(int32_t spectator_id, const std::string& json) {
+    outbound_.enqueue(GameSpectatorTargeted{spectator_id, json});
+}
+
+void GameSession::emit_spectator_broadcast(const std::string& json) {
+    outbound_.enqueue(GameSpectatorBroadcast{json});
 }
 
 void GameSession::emit_error(int32_t slot, std::string_view code, std::string_view message) {

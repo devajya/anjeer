@@ -71,6 +71,8 @@ interface Props {
   selected?: boolean
   /** Called when the player clicks the panel to keyboard-focus it. */
   onSelect?: (suit: string) => void
+  /** Spectator mode — hides order forms and nudge buttons; shows prices only. */
+  isSpectator?: boolean
 }
 
 const SUIT_SYMBOLS: Record<string, string> = {
@@ -102,6 +104,7 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   onSendMessage,
   selected = false,
   onSelect,
+  isSpectator = false,
 }, ref) {
   const { bidInput, offerInput, setBidInput, setOfferInput, submitBid, submitOffer, selfTradeError } =
     useOrderForm(suit, onSendMessage, myOrdersForSuit)
@@ -168,55 +171,59 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
             <span className="sp__price sp__price--bid">
               {hasBid ? book.best_bid : '—'}
             </span>
-            <button
-              className="sp__nudge sp__nudge--up"
-              type="button"
-              title="Nudge bid up by 1"
-              disabled={disabled}
-              onClick={() => onSendMessage({ type: 'nudge', suit, side: 'buy' })}
-            >
-              ▲
-            </button>
+            {!isSpectator && (
+              <button
+                className="sp__nudge sp__nudge--up"
+                type="button"
+                title="Nudge bid up by 1"
+                disabled={disabled}
+                onClick={() => onSendMessage({ type: 'nudge', suit, side: 'buy' })}
+              >
+                ▲
+              </button>
+            )}
           </div>
 
           {/* Action row: [SELL] [price-input → Enter to submit bid] */}
-          <div className="sp__action-row">
-            <button
-              className="sp__action-btn sp__action-btn--sell"
-              type="button"
-              disabled={disabled || !hasBid || noCards || isOwnBestBid}
-              title={
-                noCards      ? 'No cards to sell' :
-                isOwnBestBid ? 'Cannot sell to your own buy order' :
-                hasBid       ? `Sell at ${book.best_bid}` :
-                               'No bid to sell into'
-              }
-              onClick={() =>
-                onSendMessage({
-                  type: 'submit_order',
-                  suit,
-                  side: 'sell',
-                  price: book.best_bid!,
-                })
-              }
-            >
-              SELL
-            </button>
-            <form className="sp__price-form" noValidate onSubmit={e => { submitBid(e); bidInputRef.current?.blur() }}>
-              <input
-                ref={bidInputRef}
-                className="sp__price-input"
-                type="number"
-                min={1}
-                max={99}
-                value={bidInput}
-                onChange={e => setBidInput(e.target.value)}
-                placeholder="price"
-                disabled={disabled}
-                aria-label={`Bid price for ${suit}`}
-              />
-            </form>
-          </div>
+          {!isSpectator && (
+            <div className="sp__action-row">
+              <button
+                className="sp__action-btn sp__action-btn--sell"
+                type="button"
+                disabled={disabled || !hasBid || noCards || isOwnBestBid}
+                title={
+                  noCards      ? 'No cards to sell' :
+                  isOwnBestBid ? 'Cannot sell to your own buy order' :
+                  hasBid       ? `Sell at ${book.best_bid}` :
+                                 'No bid to sell into'
+                }
+                onClick={() =>
+                  onSendMessage({
+                    type: 'submit_order',
+                    suit,
+                    side: 'sell',
+                    price: book.best_bid!,
+                  })
+                }
+              >
+                SELL
+              </button>
+              <form className="sp__price-form" noValidate onSubmit={e => { submitBid(e); bidInputRef.current?.blur() }}>
+                <input
+                  ref={bidInputRef}
+                  className="sp__price-input"
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={bidInput}
+                  onChange={e => setBidInput(e.target.value)}
+                  placeholder="price"
+                  disabled={disabled}
+                  aria-label={`Bid price for ${suit}`}
+                />
+              </form>
+            </div>
+          )}
         </div>
 
         {/* ── MIDDLE: suit badge + last trade ── */}
@@ -236,58 +243,62 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
         >
           {/* Price row: nudge-down + ask price */}
           <div className="sp__price-row sp__price-row--ask">
-            <button
-              className="sp__nudge sp__nudge--down"
-              type="button"
-              title={noCards ? 'No cards to sell' : 'Nudge ask down by 1'}
-              disabled={disabled || noCards}
-              onClick={() => onSendMessage({ type: 'nudge', suit, side: 'sell' })}
-            >
-              ▼
-            </button>
+            {!isSpectator && (
+              <button
+                className="sp__nudge sp__nudge--down"
+                type="button"
+                title={noCards ? 'No cards to sell' : 'Nudge ask down by 1'}
+                disabled={disabled || noCards}
+                onClick={() => onSendMessage({ type: 'nudge', suit, side: 'sell' })}
+              >
+                ▼
+              </button>
+            )}
             <span className="sp__price sp__price--ask">
               {hasAsk ? book.best_ask : '—'}
             </span>
           </div>
 
           {/* Action row: [price-input → Enter to submit offer] [BUY] */}
-          <div className="sp__action-row sp__action-row--ask">
-            <form className="sp__price-form" noValidate onSubmit={e => { submitOffer(e); offerInputRef.current?.blur() }}>
-              <input
-                ref={offerInputRef}
-                className="sp__price-input"
-                type="number"
-                min={1}
-                max={99}
-                value={offerInput}
-                onChange={e => setOfferInput(e.target.value)}
-                placeholder="price"
-                disabled={disabled || noCards}
-                aria-label={`Offer price for ${suit}`}
-              />
-            </form>
-            <button
-              className="sp__action-btn sp__action-btn--buy"
-              type="button"
-              disabled={disabled || !hasAsk || isOwnBestAsk || cantAffordAsk}
-              title={
-                isOwnBestAsk  ? 'Cannot buy your own sell order' :
-                cantAffordAsk ? `Insufficient balance (need ${book.best_ask})` :
-                hasAsk        ? `Buy at ${book.best_ask}` :
-                                'No ask to buy from'
-              }
-              onClick={() =>
-                onSendMessage({
-                  type: 'submit_order',
-                  suit,
-                  side: 'buy',
-                  price: book.best_ask!,
-                })
-              }
-            >
-              BUY
-            </button>
-          </div>
+          {!isSpectator && (
+            <div className="sp__action-row sp__action-row--ask">
+              <form className="sp__price-form" noValidate onSubmit={e => { submitOffer(e); offerInputRef.current?.blur() }}>
+                <input
+                  ref={offerInputRef}
+                  className="sp__price-input"
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={offerInput}
+                  onChange={e => setOfferInput(e.target.value)}
+                  placeholder="price"
+                  disabled={disabled || noCards}
+                  aria-label={`Offer price for ${suit}`}
+                />
+              </form>
+              <button
+                className="sp__action-btn sp__action-btn--buy"
+                type="button"
+                disabled={disabled || !hasAsk || isOwnBestAsk || cantAffordAsk}
+                title={
+                  isOwnBestAsk  ? 'Cannot buy your own sell order' :
+                  cantAffordAsk ? `Insufficient balance (need ${book.best_ask})` :
+                  hasAsk        ? `Buy at ${book.best_ask}` :
+                                  'No ask to buy from'
+                }
+                onClick={() =>
+                  onSendMessage({
+                    type: 'submit_order',
+                    suit,
+                    side: 'buy',
+                    price: book.best_ask!,
+                  })
+                }
+              >
+                BUY
+              </button>
+            </div>
+          )}
         </div>
 
       </div>

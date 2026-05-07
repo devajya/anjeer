@@ -1,0 +1,304 @@
+import { useNavigate } from 'react-router-dom'
+import './DocsPage.css'
+
+export function DocsPage() {
+  const navigate = useNavigate()
+
+  return (
+    <div className="docs">
+      <header className="docs__header">
+        <button className="docs__back" onClick={() => navigate('/lobby')}>← Lobby</button>
+        <h1 className="docs__title">Anjeer API Docs</h1>
+      </header>
+
+      <nav className="docs__toc">
+        <ol>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#api-key">Getting an API Key</a></li>
+          <li><a href="#connecting">Connecting</a></li>
+          <li><a href="#inbound">Inbound Messages (Server → Client)</a></li>
+          <li><a href="#outbound">Outbound Messages (Client → Server)</a></li>
+          <li><a href="#sequences">Event Sequences</a></li>
+          <li><a href="#templates">Template Downloads</a></li>
+        </ol>
+      </nav>
+
+      <main className="docs__body">
+
+        {/* ── 1. Overview ─────────────────────────────────────────────── */}
+        <section id="overview">
+          <h2>1. Overview</h2>
+          <p>
+            Anjeer is a real-time card-trading game. Players hold cards across four suits
+            and trade them using a continuous double auction (limit orders) during timed rounds.
+            The player who holds the most cards of the secret <em>goal suit</em> at round end wins the pot.
+          </p>
+          <p>
+            <strong>API mode</strong> lets you connect a script or bot instead of a human browser.
+            Create an <em>API lobby</em>, generate an API key, and connect via WebSocket with a
+            Bearer token header. Spectators can watch any API lobby live and read your script&apos;s
+            log messages in real time.
+          </p>
+        </section>
+
+        {/* ── 2. Getting an API Key ───────────────────────────────────── */}
+        <section id="api-key">
+          <h2>2. Getting an API Key</h2>
+          <ol>
+            <li>Log in and navigate to <a href="/api-keys">Settings → API Keys</a>.</li>
+            <li>Enter a name and click <strong>Generate API Key</strong>.</li>
+            <li>Copy the key immediately — it is shown <strong>only once</strong>. The key starts with <code>ank_</code>.</li>
+            <li>Keys expire after 30 days. Revoke and regenerate as needed. Only one active key per account is allowed.</li>
+          </ol>
+        </section>
+
+        {/* ── 3. Connecting ───────────────────────────────────────────── */}
+        <section id="connecting">
+          <h2>3. Connecting</h2>
+          <h3>WebSocket URL</h3>
+          <pre><code>{`ws://<host>/ws`}</code></pre>
+          <h3>Authentication</h3>
+          <p>Pass your API key in the HTTP upgrade request:</p>
+          <pre><code>{`Authorization: Bearer ank_<your-key>`}</code></pre>
+          <p>
+            A query-parameter fallback is also accepted (<code>?api_key=ank_...</code>) but
+            triggers a server warning and should not be used in production — the key is visible
+            in server logs and browser history.
+          </p>
+          <h3>Lobby mode enforcement</h3>
+          <p>
+            API key connections can only join <em>API-mode lobbies</em>. Attempting to join a
+            UI-mode lobby will close the connection with <code>LOBBY_MODE_MISMATCH</code>.
+            Similarly, browser (JWT) connections cannot join API-mode lobbies.
+          </p>
+          <h3>Rate limiting</h3>
+          <p>
+            Each connection is subject to a token-bucket rate limiter (default: 20-token capacity,
+            5 tokens/second refill). Exceeding capacity returns a <code>RATE_LIMIT_WARNING</code>;
+            sustained excess closes the connection with <code>RATE_LIMIT_EXCEEDED</code>.
+          </p>
+
+          <h3>Running via the CLI (<code>anjeer join</code> / <code>anjeer create</code>)</h3>
+          <p>
+            When you launch a script through the Anjeer CLI, the CLI handles lobby joining before
+            your script ever runs. <strong>Your script must not call the join HTTP endpoint.</strong>
+            By the time your process starts, the lobby status is already <code>starting</code> or{' '}
+            <code>active</code> — a POST to <code>/lobbies/:code/join</code> will return
+            <code>409 GAME_ALREADY_STARTED</code>.
+          </p>
+          <p>Your script&apos;s job starts at WebSocket connect, responding to <code>player_hello</code>.</p>
+          <p>The CLI sets the following environment variables before exec&apos;ing your script:</p>
+          <pre><code>{`ANJEER_API_KEY          # Bearer token — pass in Authorization header
+ANJEER_SERVER_WS_URL    # WebSocket URL, e.g. ws://localhost:9001/ws
+ANJEER_HTTP_URL         # HTTP base URL, e.g. http://localhost:10000
+ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></pre>
+          <p>
+            Read these at startup and exit loudly if a required one is missing — the templates
+            below handle this correctly. Do not add join HTTP logic on top of them.
+          </p>
+          <p>
+            Python: read with <code>os.environ.get()</code>.
+            C++: read with <code>std::getenv()</code>. The C++ template requires
+            Boost.Beast ≥ 1.81 and nlohmann/json ≥ 3.11; build with:
+          </p>
+          <pre><code>{`g++ -std=c++17 -O2 anjeer_template.cpp -lboost_system -lpthread -o anjeer_bot`}</code></pre>
+        </section>
+
+        {/* ── 4. Inbound Messages ─────────────────────────────────────── */}
+        <section id="inbound">
+          <h2>4. Inbound Messages (Server → Client)</h2>
+          <p>All messages are JSON objects with a <code>type</code> discriminant.</p>
+
+          <h3><code>player_hello</code></h3>
+          <p>Sent once on connect. Confirms your player identity.</p>
+          <pre><code>{`{ type: 'player_hello', player_id: number, role?: 'player' | 'spectator' }`}</code></pre>
+
+          <h3><code>book_update</code></h3>
+          <p>Broadcast after every order book mutation. One message per suit.</p>
+          <pre><code>{`{ type: 'book_update', suit: string,
+  best_bid: number | null, best_ask: number | null,
+  best_bid_slot: number | null, best_ask_slot: number | null }`}</code></pre>
+
+          <h3><code>trade</code></h3>
+          <p>Broadcast when a trade executes. All four books are wiped immediately after.</p>
+          <pre><code>{`{ type: 'trade', suit: string, price: number,
+  aggressor_side: 'buy' | 'sell',
+  your_side: 'buy' | 'sell' | null,
+  buyer_slot: number, seller_slot: number }`}</code></pre>
+
+          <h3><code>order_ack</code></h3>
+          <p>Private confirmation that your order or nudge was accepted.</p>
+          <pre><code>{`{ type: 'order_ack', order_id: number, suit: string, side: 'buy' | 'sell', price: number }`}</code></pre>
+
+          <h3><code>order_cancel_ack</code></h3>
+          <p>Private confirmation that your cancel was accepted.</p>
+          <pre><code>{`{ type: 'order_cancel_ack', order_id: number }`}</code></pre>
+
+          <h3><code>error</code></h3>
+          <p>Sent to the submitting client when a command is rejected. Switch on <code>code</code>, not <code>message</code>.</p>
+          <pre><code>{`{ type: 'error', code: string, message: string }
+// Stable codes: PRICE_OUT_OF_RANGE | ORDER_NOT_FOUND | NOT_YOUR_ORDER
+//   UNKNOWN_SUIT | MALFORMED_MESSAGE | INSUFFICIENT_BALANCE
+//   API_KEY_INVALID | LOBBY_MODE_MISMATCH | SPECTATOR_NOT_ALLOWED
+//   RATE_LIMIT_WARNING | RATE_LIMIT_EXCEEDED`}</code></pre>
+
+          <h3><code>round_starting</code></h3>
+          <p>Broadcast when all players are connected and the countdown begins.</p>
+          <pre><code>{`{ type: 'round_starting', starts_at: string /* ISO 8601 UTC */, player_count: number }`}</code></pre>
+
+          <h3><code>round_start</code></h3>
+          <p>Sent privately to each player when the round opens. Contains your hand and the full roster.</p>
+          <pre><code>{`{ type: 'round_start', player_slot: number,
+  hand: { clubs: number, diamonds: number, hearts: number, spades: number },
+  round_end_at: string /* ISO 8601 UTC */,
+  balance: number,
+  roster: Array<{ player_slot: number, username: string }>,
+  all_hand_totals: number[],   // indexed by slot
+  all_balances: number[]       // indexed by slot }`}</code></pre>
+
+          <h3><code>round_end</code></h3>
+          <p>Sent privately at round end with your payout and standing.</p>
+          <pre><code>{`{ type: 'round_end', goal_suit: string,
+  results: Array<{ player_slot: number, goal_cards_held: number,
+                   payout: number, balance: number, disconnected: boolean }> }`}</code></pre>
+
+          <h3><code>delta_update</code></h3>
+          <p>Broadcast after every trade. Full snapshot of net card flow this round.</p>
+          <pre><code>{`{ type: 'delta_update', deltas: number[][] }
+// deltas[player_slot][suit_index]; suit order: 0=clubs 1=diamonds 2=hearts 3=spades`}</code></pre>
+
+          <h3><code>all_balances</code></h3>
+          <p>Broadcast after every trade once balances are settled.</p>
+          <pre><code>{`{ type: 'all_balances', balances: number[] }  // indexed by slot`}</code></pre>
+
+          <h3><code>hand_totals</code></h3>
+          <p>Broadcast after every trade once card transfers complete.</p>
+          <pre><code>{`{ type: 'hand_totals', totals: number[] }  // indexed by slot`}</code></pre>
+
+          <h3><code>inter_round</code></h3>
+          <p>Broadcast at round end. Includes standings and vote-to-end state.</p>
+          <pre><code>{`{ type: 'inter_round', round_number: number, goal_suit: string,
+  results: PlayerRoundResult[],
+  vote_count: number, votes_required: number,
+  next_round_at: string | null  // null if vote threshold already met }`}</code></pre>
+
+          <h3><code>vote_tally</code></h3>
+          <p>Broadcast each time a new vote is received during inter-round.</p>
+          <pre><code>{`{ type: 'vote_tally', votes: number, required: number }`}</code></pre>
+
+          <h3><code>game_ended</code></h3>
+          <p>Broadcast when the game ends (majority vote or all players leave).</p>
+          <pre><code>{`{ type: 'game_ended',
+  rounds: Array<{ round_number, goal_suit, results }>,
+  final_standings: Array<{ player_slot, username, final_balance, net_change }> }`}</code></pre>
+
+          <h3><code>game_player_left</code></h3>
+          <p>Broadcast when a player disconnects mid-game.</p>
+          <pre><code>{`{ type: 'game_player_left', player_slot: number, username: string }`}</code></pre>
+
+          <h3><code>session_error</code></h3>
+          <p>Broadcast on unhandled server error. The session tears down after this.</p>
+          <pre><code>{`{ type: 'session_error', message: string }`}</code></pre>
+
+          <h3><code>spectator_count</code></h3>
+          <p>Broadcast to <em>players</em> (not spectators) when the spectator count changes.</p>
+          <pre><code>{`{ type: 'spectator_count', count: number }`}</code></pre>
+
+          <h3><code>script_log</code></h3>
+          <p>Forwarded to <em>spectators only</em> when an API-lobby player sends a script_log command. Control characters stripped, truncated to 500 chars.</p>
+          <pre><code>{`{ type: 'script_log', player_slot: number, message: string, timestamp: number }`}</code></pre>
+        </section>
+
+        {/* ── 5. Outbound Messages ────────────────────────────────────── */}
+        <section id="outbound">
+          <h2>5. Outbound Messages (Client → Server)</h2>
+
+          <h3><code>submit_order</code></h3>
+          <pre><code>{`{ type: 'submit_order', suit: 'clubs'|'diamonds'|'hearts'|'spades', side: 'buy'|'sell', price: number }`}</code></pre>
+
+          <h3><code>nudge</code></h3>
+          <p>Adjusts your best standing order by ±1 tick toward the spread.</p>
+          <pre><code>{`{ type: 'nudge', suit: string, side: 'buy'|'sell' }`}</code></pre>
+
+          <h3><code>cancel_order</code></h3>
+          <pre><code>{`{ type: 'cancel_order', order_id: number }`}</code></pre>
+
+          <h3><code>vote_to_end</code></h3>
+          <p>Vote to end the game early. Duplicate votes are ignored. Majority threshold = ⌊active_players / 2⌋ + 1.</p>
+          <pre><code>{`{ type: 'vote_to_end' }`}</code></pre>
+
+          <h3><code>script_log</code></h3>
+          <p>API-lobby players only. Forwarded (sanitized, truncated) to all spectators.</p>
+          <pre><code>{`{ type: 'script_log', message: string }`}</code></pre>
+
+          <h3><code>subscribe_lobby</code> / <code>unsubscribe_lobby</code></h3>
+          <p>Subscribe to lobby-layer events (player_joined, player_left, lobby_started). Used by the lobby browser UI.</p>
+          <pre><code>{`{ type: 'subscribe_lobby',   lobby_id: string }
+{ type: 'unsubscribe_lobby', lobby_id: string }`}</code></pre>
+
+          <h3><code>leave_lobby</code></h3>
+          <p>Send before navigating away from a lobby room to clean up server-side state immediately.</p>
+          <pre><code>{`{ type: 'leave_lobby', lobby_id: string }`}</code></pre>
+
+          <h3><code>spectate_lobby</code></h3>
+          <p>Send on connect to enter a session as a read-only spectator.</p>
+          <pre><code>{`{ type: 'spectate_lobby', lobby_id: string }`}</code></pre>
+        </section>
+
+        {/* ── 6. Event Sequences ──────────────────────────────────────── */}
+        <section id="sequences">
+          <h2>6. Event Sequences</h2>
+
+          <h3>Round lifecycle</h3>
+          <ol>
+            <li><strong>All players connect</strong> → server broadcasts <code>round_starting</code> with <code>starts_at</code> timestamp.</li>
+            <li><strong>Countdown expires</strong> → server sends <code>round_start</code> privately to each player (your hand, round end time, roster).</li>
+            <li><strong>Trading phase</strong> → players submit orders; each mutation emits <code>book_update</code>. Trades emit <code>trade</code> + <code>delta_update</code> + <code>all_balances</code> + <code>hand_totals</code>. All four books wipe on every trade.</li>
+            <li><strong>Round end</strong> → server sends <code>round_end</code> privately, then broadcasts <code>inter_round</code> with standings + vote state.</li>
+            <li><strong>Inter-round</strong> → players may send <code>vote_to_end</code>; server broadcasts <code>vote_tally</code> each time. When majority reached or countdown expires, next <code>round_starting</code> fires.</li>
+            <li><strong>Game over</strong> → server broadcasts <code>game_ended</code> with full history.</li>
+          </ol>
+
+          <h3>Order lifecycle</h3>
+          <ol>
+            <li>Send <code>submit_order</code>.</li>
+            <li>Server validates and responds with either <code>order_ack</code> (accepted) or <code>error</code> (rejected).</li>
+            <li>If the order rests in the book, a <code>book_update</code> is broadcast to all players.</li>
+            <li>If the order crosses an existing resting order, a <code>trade</code> fires, both sides receive <code>your_side</code>, and all four books wipe (<code>book_update ×4</code>).</li>
+            <li>To cancel a resting order, send <code>cancel_order</code> with the <code>order_id</code> from <code>order_ack</code>. Server responds with <code>order_cancel_ack</code> or <code>error</code>.</li>
+          </ol>
+        </section>
+
+        {/* ── 7. Template Downloads ───────────────────────────────────── */}
+        <section id="templates">
+          <h2>7. Template Downloads</h2>
+          <p>
+            These templates handle connection, authentication, and all message types.
+            They are designed to be launched via <code>anjeer join</code> or <code>anjeer create</code> —
+            the CLI sets all required environment variables and owns the lobby join step.
+            Do not add join HTTP calls to the template.
+          </p>
+          <div className="docs__templates">
+            <a
+              className="docs__template-link"
+              href="/examples/anjeer_template.py"
+              download="anjeer_template.py"
+            >
+              Download Python template
+              <span className="docs__template-meta">anjeer_template.py · websockets + asyncio</span>
+            </a>
+            <a
+              className="docs__template-link"
+              href="/examples/anjeer_template.cpp"
+              download="anjeer_template.cpp"
+            >
+              Download C++ template
+              <span className="docs__template-meta">anjeer_template.cpp · Boost.Beast async</span>
+            </a>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  )
+}

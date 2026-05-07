@@ -84,6 +84,12 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - `POST /lobbies/:id/start` — owner-only; transitions status `waiting → starting`; publishes `lobby_started` to `IEventBus`
 - `GET /players/me/keybinds` — returns array of `{action, key_combo}` overrides for the authenticated player
 - `PUT /players/me/keybinds` — full-replace keybind overrides via `KeybindsRepo`; server stores only explicit overrides, frontend supplies defaults
+- `GET /players/me/api-keys` — list active API keys (name, created_at, expires_at; hash never returned)
+- `POST /players/me/api-keys` — generate a new API key; plaintext shown once in response, hash stored
+- `DELETE /players/me/api-keys/:id` — revoke a key by setting `revoked_at`
+- `GET /lobbies/:id_or_code` — fetch single lobby by UUID or 6-char code
+- `POST /players/me/spectate-token` — issue a short-lived single-use `stk_` token for spectator handoff
+- `GET /auth/spectate` — consume a spectate token, establish a browser session, redirect to spectator view
 
 `SessionRepo` (Slice 7):
 - Writes session lifecycle records to `game_sessions`, `rounds`, `session_errors` tables
@@ -99,8 +105,14 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 - libpqxx connection pool (configurable size); RAII acquire handle
 - `DbMigrator::run()` on server start — applies unapplied SQL files from `db/migrations/` in version order
 
+**Slice 9 additions:**
+- `ApiKeyRepo` — API key CRUD with SHA-256 hashing; Bearer auth on WS upgrade (query-param fallback with warning); `api_key_invalid` error + close on expiry/revoke
+- `RateLimiter` — in-process token bucket per connection; `rate_limit_warning` event; temporary suspension
+- `SpectateTokenRepo` — single-use `stk_` tokens for browser spectator handoff
+- `lobbies.mode` (`ui`/`api`) enforced at join; `LOBBY_MODE_MISMATCH` error for cross-mode attempts
+- Spectator pipeline: `spectate_lobby` handler → `NetSpectatorJoin` → `GameSession` state snapshot; `ActiveSession::spectator_handles_`; `GameBroadcast` drained to spectators; `script_log` WsServer passthrough (sanitised, forwarded directly to spectator handles)
+
 **Planned additions:**
-- Rate limiter (Slice 9)
 - DB writer thread + async event queue (Slice 12)
 - Background job queue for analysis (Slice 14)
 - `RedisEventBus` (Slice 16) — swap `LocalEventBus` for multi-node deployments
@@ -256,6 +268,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Lobby (Slice 6+) | `lobby_state` (snapshot on subscribe), `player_joined`, `player_left`, `lobby_started` |
 | Game lifecycle (Slice 7+) | `inter_round`, `vote_tally`, `game_ended`, `game_player_left`, `session_error` |
 | Market state (Slice 8+) | `delta_update` (full per-player per-suit net flow snapshot), `all_balances` (all slots after each trade), `hand_totals` (total cards per slot after each trade) |
+| API / spectator (Slice 9+) | `api_key_invalid` (key expired or revoked — connection closed after), `rate_limit_warning` (bucket empty), `script_log` (forwarded from script to spectators only) |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
 
 **Client → Server categories:**
@@ -264,9 +277,11 @@ All messages are JSON objects with a `type` string discriminator.
 | Trading | `submit_order`, `nudge`, `cancel_order` |
 | Lobby (Slice 6+) | `subscribe_lobby`, `unsubscribe_lobby`, `leave_lobby` |
 | Game (Slice 7+) | `vote_to_end` |
+| Spectator (Slice 9+) | `spectate_lobby` |
+| Script (Slice 9+) | `script_log` (player → server → spectators; plain string, max 500 chars) |
 | Subscription (Slice 17+) | `subscribe`, `unsubscribe` |
 
-**Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`, `NOT_LOBBY_OWNER`, `INSUFFICIENT_PLAYERS`, `GAME_ALREADY_STARTED`, `LOBBY_NOT_FOUND`, `LOBBY_FULL`, `ALREADY_JOINED`
+**Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`, `NOT_LOBBY_OWNER`, `INSUFFICIENT_PLAYERS`, `GAME_ALREADY_STARTED`, `LOBBY_NOT_FOUND`, `LOBBY_FULL`, `ALREADY_JOINED`, `LOBBY_MODE_MISMATCH`, `SPECTATOR_NOT_ALLOWED`
 
 ## Configuration Surface
 
@@ -279,7 +294,7 @@ All tuneable values live in `config/default.json`. Key sections:
 - `auth` — JWT secret, access/refresh TTLs, secure_cookies flag, per-provider OAuth client_id/secret/redirect_uri
 - `lobby` — `min_players`, `max_players` (Slice 6+)
 - `event_bus` — `"local"` (in-process) or `"redis"` (Upstash, Slice 16+)
-- Future: `rate_limit`
+- `rate_limit` — `capacity`, `refill_rate`, `suspend_threshold`, `suspend_seconds` (Slice 9+)
 
 ## When to Update This Document
 

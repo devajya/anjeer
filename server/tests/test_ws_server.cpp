@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include "server/api_key_repo.h"
 #include "server/ws_server.h"
 #include "server/auth_service.h"
 #include "server/config.h"
@@ -42,6 +43,16 @@ static anjeer::server::LocalEventBus& test_event_bus() {
     static anjeer::server::LocalEventBus bus;
     return bus;
 }
+// Separate bus for the mode/spectator server — prevents game:start events
+// from racing across all test servers when setup_spectator_test publishes.
+static anjeer::server::LocalEventBus& test_mode_event_bus() {
+    static anjeer::server::LocalEventBus bus;
+    return bus;
+}
+static anjeer::server::ApiKeyRepo& test_api_key_repo() {
+    static anjeer::server::ApiKeyRepo repo;
+    return repo;
+}
 static anjeer::server::LobbyGateway& test_lobby_gateway() {
     static anjeer::server::LobbyGateway gw(test_db_pool(), test_lobby_repo(), test_event_bus());
     return gw;
@@ -59,7 +70,11 @@ static anjeer::server::LobbyGateway& test_lobby_gateway() {
 
 class WsTestClient {
 public:
-    explicit WsTestClient(int port) : fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
+    // extra_headers: optional additional HTTP headers appended before the blank line,
+    // each terminated with \r\n. Example: "Authorization: Bearer ank_...\r\n"
+    explicit WsTestClient(int port, std::string extra_headers = "")
+        : fd_(::socket(AF_INET, SOCK_STREAM, 0))
+        , extra_headers_(std::move(extra_headers)) {
         if (fd_ < 0) throw std::runtime_error("socket() failed");
 
         // 3-second receive timeout — prevents tests hanging on missed messages.
@@ -147,7 +162,8 @@ public:
     }
 
 private:
-    int fd_;
+    int         fd_;
+    std::string extra_headers_;
 
     void do_handshake() {
         // RFC 6455 example key — any valid base64 value is accepted by uWS.
@@ -158,7 +174,8 @@ private:
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
             "Sec-WebSocket-Key: " + key + "\r\n"
-            "Sec-WebSocket-Version: 13\r\n"
+            "Sec-WebSocket-Version: 13\r\n" +
+            extra_headers_ +
             "\r\n";
         write_all(reinterpret_cast<const uint8_t*>(req.data()), req.size());
 
@@ -276,9 +293,9 @@ static void ensure_server_running() {
     cfg.game.countdown_seconds = 3;
 
     std::thread([&cfg]() {
-        WsServer srv(cfg, test_lobby_gateway(),
-                     test_db_pool(), test_lobby_repo(),
-                     test_auth_service(cfg), test_event_bus());
+        WsServer srv(cfg, anjeer::server::WsServerDeps{
+                         test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
+                         test_auth_service(cfg), test_api_key_repo(), test_event_bus()});
         srv.run();  // blocks; detached — OS cleans up on process exit
     }).detach();
 
@@ -422,9 +439,9 @@ static void ensure_lobby_sub_server_running() {
     cfg.game.countdown_seconds = 3;
 
     std::thread([&cfg]() {
-        WsServer srv(cfg, test_lobby_gateway(),
-                     test_db_pool(), test_lobby_repo(),
-                     test_lobby_auth_service(), test_event_bus());
+        WsServer srv(cfg, anjeer::server::WsServerDeps{
+                         test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
+                         test_lobby_auth_service(), test_api_key_repo(), test_event_bus()});
         srv.run();
     }).detach();
 
@@ -480,4 +497,650 @@ TEST_CASE("WS server — subscribed client receives event_bus messages", "[ws_se
     const auto fwd = client.recv_of_type("player_joined");
     CHECK(fwd.value("lobby_id",  "") == setup.lobby_id);
     CHECK(fwd.value("player_id", -1) == static_cast<int>(setup.player_id));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 5 — API key auth + rate limiter integration tests
+//
+// A dedicated server (WS_API_AUTH_PORT) with a low-capacity rate limiter
+// (capacity=3, suspend_threshold=3) so tests don't need to send 70+ messages.
+// ═══════════════════════════════════════════════════════════════════════════
+
+static constexpr int WS_API_AUTH_PORT = 19010;
+
+static anjeer::server::AuthService& test_api_auth_service() {
+    static ServerConfig cfg = make_test_server_config(WS_API_AUTH_PORT);
+    static anjeer::server::AuthService svc(test_db_pool(), test_player_repo(), cfg);
+    return svc;
+}
+
+static void ensure_api_auth_server_running() {
+    static std::atomic<bool> started{false};
+    if (started.exchange(true)) {
+        for (int i = 0; i < 200; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            sockaddr_in addr{}; addr.sin_family = AF_INET;
+            addr.sin_port = htons(WS_API_AUTH_PORT);
+            ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+            bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+            ::close(fd);
+            if (ok) return;
+        }
+        throw std::runtime_error("API auth server did not become ready");
+    }
+
+    static ServerConfig cfg = make_test_server_config(WS_API_AUTH_PORT);
+    cfg.game.player_count         = 99;
+    cfg.rate_limit.capacity         = 3.0;
+    cfg.rate_limit.refill_rate      = 0.0;   // no refill — tests are synchronous
+    cfg.rate_limit.suspend_threshold = 3;
+    cfg.rate_limit.suspend_seconds   = 60;
+
+    std::thread([&cfg]() {
+        WsServer srv(cfg, anjeer::server::WsServerDeps{
+                         test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
+                         test_api_auth_service(), test_api_key_repo(), test_event_bus()});
+        srv.run();
+    }).detach();
+
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{}; addr.sin_family = AF_INET;
+        addr.sin_port = htons(WS_API_AUTH_PORT);
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+        ::close(fd);
+        if (ok) return;
+    }
+    throw std::runtime_error("API auth server failed to start");
+}
+
+// Creates a player (idempotent) and a fresh API key for them.
+// suffix differentiates players across test cases (each test needs its own
+// player so rate-limiter buckets don't bleed between tests).
+struct ApiKeySetup { int64_t player_id; std::string key; };
+
+static ApiKeySetup create_api_key_in_db(const std::string& suffix) {
+    pqxx::connection direct(TEST_DB_CONN);
+    anjeer::server::DbMigrator m(direct, TEST_MIGRATIONS_DIR);
+    m.run();
+
+    int64_t player_id;
+    {
+        pqxx::work txn(direct);
+        auto r = txn.exec_params(
+            "INSERT INTO players (username, oauth_provider, oauth_id) "
+            "VALUES ($1, 'github', $2) "
+            "ON CONFLICT (oauth_provider, oauth_id) "
+            "DO UPDATE SET username = excluded.username "
+            "RETURNING id",
+            "api_tester_" + suffix, "gh_api_" + suffix);
+        player_id = r[0][0].as<int64_t>();
+        // Revoke any lingering active key from prior test runs.
+        txn.exec_params(
+            "UPDATE api_keys SET revoked_at = NOW() "
+            "WHERE player_id = $1 AND revoked_at IS NULL",
+            player_id);
+        txn.commit();
+    }
+
+    std::string err;
+    std::optional<std::string> key;
+    {
+        pqxx::work txn(direct);
+        key = test_api_key_repo().create(txn, static_cast<int32_t>(player_id), "test-key", err);
+        txn.commit();
+    }
+    if (!key) throw std::runtime_error("create_api_key_in_db failed: " + err);
+    return { player_id, *key };
+}
+
+// ─── Auth tests ───────────────────────────────────────────────────────────
+
+TEST_CASE("WS server — valid API key grants player_hello with correct player_id", "[ws_server][auth]") {
+    ensure_api_auth_server_running();
+    const auto setup = create_api_key_in_db("auth1");
+
+    WsTestClient client(WS_API_AUTH_PORT,
+        "Authorization: Bearer " + setup.key + "\r\n");
+
+    const auto hello = client.recv_of_type("player_hello");
+    CHECK(hello["player_id"].get<int64_t>() == setup.player_id);
+}
+
+TEST_CASE("WS server — invalid API key closes with API_KEY_INVALID", "[ws_server][auth]") {
+    ensure_api_auth_server_running();
+
+    // Well-formed prefix but non-existent key
+    WsTestClient client(WS_API_AUTH_PORT,
+        "Authorization: Bearer ank_0000000000000000000000000000000000000000000000000000000000000000\r\n");
+
+    bool got_invalid = false;
+    try {
+        for (int i = 0; i < 5; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "API_KEY_INVALID") {
+                got_invalid = true; break;
+            }
+        }
+    } catch (...) {}
+
+    CHECK(got_invalid);
+}
+
+TEST_CASE("WS server — revoked API key closes with API_KEY_INVALID", "[ws_server][auth]") {
+    ensure_api_auth_server_running();
+    const auto setup = create_api_key_in_db("auth2");
+
+    // Revoke the key directly in DB
+    {
+        pqxx::connection direct(TEST_DB_CONN);
+        pqxx::work txn(direct);
+        txn.exec_params(
+            "UPDATE api_keys SET revoked_at = NOW() "
+            "WHERE player_id = $1 AND revoked_at IS NULL",
+            setup.player_id);
+        txn.commit();
+    }
+
+    WsTestClient client(WS_API_AUTH_PORT,
+        "Authorization: Bearer " + setup.key + "\r\n");
+
+    bool got_invalid = false;
+    try {
+        for (int i = 0; i < 5; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "API_KEY_INVALID") {
+                got_invalid = true; break;
+            }
+        }
+    } catch (...) {}
+
+    CHECK(got_invalid);
+}
+
+// ─── Rate limit tests ─────────────────────────────────────────────────────
+
+TEST_CASE("WS server — rate limit warning sent on burst", "[ws_server][ratelimit]") {
+    ensure_api_auth_server_running();
+    const auto setup = create_api_key_in_db("rl1");
+
+    WsTestClient client(WS_API_AUTH_PORT,
+        "Authorization: Bearer " + setup.key + "\r\n");
+    client.recv_of_type("player_hello");
+
+    // capacity=3: msgs 1–3 allow (bucket empties), msg 4 → Warn
+    for (int i = 0; i < 4; ++i) {
+        client.send_json({ {"type","noop"} });
+    }
+
+    // Drain responses looking for RATE_LIMIT_WARNING; skip ROUND_NOT_ACTIVE
+    bool got_warning = false;
+    try {
+        for (int i = 0; i < 20; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "RATE_LIMIT_WARNING") {
+                got_warning = true; break;
+            }
+        }
+    } catch (...) {}
+
+    CHECK(got_warning);
+}
+
+TEST_CASE("WS server — connection suspended on sustained rate excess", "[ws_server][ratelimit]") {
+    ensure_api_auth_server_running();
+    const auto setup = create_api_key_in_db("rl2");
+
+    WsTestClient client(WS_API_AUTH_PORT,
+        "Authorization: Bearer " + setup.key + "\r\n");
+    client.recv_of_type("player_hello");
+
+    // capacity=3, suspend_threshold=3:
+    //   msgs 1–3 → Allow (exhaust bucket)
+    //   msgs 4–6 → Warn (violation_streak 1, 2, 3 ≥ threshold → Suspend on 6th)
+    for (int i = 0; i < 6; ++i) {
+        try { client.send_json({ {"type","noop"} }); }
+        catch (...) { break; }
+    }
+
+    bool got_suspended = false;
+    try {
+        for (int i = 0; i < 30; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "RATE_LIMIT_EXCEEDED") {
+                got_suspended = true; break;
+            }
+        }
+    } catch (...) {}
+
+    CHECK(got_suspended);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 6 — Lobby mode enforcement tests
+//
+// A dedicated server (WS_MODE_PORT) is used so mode tests don't share
+// player_to_lobby_ state with the api_auth server. Each test fires a
+// game:start event directly on the shared test_event_bus() to trigger
+// create_session, then connects with the wrong (or correct) auth type.
+// ═══════════════════════════════════════════════════════════════════════════
+
+static constexpr int WS_MODE_PORT = 19011;
+
+static anjeer::server::AuthService& test_mode_auth_service() {
+    static ServerConfig cfg = make_test_server_config(WS_MODE_PORT);
+    static anjeer::server::AuthService svc(test_db_pool(), test_player_repo(), cfg);
+    return svc;
+}
+
+static void ensure_mode_server_running() {
+    static std::atomic<bool> started{false};
+    if (started.exchange(true)) {
+        for (int i = 0; i < 200; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            sockaddr_in addr{}; addr.sin_family = AF_INET;
+            addr.sin_port = htons(WS_MODE_PORT);
+            ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+            bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+            ::close(fd);
+            if (ok) return;
+        }
+        throw std::runtime_error("mode server did not become ready");
+    }
+
+    static ServerConfig cfg = make_test_server_config(WS_MODE_PORT);
+    // AGENT-CTX: player_count=99 so create_session is not gated on headcount;
+    // mode tests only care about auth-type parity, not game mechanics.
+    cfg.game.player_count = 99;
+
+    std::thread([&cfg]() {
+        WsServer srv(cfg, anjeer::server::WsServerDeps{
+                         test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
+                         test_mode_auth_service(), test_api_key_repo(), test_mode_event_bus()});
+        srv.run();
+    }).detach();
+
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{}; addr.sin_family = AF_INET;
+        addr.sin_port = htons(WS_MODE_PORT);
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+        ::close(fd);
+        if (ok) return;
+    }
+    throw std::runtime_error("mode server failed to start");
+}
+
+struct ModeTestSetup {
+    int64_t     player_id;
+    std::string lobby_id;
+    std::string api_key;
+    std::string jwt_token;
+};
+
+// Creates a player + lobby of the given mode, starts the session via event bus,
+// and returns credentials for the requested auth type.
+// AGENT-CTX: The lobby is inserted in 'starting' status so the game:start handler's
+// Starting→InGame transition succeeds. A 200 ms sleep gives the uWS event loop time
+// to process the loop->defer() inside the game:start subscriber before the test connects.
+static ModeTestSetup setup_mode_test(anjeer::server::LobbyMode mode,
+                                     bool use_api_key,
+                                     const std::string& suffix) {
+    pqxx::connection direct(TEST_DB_CONN);
+    anjeer::server::DbMigrator m(direct, TEST_MIGRATIONS_DIR);
+    m.run();
+
+    int64_t player_id;
+    {
+        pqxx::work txn(direct);
+        auto r = txn.exec_params(
+            "INSERT INTO players (username, oauth_provider, oauth_id) "
+            "VALUES ($1, 'github', $2) "
+            "ON CONFLICT (oauth_provider, oauth_id) "
+            "DO UPDATE SET username = excluded.username "
+            "RETURNING id",
+            "mode_tester_" + suffix, "gh_mode_" + suffix);
+        player_id = r[0][0].as<int64_t>();
+        txn.exec_params(
+            "UPDATE api_keys SET revoked_at = NOW() "
+            "WHERE player_id = $1 AND revoked_at IS NULL", player_id);
+        txn.commit();
+    }
+
+    std::string lobby_id;
+    {
+        pqxx::work txn(direct);
+        txn.exec_params(
+            "DELETE FROM lobbies WHERE creator_id = $1 AND status IN ('waiting','starting')",
+            player_id);
+        auto lobby = test_lobby_repo().create(txn, static_cast<int32_t>(player_id), 1, 8, mode);
+        test_lobby_repo().add_player(txn, lobby.id, player_id);
+        txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);
+        lobby_id = lobby.id;
+        txn.commit();
+    }
+
+    std::string api_key;
+    std::string jwt_token;
+    if (use_api_key) {
+        std::string err;
+        pqxx::work txn(direct);
+        auto key = test_api_key_repo().create(txn, static_cast<int32_t>(player_id), "mode-test", err);
+        txn.commit();
+        if (!key) throw std::runtime_error("create api key failed: " + err);
+        api_key = *key;
+    } else {
+        anjeer::server::Player p;
+        p.id             = player_id;
+        p.username       = "mode_tester_" + suffix;
+        p.oauth_provider = "github";
+        p.oauth_id       = "gh_mode_" + suffix;
+        p.games_played   = 0;
+        jwt_token = test_mode_auth_service().issue_tokens(p).access_token;
+    }
+
+    nlohmann::json ev;
+    ev["lobby_id"] = lobby_id;
+    test_mode_event_bus().publish("game:start", ev.dump());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    return { player_id, lobby_id, api_key, jwt_token };
+}
+
+TEST_CASE("WS server — api key connection rejected from ui lobby", "[ws_server][mode]") {
+    ensure_mode_server_running();
+    const auto setup = setup_mode_test(anjeer::server::LobbyMode::UI, true, "mode1");
+
+    WsTestClient client(WS_MODE_PORT,
+        "Authorization: Bearer " + setup.api_key + "\r\n");
+
+    bool got_mismatch = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "LOBBY_MODE_MISMATCH") {
+                got_mismatch = true; break;
+            }
+        }
+    } catch (...) {}
+    CHECK(got_mismatch);
+}
+
+TEST_CASE("WS server — jwt connection rejected from api lobby", "[ws_server][mode]") {
+    ensure_mode_server_running();
+    const auto setup = setup_mode_test(anjeer::server::LobbyMode::API, false, "mode2");
+
+    WsTestClient client(WS_MODE_PORT,
+        "Cookie: access_token=" + setup.jwt_token + "\r\n");
+
+    bool got_mismatch = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "LOBBY_MODE_MISMATCH") {
+                got_mismatch = true; break;
+            }
+        }
+    } catch (...) {}
+    CHECK(got_mismatch);
+}
+
+TEST_CASE("WS server — api key connection accepted in api lobby", "[ws_server][mode]") {
+    ensure_mode_server_running();
+    const auto setup = setup_mode_test(anjeer::server::LobbyMode::API, true, "mode3");
+
+    WsTestClient client(WS_MODE_PORT,
+        "Authorization: Bearer " + setup.api_key + "\r\n");
+
+    bool got_hello = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "player_hello") { got_hello = true; break; }
+        }
+    } catch (...) {}
+    CHECK(got_hello);
+}
+
+TEST_CASE("WS server — jwt connection accepted in ui lobby", "[ws_server][mode]") {
+    ensure_mode_server_running();
+    const auto setup = setup_mode_test(anjeer::server::LobbyMode::UI, false, "mode4");
+
+    WsTestClient client(WS_MODE_PORT,
+        "Cookie: access_token=" + setup.jwt_token + "\r\n");
+
+    bool got_hello = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "player_hello") { got_hello = true; break; }
+        }
+    } catch (...) {}
+    CHECK(got_hello);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 7 — Spectator infrastructure tests
+//
+// Reuses WS_MODE_PORT (already running from Task 6 tests). Each test sets up
+// a UI-mode lobby with one player, fires game:start, then connects a second
+// client as spectator via spectate_lobby.
+// ═══════════════════════════════════════════════════════════════════════════
+
+struct SpectatorTestSetup {
+    int64_t     player_id;
+    std::string lobby_id;
+    std::string jwt_token;
+};
+
+static SpectatorTestSetup setup_spectator_test(const std::string& suffix) {
+    pqxx::connection direct(TEST_DB_CONN);
+    anjeer::server::DbMigrator m(direct, TEST_MIGRATIONS_DIR);
+    m.run();
+
+    int64_t player_id;
+    {
+        pqxx::work txn(direct);
+        auto r = txn.exec_params(
+            "INSERT INTO players (username, oauth_provider, oauth_id) "
+            "VALUES ($1, 'github', $2) "
+            "ON CONFLICT (oauth_provider, oauth_id) "
+            "DO UPDATE SET username = excluded.username "
+            "RETURNING id",
+            "spec_tester_" + suffix, "gh_spec_" + suffix);
+        player_id = r[0][0].as<int64_t>();
+        txn.commit();
+    }
+
+    std::string lobby_id;
+    {
+        pqxx::work txn(direct);
+        txn.exec_params(
+            "DELETE FROM lobbies WHERE creator_id = $1 AND status IN ('waiting','starting')",
+            player_id);
+        // AGENT-CTX: UI mode + player_count=99 (set on mode server) so the
+        // session starts with one player and the spectator test can proceed.
+        auto lobby = test_lobby_repo().create(
+            txn, static_cast<int32_t>(player_id), 1, 8,
+            anjeer::server::LobbyMode::UI);
+        test_lobby_repo().add_player(txn, lobby.id, player_id);
+        txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);
+        lobby_id = lobby.id;
+        txn.commit();
+    }
+
+    anjeer::server::Player p;
+    p.id             = player_id;
+    p.username       = "spec_tester_" + suffix;
+    p.oauth_provider = "github";
+    p.oauth_id       = "gh_spec_" + suffix;
+    p.games_played   = 0;
+    std::string jwt_token = test_mode_auth_service().issue_tokens(p).access_token;
+
+    nlohmann::json ev;
+    ev["lobby_id"] = lobby_id;
+    test_mode_event_bus().publish("game:start", ev.dump());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    return { player_id, lobby_id, jwt_token };
+}
+
+TEST_CASE("WS server — spectator receives GameBroadcast events from player actions", "[ws_server][spectator]") {
+    ensure_mode_server_running();
+    const auto setup = setup_spectator_test("spec1");
+
+    WsTestClient player(WS_MODE_PORT,
+        "Cookie: access_token=" + setup.jwt_token + "\r\n");
+    player.recv_of_type("player_hello");
+
+    WsTestClient spectator(WS_MODE_PORT);
+    spectator.recv_of_type("player_hello");
+    spectator.send_json({ {"type","spectate_lobby"}, {"lobby_id", setup.lobby_id} });
+    const auto spec_hello = spectator.recv_of_type("player_hello");
+    CHECK(spec_hello.value("role","") == "spectator");
+
+    // AGENT-CTX: Session starts in Lobby phase; submit_order is dropped until
+    // RoundActive. Send start_game first and wait for round_starting before
+    // submitting — otherwise no GameBroadcast is emitted and the spectator sees nothing.
+    player.send_json({ {"type","start_game"} });
+    player.recv_of_type("round_starting");
+
+    player.send_json({
+        {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",50}
+    });
+
+    bool got_book_update = false;
+    try {
+        for (int i = 0; i < 20; ++i) {
+            auto msg = spectator.recv_json();
+            if (msg.value("type","") == "book_update") { got_book_update = true; break; }
+        }
+    } catch (...) {}
+    CHECK(got_book_update);
+}
+
+TEST_CASE("WS server — spectator_count broadcast on join and leave", "[ws_server][spectator]") {
+    ensure_mode_server_running();
+    const auto setup = setup_spectator_test("spec2");
+
+    WsTestClient player(WS_MODE_PORT,
+        "Cookie: access_token=" + setup.jwt_token + "\r\n");
+    player.recv_of_type("player_hello");
+
+    {
+        WsTestClient spectator(WS_MODE_PORT);
+        spectator.recv_of_type("player_hello");
+        spectator.send_json({ {"type","spectate_lobby"}, {"lobby_id", setup.lobby_id} });
+        spectator.recv_of_type("player_hello");
+
+        bool got_count_1 = false;
+        try {
+            for (int i = 0; i < 10; ++i) {
+                auto msg = player.recv_json();
+                if (msg.value("type","") == "spectator_count" && msg.value("count",-1) == 1) {
+                    got_count_1 = true; break;
+                }
+            }
+        } catch (...) {}
+        CHECK(got_count_1);
+        // spectator goes out of scope → socket closed → .close fires
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    bool got_count_0 = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = player.recv_json();
+            if (msg.value("type","") == "spectator_count" && msg.value("count",-1) == 0) {
+                got_count_0 = true; break;
+            }
+        }
+    } catch (...) {}
+    CHECK(got_count_0);
+}
+
+TEST_CASE("WS server — spectator submit_order returns SPECTATOR_NOT_ALLOWED", "[ws_server][spectator]") {
+    ensure_mode_server_running();
+    const auto setup = setup_spectator_test("spec3");
+
+    WsTestClient spectator(WS_MODE_PORT);
+    spectator.recv_of_type("player_hello");
+    spectator.send_json({ {"type","spectate_lobby"}, {"lobby_id", setup.lobby_id} });
+    spectator.recv_of_type("player_hello");
+
+    spectator.send_json({
+        {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",50}
+    });
+
+    bool got_error = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = spectator.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "SPECTATOR_NOT_ALLOWED") {
+                got_error = true; break;
+            }
+        }
+    } catch (...) {}
+    CHECK(got_error);
+}
+
+TEST_CASE("WS server — spectator vote_to_end returns SPECTATOR_NOT_ALLOWED", "[ws_server][spectator]") {
+    ensure_mode_server_running();
+    const auto setup = setup_spectator_test("spec4");
+
+    WsTestClient spectator(WS_MODE_PORT);
+    spectator.recv_of_type("player_hello");
+    spectator.send_json({ {"type","spectate_lobby"}, {"lobby_id", setup.lobby_id} });
+    spectator.recv_of_type("player_hello");
+
+    spectator.send_json({ {"type","vote_to_end"} });
+
+    bool got_error = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = spectator.recv_json();
+            if (msg.value("type","") == "error" && msg.value("code","") == "SPECTATOR_NOT_ALLOWED") {
+                got_error = true; break;
+            }
+        }
+    } catch (...) {}
+    CHECK(got_error);
+}
+
+TEST_CASE("WS server — spectate_lobby on nonexistent session returns error", "[ws_server][spectator]") {
+    ensure_mode_server_running();
+
+    WsTestClient client(WS_MODE_PORT);
+    client.recv_of_type("player_hello");
+    client.send_json({ {"type","spectate_lobby"}, {"lobby_id", "nonexistent-lobby-id"} });
+
+    bool got_error = false;
+    try {
+        for (int i = 0; i < 10; ++i) {
+            auto msg = client.recv_json();
+            if (msg.value("type","") == "error") { got_error = true; break; }
+        }
+    } catch (...) {}
+    CHECK(got_error);
+}
+
+// Task 9 stubs — script_log passthrough
+// Full integration requires an API-mode lobby with a connected spectator.
+// Marked [.] so they are skipped by default until Task 10+ wires the API lobby flow.
+
+TEST_CASE("WS server — script_log forwarded to spectators and sanitized", "[ws_server][script_log][.]") {
+    // Setup: create API-mode lobby, connect player via API key, connect spectator,
+    // send script_log with control chars and verify spectator receives cleaned payload.
+    WARN("TODO: implement when API lobby + spectator test fixture is available");
+}
+
+TEST_CASE("WS server — script_log silently ignored outside api lobby", "[ws_server][script_log][.]") {
+    // Setup: connect player to UI-mode lobby, send script_log, verify nothing forwarded.
+    WARN("TODO: implement when UI/API lobby mode test fixture is available");
 }

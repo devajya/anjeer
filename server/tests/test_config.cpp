@@ -50,6 +50,8 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     CHECK(cfg.scoring.round_buy_in()             == 20);
     CHECK(cfg.scoring.points_per_card            == 20);
 
+    CHECK(cfg.auth.spectate_token_ttl_minutes     == 60);
+
     CHECK(cfg.lobby.min_players                  == 2);
     CHECK(cfg.lobby.max_players                  == 8);
     CHECK(cfg.event_bus                          == "local");

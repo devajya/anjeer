@@ -91,6 +91,7 @@ struct ServerConfig {
         std::string jwt_secret;
         int         access_token_ttl_seconds;
         int         refresh_token_ttl_seconds;
+        int         spectate_token_ttl_minutes;
         bool        secure_cookies;
 
         struct OAuthProviderConfig {
@@ -108,6 +109,14 @@ struct ServerConfig {
     } lobby;
 
     std::string event_bus;  // "local" | "redis" (redis = Slice 16)
+
+    // ARCHITECTURE-NOTE: in-process only; cross-node limiting deferred to Slice 16.
+    struct RateLimitConfig {
+        double  capacity          = 20.0;
+        double  refill_rate       = 5.0;
+        int32_t suspend_threshold = 50;
+        int32_t suspend_seconds   = 30;
+    } rate_limit;
 };
 
 // Load and parse a JSON config file.

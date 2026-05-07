@@ -1,12 +1,15 @@
 #include "server/http_server.h"
 
 #include <chrono>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <variant>
 
+#include "server/api_key_repo.h"
+#include "server/crypto_util.h"
 #include "server/lobby_repo.h"
 
 #include <nlohmann/json.hpp>
@@ -47,6 +50,15 @@ std::string read_cookie(const crow::request& req, std::string_view name)
     return {};
 }
 
+// Converts a system_clock time_point to an ISO-8601 UTC string.
+std::string tp_to_iso8601(std::chrono::system_clock::time_point tp)
+{
+    const std::time_t t = std::chrono::system_clock::to_time_t(tp);
+    std::ostringstream oss;
+    oss << std::put_time(std::gmtime(&t), "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
 crow::response make_error(int http_code, const std::string& error_code)
 {
     nlohmann::json j;
@@ -68,6 +80,7 @@ nlohmann::json lobby_view_json(const LobbyView& lv)
     j["code"]         = lv.lobby.code;
     j["creator_id"]   = lv.lobby.creator_id;
     j["status"]       = lobby_status_string(lv.lobby.status);
+    j["mode"]         = lobby_mode_string(lv.lobby.mode);
     j["min_players"]  = lv.lobby.min_players;
     j["max_players"]  = lv.lobby.max_players;
     j["player_count"] = lv.player_count;
@@ -92,27 +105,46 @@ std::variant<Player, crow::response> require_auth(
     return *player;
 }
 
+// Overload that also accepts API key Bearer tokens, for endpoints used by scripts.
+std::variant<Player, crow::response> require_auth(
+        const crow::request& req,
+        AuthService&         auth_service,
+        DbPool&              db_pool,
+        PlayerRepo&          player_repo,
+        ApiKeyRepo&          api_key_repo)
+{
+    const std::string auth_header = req.get_header_value("Authorization");
+    if (auth_header.substr(0, 7) == "Bearer ") {
+        const std::string key = auth_header.substr(7);
+        const std::string hash = sha256_hex(key);
+        auto handle = db_pool.acquire();
+        pqxx::work txn(handle.get());
+        const auto record = api_key_repo.find_valid_by_hash(txn, hash);
+        if (!record) return unauthorized("API_KEY_INVALID");
+        const auto player = player_repo.find_by_id(txn, record->player_id);
+        if (!player) return unauthorized("UNAUTHORIZED");
+        return *player;
+    }
+    return require_auth(req, auth_service, db_pool, player_repo);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
 
-HttpServer::HttpServer(const ServerConfig& config,
-                       AuthService&        auth_service,
-                       PlayerRepo&         player_repo,
-                       LobbyRepo&          lobby_repo,
-                       KeybindsRepo&       keybinds_repo,
-                       IEventBus&          event_bus,
-                       DbPool&             db_pool)
-    : config_        (config)
-    , auth_service_  (auth_service)
-    , player_repo_   (player_repo)
-    , lobby_repo_    (lobby_repo)
-    , keybinds_repo_ (keybinds_repo)
-    , event_bus_     (event_bus)
-    , db_pool_       (db_pool)
-    , http_log_      ("logs/http_logs.txt")
+HttpServer::HttpServer(const ServerConfig& config, HttpServerDeps deps)
+    : config_               (config)
+    , auth_service_         (deps.auth_service)
+    , player_repo_          (deps.player_repo)
+    , lobby_repo_           (deps.lobby_repo)
+    , keybinds_repo_        (deps.keybinds_repo)
+    , api_key_repo_         (deps.api_key_repo)
+    , spectate_token_repo_  (deps.spectate_token_repo)
+    , event_bus_            (deps.event_bus)
+    , db_pool_              (deps.db_pool)
+    , http_log_             ("logs/http_logs.txt")
 {
     providers_["github"] = std::make_unique<GitHubOAuthProvider>(config.auth.github);
     providers_["google"] = std::make_unique<GoogleOAuthProvider>(config.auth.google);
@@ -130,6 +162,7 @@ void HttpServer::run()
         .methods(crow::HTTPMethod::Get,
                  crow::HTTPMethod::Post,
                  crow::HTTPMethod::Put,
+                 crow::HTTPMethod::Delete,
                  crow::HTTPMethod::Options)
         .headers("Content-Type", "Cookie")
         .allow_credentials();
@@ -138,6 +171,9 @@ void HttpServer::run()
     register_player_routes(app);
     register_lobby_routes(app);
     register_keybinds_routes(app);
+    register_api_key_routes(app);
+    register_spectate_routes(app);
+    register_examples_routes(app);
 
     app.loglevel(crow::LogLevel::Warning);
     http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
@@ -303,19 +339,32 @@ void HttpServer::register_lobby_routes(App& app)
 {
     CROW_ROUTE(app, "/lobbies").methods(crow::HTTPMethod::Post)
     ([this](const crow::request& req) -> crow::response {
-        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
         if (auto* err = std::get_if<crow::response>(&auth))
             return std::move(*err);
         const auto& player = std::get<Player>(auth);
 
         try {
+            LobbyMode mode = LobbyMode::UI;
+            if (!req.body.empty()) {
+                try {
+                    const auto body = nlohmann::json::parse(req.body);
+                    if (body.contains("mode") && body["mode"].is_string()) {
+                        mode = parse_lobby_mode(body["mode"].get<std::string>());
+                    }
+                } catch (const std::exception&) {
+                    return make_error(400, "MALFORMED_JSON");
+                }
+            }
+
             auto handle = db_pool_.acquire();
             pqxx::work txn(handle.get());
 
             const Lobby lobby = lobby_repo_.create(
                 txn, player.id,
                 config_.lobby.min_players,
-                config_.lobby.max_players
+                config_.lobby.max_players,
+                mode
             );
 
             const int count = lobby_repo_.player_count(txn, lobby.id);
@@ -326,6 +375,7 @@ void HttpServer::register_lobby_routes(App& app)
             res.set_header("Content-Type", "application/json");
             http_log_.info("lobbies", "created lobby " + lobby.id +
                            " code=" + lobby.code +
+                           " mode=" + lobby_mode_string(lobby.mode) +
                            " owner=" + std::to_string(player.id));
             return res;
         } catch (const pqxx::unique_violation&) {
@@ -340,19 +390,29 @@ void HttpServer::register_lobby_routes(App& app)
 
     CROW_ROUTE(app, "/lobbies")
     ([this](const crow::request& req) -> crow::response {
-        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
         if (auto* err = std::get_if<crow::response>(&auth))
             return std::move(*err);
 
         try {
+            // Optional ?mode=ui|api filter forwarded to list_waiting.
+            std::optional<LobbyMode> mode_filter;
+            if (const char* mode_param = req.url_params.get("mode")) {
+                try { mode_filter = parse_lobby_mode(mode_param); }
+                catch (...) { return make_error(400, "INVALID_MODE"); }
+            }
+
             auto handle = db_pool_.acquire();
             pqxx::work txn(handle.get());
-            const auto views = lobby_repo_.list_waiting(txn);
+            const auto waiting = lobby_repo_.list_waiting(txn, mode_filter);
+            const auto active  = lobby_repo_.list_active(txn, std::nullopt);
             txn.commit();
 
             nlohmann::json j;
             j["lobbies"] = nlohmann::json::array();
-            for (const auto& lv : views)
+            for (const auto& lv : waiting)
+                j["lobbies"].push_back(lobby_view_json(lv));
+            for (const auto& lv : active)
                 j["lobbies"].push_back(lobby_view_json(lv));
 
             crow::response res(200, j.dump());
@@ -364,9 +424,33 @@ void HttpServer::register_lobby_routes(App& app)
         }
     });
 
+    // Lookup by 6-char code — unauthenticated, used by CLI to poll lobby status.
+    CROW_ROUTE(app, "/lobbies/<string>")
+    ([this](const crow::request&, const std::string& code) -> crow::response {
+        try {
+            if (code.size() != 6)
+                return make_error(404, "NOT_FOUND");
+
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            const auto lobby_opt = lobby_repo_.find_by_code(txn, code);
+            if (!lobby_opt)
+                return make_error(404, "NOT_FOUND");
+            const int count = lobby_repo_.player_count(txn, lobby_opt->id);
+            txn.commit();
+
+            crow::response res(200, lobby_view_json(LobbyView{*lobby_opt, count}).dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("get by code failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
     CROW_ROUTE(app, "/lobbies/<string>/join").methods(crow::HTTPMethod::Post)
     ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
-        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
         if (auto* err = std::get_if<crow::response>(&auth))
             return std::move(*err);
         const auto& player = std::get<Player>(auth);
@@ -375,7 +459,9 @@ void HttpServer::register_lobby_routes(App& app)
             auto handle = db_pool_.acquire();
             pqxx::work txn(handle.get());
 
-            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            auto lobby_opt = (lobby_id.size() == 36)
+                ? lobby_repo_.find_by_id  (txn, lobby_id)
+                : lobby_repo_.find_by_code(txn, lobby_id);
             if (!lobby_opt)
                 return make_error(404, "LOBBY_NOT_FOUND");
 
@@ -383,28 +469,35 @@ void HttpServer::register_lobby_routes(App& app)
             if (lobby.status != LobbyStatus::Waiting)
                 return make_error(409, "GAME_ALREADY_STARTED");
 
+            // Reject auth type mismatches: API lobbies require Bearer, UI lobbies require JWT.
+            const bool is_bearer = req.get_header_value("Authorization").substr(0, 7) == "Bearer ";
+            if (lobby.mode == LobbyMode::API && !is_bearer)
+                return make_error(403, "LOBBY_MODE_MISMATCH");
+            if (lobby.mode == LobbyMode::UI && is_bearer)
+                return make_error(403, "LOBBY_MODE_MISMATCH");
+
             // AGENT-CTX: add_player is now idempotent for duplicate joins (Slice 7
             // resilience). nullopt means only LOBBY_FULL here — not-waiting is
             // pre-checked above, and duplicates return the existing joined_at.
-            const auto joined_at = lobby_repo_.add_player(txn, lobby_id, player.id);
+            const auto joined_at = lobby_repo_.add_player(txn, lobby.id, player.id);
             if (!joined_at)
                 return make_error(409, "LOBBY_FULL");
 
-            const int count = lobby_repo_.player_count(txn, lobby_id);
+            const int count = lobby_repo_.player_count(txn, lobby.id);
             txn.commit();
 
             // Publish after commit so subscribers see consistent DB state.
             nlohmann::json ev;
             ev["type"]         = "player_joined";
-            ev["lobby_id"]     = lobby_id;
+            ev["lobby_id"]     = lobby.id;
             ev["player_id"]    = player.id;
             ev["username"]     = player.username;
             ev["player_count"] = count;
             ev["joined_at"]    = *joined_at;
-            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+            event_bus_.publish("lobby:" + lobby.id, ev.dump());
 
             http_log_.info("lobbies", "player " + std::to_string(player.id) +
-                           " joined lobby " + lobby_id);
+                           " joined lobby " + lobby.id);
 
             nlohmann::json res_j;
             res_j["lobby_id"] = lobby_id;
@@ -421,7 +514,7 @@ void HttpServer::register_lobby_routes(App& app)
     // transition_status is CAS; false → a concurrent start already won.
     CROW_ROUTE(app, "/lobbies/<string>/start").methods(crow::HTTPMethod::Post)
     ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
-        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
         if (auto* err = std::get_if<crow::response>(&auth))
             return std::move(*err);
         const auto& player = std::get<Player>(auth);
@@ -637,6 +730,283 @@ void HttpServer::register_keybinds_routes(App& app)
         } catch (const std::exception& e) {
             http_log_.error("keybinds", std::string("set failed: ") + e.what());
             return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// API key routes
+// ---------------------------------------------------------------------------
+
+template<typename App>
+void HttpServer::register_api_key_routes(App& app)
+{
+    // POST /players/me/api-keys — generate a new API key (max 1 active per player)
+    CROW_ROUTE(app, "/players/me/api-keys").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        std::string name;
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            if (!body.contains("name") || !body["name"].is_string())
+                return make_error(422, "VALIDATION_ERROR");
+            name = body["name"].get<std::string>();
+        } catch (...) {
+            return make_error(400, "MALFORMED_JSON");
+        }
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            std::string err;
+            const auto plaintext = api_key_repo_.create(txn, player.id, name, err);
+            if (!plaintext) {
+                txn.abort();
+                if (err == "ACTIVE_KEY_EXISTS")
+                    return make_error(409, "ACTIVE_KEY_EXISTS");
+                return make_error(422, "VALIDATION_ERROR");
+            }
+            txn.commit();
+
+            // Retrieve the stored record to return expires_at.
+            auto handle2 = db_pool_.acquire();
+            pqxx::work txn2(handle2.get());
+            const auto keys = api_key_repo_.list_for_player(txn2, player.id);
+            txn2.commit();
+
+            nlohmann::json j;
+            j["key"]  = *plaintext;
+            j["name"] = name;
+            if (!keys.empty()) {
+                j["id"]         = keys[0].id;
+                j["expires_at"] = tp_to_iso8601(keys[0].expires_at);
+            }
+
+            http_log_.info("api-keys", "created key for player " +
+                           std::to_string(player.id) + " name=" + name);
+
+            crow::response res(201, j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("api-keys", std::string("create failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    // GET /players/me/api-keys — list all keys (no plaintext, no hash)
+    CROW_ROUTE(app, "/players/me/api-keys")
+    ([this](const crow::request& req) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            const auto keys = api_key_repo_.list_for_player(txn, player.id);
+            txn.commit();
+
+            nlohmann::json arr = nlohmann::json::array();
+            for (const auto& k : keys) {
+                nlohmann::json entry;
+                entry["id"]         = k.id;
+                entry["name"]       = k.name;
+                entry["created_at"] = tp_to_iso8601(k.created_at);
+                entry["expires_at"] = tp_to_iso8601(k.expires_at);
+                if (k.revoked_at)
+                    entry["revoked_at"] = tp_to_iso8601(*k.revoked_at);
+                else
+                    entry["revoked_at"] = nullptr;
+                arr.push_back(entry);
+            }
+
+            crow::response res(200, arr.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("api-keys", std::string("list failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    // DELETE /players/me/api-keys/<id> — revoke a key by id
+    CROW_ROUTE(app, "/players/me/api-keys/<int>").methods(crow::HTTPMethod::Delete)
+    ([this](const crow::request& req, int key_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            const bool ok = api_key_repo_.revoke(txn, key_id, player.id);
+            if (!ok) {
+                txn.abort();
+                return make_error(404, "KEY_NOT_FOUND");
+            }
+            txn.commit();
+
+            http_log_.info("api-keys", "revoked key " + std::to_string(key_id) +
+                           " for player " + std::to_string(player.id));
+            return crow::response(200);
+        } catch (const std::exception& e) {
+            http_log_.error("api-keys", std::string("revoke failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+}
+
+template<typename App>
+void HttpServer::register_examples_routes(App& app)
+{
+    auto serve_example = [this](const std::string& filename) {
+        return [this, filename](const crow::request&) -> crow::response {
+            std::ifstream f("examples/" + filename, std::ios::binary);
+            if (!f) {
+                http_log_.error("examples", "file not found: " + filename);
+                return make_error(404, "NOT_FOUND");
+            }
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            crow::response res(200, ss.str());
+            res.set_header("Content-Type", "application/octet-stream");
+            res.set_header("Content-Disposition",
+                           "attachment; filename=\"" + filename + "\"");
+            return res;
+        };
+    };
+
+    CROW_ROUTE(app, "/examples/anjeer_template.py")
+    (serve_example("anjeer_template.py"));
+
+    CROW_ROUTE(app, "/examples/anjeer_template.cpp")
+    (serve_example("anjeer_template.cpp"));
+}
+
+// ---------------------------------------------------------------------------
+// Spectate token routes
+// ---------------------------------------------------------------------------
+
+template<typename App>
+void HttpServer::register_spectate_routes(App& app)
+{
+    // Generates a single-use spectate token tied to the calling player + lobby.
+    // API key auth only — browser players have no need for this endpoint.
+    CROW_ROUTE(app, "/players/me/spectate-token").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req) -> crow::response {
+        // Reject JWT callers before calling require_auth to return a distinct error.
+        const std::string auth_hdr = req.get_header_value("Authorization");
+        const bool is_bearer = auth_hdr.size() > 7 && auth_hdr.substr(0, 7) == "Bearer ";
+        if (!is_bearer)
+            return make_error(403, "JWT_NOT_ALLOWED");
+
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        std::string lobby_code;
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            lobby_code = body.value("lobby_code", "");
+        } catch (...) {
+            return make_error(400, "MALFORMED_JSON");
+        }
+        if (lobby_code.empty())
+            return make_error(400, "MISSING_LOBBY_CODE");
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            if (!lobby_repo_.find_by_code(txn, lobby_code))
+                return make_error(404, "LOBBY_NOT_FOUND");
+
+            const auto tok = spectate_token_repo_.create(txn, player.id, lobby_code);
+            txn.commit();
+
+            nlohmann::json j;
+            j["token"]      = tok.plaintext;
+            j["lobby_code"] = lobby_code;
+            crow::response res(200, j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("spectate-token", std::string("create failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    // Consumes a spectate token, establishes a full browser session, redirects
+    // to the spectator view. Single-use — calling twice returns 401.
+    CROW_ROUTE(app, "/auth/spectate")
+    ([this](const crow::request& req, crow::response& res) {
+        const char* token_param = req.url_params.get("token");
+        if (!token_param) {
+            res.code = 401;
+            nlohmann::json j; j["error"] = "TOKEN_INVALID";
+            res.set_header("Content-Type", "application/json");
+            res.write(j.dump());
+            res.end();
+            return;
+        }
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            const auto tok = spectate_token_repo_.find_valid_and_consume(txn, token_param);
+            if (!tok) {
+                txn.commit();
+                res.code = 401;
+                nlohmann::json j; j["error"] = "TOKEN_INVALID";
+                res.set_header("Content-Type", "application/json");
+                res.write(j.dump());
+                res.end();
+                return;
+            }
+
+            const auto player = player_repo_.find_by_id(txn, tok->player_id);
+            if (!player) {
+                txn.commit();
+                res.code = 401;
+                nlohmann::json j; j["error"] = "TOKEN_INVALID";
+                res.set_header("Content-Type", "application/json");
+                res.write(j.dump());
+                res.end();
+                return;
+            }
+            txn.commit();
+
+            const auto tokens = auth_service_.issue_tokens(*player);
+            res.add_header("Set-Cookie", make_access_cookie (tokens.access_token));
+            res.add_header("Set-Cookie", make_refresh_cookie(tokens.refresh_token));
+
+            // Trim trailing slash from cors_origin to avoid double-slash in redirect.
+            std::string origin = config_.cors_origin;
+            while (!origin.empty() && origin.back() == '/') origin.pop_back();
+
+            res.code = 302;
+            res.add_header("Location", origin + "/spectate/" + tok->lobby_code);
+            res.end();
+
+            http_log_.info("spectate-token",
+                           "exchanged token for player " + std::to_string(tok->player_id) +
+                           " lobby=" + tok->lobby_code);
+        } catch (const std::exception& e) {
+            http_log_.error("spectate-token", std::string("exchange failed: ") + e.what());
+            res.code = 500;
+            nlohmann::json j; j["error"] = "INTERNAL_ERROR";
+            res.set_header("Content-Type", "application/json");
+            res.write(j.dump());
+            res.end();
         }
     });
 }

@@ -363,3 +363,64 @@
   background: rgba(255,255,255,0.06);
   color: #fff;
 }
+
+.lp__menu-item--danger { color: #f87171; }
+.lp__menu-item--danger:hover { background: rgba(248,113,113,0.1); color: #fca5a5; }
+
+/* ── Mode badge ───────────────────────────────────────────────────────────── */
+
+.lp__mode-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.lp__mode-badge--ui  { background: #1e3a5f; color: #7ec8e3; }
+.lp__mode-badge--api { background: #3a1e5f; color: #c67ee3; }
+
+/* ── Create-lobby area (toggle + button row) ──────────────────────────────── */
+
+.lp__create-area {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.lp__mode-toggle {
+  display: flex;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.lp__mode-btn {
+  background: #1a1a1a;
+  border: none;
+  color: #888;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+}
+
+.lp__mode-btn--active {
+  background: #2e6fda;
+  color: #fff;
+}
+
+/* ── Spectate button ──────────────────────────────────────────────────────── */
+
+.lp__btn--spectate {
+  background: #1e3a5f;
+  color: #7ec8e3;
+  border: 1px solid #2a5a8f;
+}
+
+.lp__btn--spectate:hover {
+  background: #254b78;
+}

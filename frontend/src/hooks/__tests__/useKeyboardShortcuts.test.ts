@@ -10,6 +10,8 @@ function makeOpts(overrides: Partial<Parameters<typeof useKeyboardShortcuts>[0]>
     onSuitFocus:       vi.fn(),
     onSubmitBuy:       vi.fn(),
     onSubmitSell:      vi.fn(),
+    onAcceptBuy:       vi.fn(),
+    onAcceptSell:      vi.fn(),
     onNudgeBuy:        vi.fn(),
     onNudgeSell:       vi.fn(),
     onCancelBestBuy:   vi.fn(),

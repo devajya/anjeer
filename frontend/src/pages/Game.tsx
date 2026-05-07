@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { useKeyBinds } from '../hooks/useKeyBinds'
@@ -16,6 +15,7 @@ import { GameEndScreen } from '../components/GameEndScreen'
 import { SessionError } from '../components/SessionError'
 import { PlayerBadge } from '../components/PlayerBadge'
 import { ShortcutHelp } from '../components/ShortcutHelp'
+import { SpectatorBadge } from '../components/SpectatorBadge'
 import { slotColorSemi } from '../utils/playerColors'
 import '../App.css'
 
@@ -25,15 +25,14 @@ import '../App.css'
 const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 
 export function Game() {
-  const [searchParams] = useSearchParams()
-  const { user, logout } = useAuth()
+const { user, logout } = useAuth()
   const { binds } = useKeyBinds()
   const {
     connected, playerId, books, trades, myOrders, errors, sendMessage,
     startsAt, roundEndAt, hand, initialHand, playerSlot, roundEnd, balance,
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
     interRound, voteTally, gameEnded, sessionError,
-    roster, deltas, allBalances, allHandTotals,
+    roster, deltas, allBalances, allHandTotals, spectatorCount,
   } = useWebSocket('/ws')
 
   // AGENT-CTX: selectedSuit drives keyboard order submission. null = no suit
@@ -46,19 +45,6 @@ export function Game() {
   const suitPanelRefs = useRef<Record<string, SuitPanelHandle | null>>({})
 
   // AGENT-CTX: fromLobby is true when the player arrived via LobbyRoom after
-  // lobby_started fired. When true, start_game is sent automatically as soon
-  // as all required players are connected — no button press needed in the game
-  // room. Without lobby_id (direct /game navigation), the manual Start Game
-  // button remains so the flow still works in dev/testing without a lobby.
-  const fromLobby     = searchParams.get('lobby_id') !== null
-  const autoStartedRef = useRef(false)
-  useEffect(() => {
-    if (!fromLobby || !waitingForStart) return
-    if (waitingForStart.connected !== waitingForStart.required) return
-    if (autoStartedRef.current) return
-    autoStartedRef.current = true
-    sendMessage({ type: 'start_game' })
-  }, [fromLobby, waitingForStart, sendMessage])
 
   // AGENT-CTX: Local dismissed flag so the modal can be closed without mutating
   // hook state. Reset whenever a new round_end payload arrives (round_end changes
@@ -173,7 +159,7 @@ export function Game() {
   // prevent accidental order submission during inter-round or round-end screens.
   useKeyboardShortcuts({
     binds,
-    enabled: !showRoundEnd && !showInterRound && !showShortcuts,
+    enabled: !showRoundEnd && !showInterRound,
     onSuitFocus:       setSelectedSuit,
     onSubmitBuy:       handleSubmitBuy,
     onSubmitSell:      handleSubmitSell,
@@ -221,16 +207,9 @@ export function Game() {
               <span className="app__lobby-status">
                 {waitingForStart.connected}/{waitingForStart.required} players connected
               </span>
-              {waitingForStart.connected === waitingForStart.required && (
-                <button
-                  className="app__start-btn"
-                  onClick={() => sendMessage({ type: 'start_game' })}
-                >
-                  Start Game
-                </button>
-              )}
             </div>
           )}
+          {spectatorCount > 0 && <SpectatorBadge count={spectatorCount} />}
           {user && (
             <PlayerBadge
               username={user.username}

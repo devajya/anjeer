@@ -23,6 +23,7 @@ const LOBBY_ABC: LobbyView = {
   code: 'ABC123',
   creator_id: 2,
   status: 'waiting',
+  mode: 'ui',
   min_players: 2,
   max_players: 8,
   player_count: 1,
@@ -194,5 +195,62 @@ describe('LobbyBrowser — Active tab', () => {
     await waitFor(() => {
       expect(screen.getByText(/No active games right now/i)).toBeInTheDocument()
     })
+  })
+
+  // ── Task 11 additions ──────────────────────────────────────────────────────
+
+  test('Active tab — API in_game lobby shows API mode badge', async () => {
+    const apiActive: LobbyView = { ...LOBBY_ABC, id: 'api-active-1', code: 'APIACT', status: 'in_game', mode: 'api' }
+    vi.stubGlobal('fetch', makeFetch({ list: [apiActive] }))
+    renderBrowser()
+    fireEvent.click(screen.getByText(/^Active/))
+    await waitFor(() => expect(screen.getByText('API')).toBeInTheDocument())
+  })
+
+  test('active lobby row shows Spectate button', async () => {
+    const activeLobby: LobbyView = { ...LOBBY_ABC, id: 'active-1', status: 'in_game' }
+    vi.stubGlobal('fetch', makeFetch({ list: [activeLobby] }))
+    renderBrowser()
+    fireEvent.click(screen.getByText(/^Active/))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /spectate/i })).toBeInTheDocument()
+    )
+  })
+
+  test('waiting lobby row has no Spectate button', async () => {
+    vi.stubGlobal('fetch', makeFetch({ list: [LOBBY_ABC] }))
+    renderBrowser()
+    await waitFor(() => screen.getByText('ABC123'))
+    expect(screen.queryByRole('button', { name: /spectate/i })).not.toBeInTheDocument()
+  })
+
+  // Task 9 stub — create form has NO mode toggle; browser always creates UI lobbies
+  test('create lobby form has no UI/API mode toggle', async () => {
+    vi.stubGlobal('fetch', makeFetch())
+    renderBrowser()
+    await waitFor(() => screen.getByText('ABC123'))
+    expect(screen.queryByRole('button', { name: /^UI$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^API$/i })).not.toBeInTheDocument()
+  })
+})
+
+// ─── Task 9 stubs — mode-filtered Starting tab (RED before Task 9 impl) ──────
+
+describe('LobbyBrowser — mode separation (Task 9)', () => {
+  const API_WAITING: LobbyView = { ...LOBBY_ABC, id: 'api-uuid-1', code: 'APIABC', mode: 'api' }
+  const UI_WAITING: LobbyView  = { ...LOBBY_ABC, id: 'ui-uuid-1',  code: 'UIABC',  mode: 'ui'  }
+
+  test('Starting tab shows only UI-mode waiting lobbies', async () => {
+    vi.stubGlobal('fetch', makeFetch({ list: [UI_WAITING, API_WAITING] }))
+    renderBrowser()
+    await waitFor(() => screen.getByText('UIABC'))
+    expect(screen.queryByText('APIABC')).not.toBeInTheDocument()
+  })
+
+  test('Starting tab does not show API-mode waiting lobbies', async () => {
+    vi.stubGlobal('fetch', makeFetch({ list: [API_WAITING] }))
+    renderBrowser()
+    await waitFor(() => screen.getByText(/No open lobbies/i))
+    expect(screen.queryByText('APIABC')).not.toBeInTheDocument()
   })
 })

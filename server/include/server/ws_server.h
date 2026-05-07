@@ -1,5 +1,6 @@
 #pragma once
 
+#include "server/api_key_repo.h"
 #include "server/auth_service.h"
 #include "server/config.h"
 #include "server/db.h"
@@ -8,6 +9,7 @@
 #include "server/lobby_gateway.h"
 #include "server/lobby_repo.h"
 #include "server/logger.h"
+#include "server/rate_limiter.h"
 #include "server/session_queue.h"
 #include "server/session_repo.h"
 #include "server/ws_types.h"
@@ -22,14 +24,18 @@
 
 namespace anjeer::server {
 
+struct WsServerDeps {
+    LobbyGateway& lobby_gateway;
+    DbPool&       db_pool;
+    LobbyRepo&    lobby_repo;
+    AuthService&  auth_service;
+    ApiKeyRepo&   api_key_repo;
+    IEventBus&    event_bus;
+};
+
 class WsServer {
 public:
-    explicit WsServer(const ServerConfig& cfg,
-                      LobbyGateway&       lobby_gateway,
-                      DbPool&             db_pool,
-                      LobbyRepo&          lobby_repo,
-                      AuthService&        auth_service,
-                      IEventBus&          event_bus);
+    explicit WsServer(const ServerConfig& cfg, WsServerDeps deps);
     void run();
 
 private:
@@ -42,15 +48,23 @@ private:
         std::unique_ptr<moodycamel::ReaderWriterQueue<NetEvent>>  inbound;
         std::unique_ptr<moodycamel::ReaderWriterQueue<GameEvent>> outbound;
         std::unique_ptr<GameSession>                               session;
-        std::vector<SlotInfo>                                      slots;   // authoritative slot list
-        std::unordered_map<int32_t, WsHandle>                      slot_to_ws;
-        std::unordered_map<WsHandle, int32_t>                      ws_to_slot;
+        std::vector<SlotInfo>                                      slots_;        // authoritative slot list
+        std::unordered_map<int32_t, WsHandle>                      slot_to_ws_;
+        std::unordered_map<WsHandle, int32_t>                      ws_to_slot_;
+        LobbyMode                                                  lobby_mode_    = LobbyMode::UI;
+        // Spectators are tracked separately from player slots; spectator_id is
+        // player_id (may be -1 for unauthenticated). ws_to_spectator_ enables
+        // O(1) cleanup in .close without scanning the forward map.
+        std::unordered_map<int32_t, WsHandle>                      spectator_handles_;
+        std::unordered_map<WsHandle, int32_t>                      ws_to_spectator_;
+        int32_t                                                    spectator_count_ = 0;
     };
 
-    void create_session    (const std::string& lobby_id);
-    void teardown_session  (const std::string& lobby_id);
-    void drain_all_on_loop ();
-    void handle_leave_lobby(WsHandle ws, const std::string& lobby_id);
+    void create_session      (const std::string& lobby_id);
+    void teardown_session    (const std::string& lobby_id);
+    void drain_all_on_loop   ();
+    void handle_leave_lobby  (WsHandle ws, const std::string& lobby_id);
+    void handle_spectate_lobby(WsHandle ws, const std::string& lobby_id);
 
     // ── Dependencies ─────────────────────────────────────────────────────────
     ServerConfig   cfg_;
@@ -58,7 +72,9 @@ private:
     DbPool&        db_pool_;
     LobbyRepo&     lobby_repo_;
     AuthService&   auth_service_;
+    ApiKeyRepo&    api_key_repo_;
     IEventBus&     event_bus_;
+    RateLimiter    rate_limiter_;
 
     // AGENT-CTX: Loggers are members (not locals in run()) so that create_session,
     // teardown_session, and drain_all_on_loop can reference them without passing
@@ -69,11 +85,6 @@ private:
     Logger frontend_log_;
 
     SessionRepo  session_repo_;
-    // AGENT-CTX: rng_ is only used on the uWS event-loop thread (passed by ref
-    // to GameSession constructor, which uses it on the game-loop thread).
-    // IMPORTANT: do NOT use rng_ from two threads simultaneously — GameSession
-    // gets a reference and owns its use. WsServer never touches rng_ after
-    // create_session() hands the reference off to GameSession.
     std::mt19937 rng_;
 
     // AGENT-CTX: Both maps are only ever accessed on the uWS event-loop thread.

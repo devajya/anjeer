@@ -36,6 +36,7 @@
     "jwt_secret": "test-secret-do-not-use-in-prod-xx",
     "access_token_ttl_seconds": 60,
     "refresh_token_ttl_seconds": 300,
+    "spectate_token_ttl_minutes": 60,
     "secure_cookies": false,
     "github": { "client_id": "test_gh_id", "client_secret": "test_gh_secret", "redirect_uri": "http://localhost:18080/auth/github/callback" },
     "google": { "client_id": "test_go_id", "client_secret": "test_go_secret", "redirect_uri": "http://localhost:18080/auth/google/callback" }
@@ -44,5 +45,11 @@
     "min_players": 2,
     "max_players": 8
   },
-  "event_bus": "local"
+  "event_bus": "local",
+  "rate_limit": {
+    "capacity": 20,
+    "refill_rate": 5.0,
+    "suspend_threshold": 50,
+    "suspend_seconds": 30
+  }
 }

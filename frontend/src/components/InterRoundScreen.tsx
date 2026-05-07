@@ -21,8 +21,10 @@ interface InterRoundScreenProps {
   playerSlot: number | null
   // AGENT-CTX: hasVoted prevents the player from casting more than one
   // vote_to_end per inter-round window. Reset by Game.tsx on each new interRound.
-  hasVoted: boolean
-  onVoteToEnd: () => void
+  // Optional when isSpectator is true — vote section is hidden entirely.
+  hasVoted?: boolean
+  onVoteToEnd?: () => void
+  isSpectator?: boolean
   // AGENT-CTX: Called once when the countdown reaches 0. Game.tsx sets
   // interRoundDismissed=true so the overlay closes locally without waiting for
   // round_start to arrive (which may lag a frame or two behind the timer).
@@ -34,8 +36,9 @@ export function InterRoundScreen({
   liveVotes,
   liveVotesRequired,
   playerSlot,
-  hasVoted,
+  hasVoted = false,
   onVoteToEnd,
+  isSpectator = false,
   onCountdownExpired,
 }: InterRoundScreenProps) {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null)
@@ -137,19 +140,21 @@ export function InterRoundScreen({
           </tbody>
         </table>
 
-        {/* ── Vote section ── */}
-        <div className="irs__vote-section">
-          <VoteTally votes={liveVotes} required={liveVotesRequired} />
-          {!voteThresholdMet && (
-            <button
-              className="irs__vote-btn"
-              onClick={onVoteToEnd}
-              disabled={hasVoted}
-            >
-              {hasVoted ? 'Vote Cast' : 'Vote to End Game'}
-            </button>
-          )}
-        </div>
+        {/* ── Vote section (hidden for spectators) ── */}
+        {!isSpectator && (
+          <div className="irs__vote-section">
+            <VoteTally votes={liveVotes} required={liveVotesRequired} />
+            {!voteThresholdMet && (
+              <button
+                className="irs__vote-btn"
+                onClick={onVoteToEnd}
+                disabled={hasVoted}
+              >
+                {hasVoted ? 'Vote Cast' : 'Vote to End Game'}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Countdown / status line ── */}
         <div className="irs__status">

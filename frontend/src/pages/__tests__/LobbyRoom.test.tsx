@@ -39,6 +39,7 @@ const BASE_LOBBY_STATE: LobbyStateMessage = {
   status: 'waiting',
   min_players: 2,
   max_players: 8,
+  mode: 'ui',
   players: [
     { player_id: 1, username: 'owner', joined_at: '2026-04-23T00:00:00Z' },
     { player_id: 2, username: 'alice', joined_at: '2026-04-23T00:00:00Z' },
@@ -77,6 +78,8 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     unsubscribeLobby:  mockUnsub,
     ownsBestBidBySuit: {},
     ownsBestAskBySuit: {},
+    spectatorCount:    0,
+    scriptLogs:        [],
     ...overrides,
   }
 }

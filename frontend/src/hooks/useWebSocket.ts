@@ -153,6 +153,10 @@ export interface WsState {
   allHandTotals: number[]
   /** Current balance per slot. Set at round_start; updated after each trade. */
   allBalances: number[]
+  /** Live count of spectators watching this session. Updated by spectator_count events. */
+  spectatorCount: number
+  /** Script log entries from API-lobby players. Delivered to spectators only. */
+  scriptLogs: import('../types/messages').ScriptLogMessage[]
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -205,6 +209,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     roster: [],
     allHandTotals: [],
     allBalances: [],
+    spectatorCount: 0,
+    scriptLogs: [],
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -366,7 +372,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           logger.info('ws/recv',
             `round_starting starts_at=${msg.starts_at} player_count=${msg.player_count}`)
           // Clear waiting state — countdown has begun.
-          setState(s => ({ ...s, startsAt: msg.starts_at, waitingForStart: null }))
+          setState(s => ({ ...s, startsAt: msg.starts_at ?? null, waitingForStart: null }))
           break
 
         case 'round_start':
@@ -494,6 +500,17 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
         case 'hand_totals':
           setState(s => ({ ...s, allHandTotals: msg.totals }))
+          break
+
+        case 'spectator_count':
+          setState(s => ({ ...s, spectatorCount: msg.count }))
+          break
+
+        case 'script_log':
+          setState(s => ({
+            ...s,
+            scriptLogs: [...(s.scriptLogs ?? []), msg],
+          }))
           break
 
         default: {

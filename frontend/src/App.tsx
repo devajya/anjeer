@@ -6,6 +6,9 @@ import { Game } from './pages/Game'
 import { LobbyBrowser } from './pages/LobbyBrowser'
 import { LobbyRoom } from './pages/LobbyRoom'
 import { KeybindSettings } from './pages/KeybindSettings'
+import { ApiKeySettings } from './pages/ApiKeySettings'
+import { SpectatorView } from './pages/SpectatorView'
+import { DocsPage } from './pages/DocsPage'
 
 // AGENT-CTX: App.tsx is the route map. Lobby pages sit between login and game.
 // Default route redirects to /lobby so new users land in the lobby browser.
@@ -45,6 +48,30 @@ export default function App() {
           element={
             <ProtectedRoute>
               <KeybindSettings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/api-keys"
+          element={
+            <ProtectedRoute>
+              <ApiKeySettings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/spectate/:lobbyCode"
+          element={
+            <ProtectedRoute>
+              <SpectatorView />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/docs"
+          element={
+            <ProtectedRoute>
+              <DocsPage />
             </ProtectedRoute>
           }
         />

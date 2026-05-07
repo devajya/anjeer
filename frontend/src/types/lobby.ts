@@ -7,6 +7,7 @@ export interface LobbyView {
   code:        string
   creator_id:  number
   status:      'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
+  mode:        'ui' | 'api'
   min_players: number
   max_players: number
   player_count: number

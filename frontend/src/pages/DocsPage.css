@@ -1,0 +1,143 @@
+.docs {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.docs__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.docs__back {
+  background: none;
+  border: 1px solid var(--color-border, #333);
+  color: inherit;
+  cursor: pointer;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.docs__back:hover {
+  background: var(--color-hover, #222);
+}
+
+.docs__title {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.docs__toc {
+  background: var(--color-panel-header, #1a1a1a);
+  border: 1px solid var(--color-border, #333);
+  border-radius: 4px;
+  padding: 0.8rem 1.2rem;
+  margin-bottom: 2.5rem;
+}
+
+.docs__toc ol {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.docs__toc a {
+  color: var(--color-accent, #7eb8f7);
+  text-decoration: none;
+}
+
+.docs__toc a:hover {
+  text-decoration: underline;
+}
+
+.docs__body section {
+  margin-bottom: 3rem;
+}
+
+.docs__body h2 {
+  font-size: 1.15rem;
+  border-bottom: 1px solid var(--color-border, #333);
+  padding-bottom: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.docs__body h3 {
+  font-size: 0.95rem;
+  margin: 1.25rem 0 0.4rem;
+}
+
+.docs__body p {
+  margin: 0.4rem 0 0.8rem;
+}
+
+.docs__body ol,
+.docs__body ul {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.5rem;
+}
+
+.docs__body li {
+  margin-bottom: 0.3rem;
+}
+
+.docs__body pre {
+  background: var(--color-panel-header, #111);
+  border: 1px solid var(--color-border, #2a2a2a);
+  border-radius: 4px;
+  padding: 0.6rem 0.9rem;
+  overflow-x: auto;
+  margin: 0.3rem 0 0.9rem;
+}
+
+.docs__body code {
+  font-family: monospace;
+  font-size: 0.84rem;
+}
+
+.docs__body p code,
+.docs__body li code {
+  background: var(--color-panel-header, #1a1a1a);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+.docs__body a {
+  color: var(--color-accent, #7eb8f7);
+}
+
+.docs__templates {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.docs__template-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border, #333);
+  border-radius: 6px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--color-panel-header, #1a1a1a);
+  transition: background 0.15s;
+  min-width: 220px;
+}
+
+.docs__template-link:hover {
+  background: var(--color-hover, #222);
+}
+
+.docs__template-meta {
+  font-size: 0.78rem;
+  color: var(--color-muted, #888);
+}
