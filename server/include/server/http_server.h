@@ -55,6 +55,7 @@ private:
     template<typename App> void register_api_key_routes  (App& app);
     template<typename App> void register_spectate_routes (App& app);
     template<typename App> void register_examples_routes (App& app);
+    template<typename App> void register_config_routes   (App& app);
 
     std::string make_access_cookie (const std::string& value) const;
     std::string make_refresh_cookie(const std::string& value) const;

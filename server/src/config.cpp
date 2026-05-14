@@ -142,6 +142,10 @@ ServerConfig load_config(const std::string& path) {
         cfg.rate_limit.suspend_threshold = rl.at("suspend_threshold").get<int32_t>();
         cfg.rate_limit.suspend_seconds   = rl.at("suspend_seconds").get<int32_t>();
 
+        const auto& rc = j.at("reconnect");
+        cfg.reconnect.reconnect_window_seconds = rc.at("reconnect_window_seconds").get<int>();
+        cfg.reconnect.max_queue_size           = rc.at("max_queue_size").get<int>();
+
         return cfg;
     } catch (const nlohmann::json::exception& e) {
         throw std::runtime_error(

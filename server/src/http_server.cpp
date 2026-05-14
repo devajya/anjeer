@@ -176,6 +176,7 @@ void HttpServer::run()
     register_api_key_routes(app);
     register_spectate_routes(app);
     register_examples_routes(app);
+    register_config_routes(app);
 
     app.loglevel(crow::LogLevel::Warning);
     http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
@@ -1065,6 +1066,28 @@ void HttpServer::register_spectate_routes(App& app)
             res.write(j.dump());
             res.end();
         }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Config routes
+// ---------------------------------------------------------------------------
+
+// AGENT-CTX: /config/client is intentionally unauthenticated — it exposes only
+// non-sensitive game constants the frontend needs before a WS connection is
+// established (e.g. max backoff window for the reconnect state machine). Add
+// more fields here as needed; never expose secrets.
+template<typename App>
+void HttpServer::register_config_routes(App& app)
+{
+    CROW_ROUTE(app, "/config/client")
+    ([this](const crow::request&, crow::response& res) {
+        nlohmann::json j;
+        j["reconnect_window_seconds"] = config_.reconnect.reconnect_window_seconds;
+        j["max_queue_size"]           = config_.reconnect.max_queue_size;
+        res.set_header("Content-Type", "application/json");
+        res.write(j.dump());
+        res.end();
     });
 }
 
