@@ -31,6 +31,9 @@ struct Lobby {
     int         max_players;
     std::string created_at;
     LobbyMode   mode = LobbyMode::UI;
+    bool        spawn_bots_on_leave   = false;
+    std::string bot_spawn_difficulty  = "easy"; // "easy"|"medium"|"hard"|"random"
+    int         bot_count             = 0;
 };
 
 // AGENT-CTX: LobbyView is a read-only projection for list responses only.
@@ -52,7 +55,9 @@ public:
     // Creates lobby, generates unique 6-char code. Retries on UNIQUE collision.
     Lobby create(DbTxn& txn, int64_t creator_id,
                  int min_players, int max_players,
-                 LobbyMode mode = LobbyMode::UI);
+                 LobbyMode mode = LobbyMode::UI,
+                 bool spawn_bots_on_leave = false,
+                 std::string bot_spawn_difficulty = "easy");
 
     std::optional<Lobby> find_by_id  (DbTxn& txn,
                                       const std::string& lobby_id);
@@ -87,6 +92,13 @@ public:
     bool transition_status(DbTxn& txn,
                            const std::string& lobby_id,
                            LobbyStatus from, LobbyStatus to);
+
+    void update_bot_settings(DbTxn& txn,
+                             const std::string& lobby_id,
+                             bool spawn_bots_on_leave,
+                             const std::string& bot_spawn_difficulty);
+
+    void adjust_bot_count(DbTxn& txn, const std::string& lobby_id, int delta);
 
 private:
     static Lobby       row_to_lobby (const pqxx::row& row);

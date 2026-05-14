@@ -28,6 +28,11 @@ std::string error_code_str(WsErrorCode c) noexcept {
         case WsErrorCode::SpectatorNotAllowed: return "SPECTATOR_NOT_ALLOWED";
         case WsErrorCode::RateLimitWarning:    return "RATE_LIMIT_WARNING";
         case WsErrorCode::RateLimitExceeded:   return "RATE_LIMIT_EXCEEDED";
+        case WsErrorCode::NotLobbyOwner:       return "NOT_LOBBY_OWNER";
+        case WsErrorCode::BotLimitReached:     return "BOT_LIMIT_REACHED";
+        case WsErrorCode::LobbyAlreadyStarted: return "LOBBY_ALREADY_STARTED";
+        case WsErrorCode::LobbyNotFound:       return "LOBBY_NOT_FOUND";
+        case WsErrorCode::LobbyFull:           return "LOBBY_FULL";
     }
     return "UNKNOWN_ERROR";
 }

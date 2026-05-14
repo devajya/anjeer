@@ -1,5 +1,7 @@
 #include "server/api_key_repo.h"
 #include "server/auth_service.h"
+#include "server/bot_manager.h"
+#include "server/bot_scheduler.h"
 #include "server/config.h"
 #include "server/db.h"
 #include "server/event_bus.h"
@@ -58,6 +60,8 @@ int main(int argc, char* argv[]) {
     static anjeer::server::ApiKeyRepo          api_key_repo;
     static anjeer::server::SpectateTokenRepo   spectate_token_repo(cfg.auth.spectate_token_ttl_minutes);
     static anjeer::server::LocalEventBus       event_bus;  // Slice 16: swap for RedisEventBus
+    static anjeer::server::BotScheduler        bot_scheduler(cfg.bots.scheduler_threads);
+    static anjeer::server::BotManager          bot_manager(bot_scheduler, cfg.bots);
     static anjeer::server::LobbyGateway        lobby_gateway(db_pool, lobby_repo, event_bus);
     static anjeer::server::AuthService         auth_service(db_pool, player_repo, cfg);
     static anjeer::server::HttpServer          http_server(cfg, anjeer::server::HttpServerDeps{
@@ -71,7 +75,8 @@ int main(int argc, char* argv[]) {
 
     anjeer::server::WsServer ws_server(cfg, anjeer::server::WsServerDeps{
                                            lobby_gateway, db_pool, lobby_repo,
-                                           auth_service, api_key_repo, event_bus});
+                                           auth_service, api_key_repo, event_bus,
+                                           bot_manager});
     ws_server.run();
 
     return 0;

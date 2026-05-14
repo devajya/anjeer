@@ -37,13 +37,13 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 
 **Role:** Pure game logic. No network, no JSON, no file I/O. Returns structured events; callers own dispatch.
 
-**Current modules (Slice 8):**
+**Current modules (Slice 10):**
 - `OrderBook` — price-time priority limit order matching. Operations: submit, nudge (best±1), cancel, wipe (global clear). Returns a vector of typed events per operation. `BookUpdateEvent` carries `best_bid_player_id` / `best_ask_player_id` (slot indices) so the frontend can colour quote owners.
 - `GameState` — deals deck, tracks per-player hand counts. Goal suit is **explicit per-deck** (passed in `Config::goal_suit`); it is no longer derived from the distribution. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules.
-- `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, disconnected flags, and `ScoringConfig`. `ScoringConfig::bonus_pool` is explicit (deck-supplied); it is no longer computed from the distribution. Computes pot, per-card payout, majority/plurality bonus, and payouts. No I/O; server owns dispatch.
+- `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, disconnected flags, and `ScoringConfig`. `ScoringConfig::bonus_pool` is derived by the server as `pot_size − total_goal_cards × points_per_card` and passed in at scoring time. Computes pot, per-card payout, majority/plurality bonus, and payouts. No I/O; server owns dispatch.
+- `BotAgent` (Slice 10) — abstract base + `make_bot()` factory for three difficulty tiers. `BotGameSnapshot` is the read-only view passed to `decide()` each tick; `BotEvent` carries round lifecycle and market data. `EasyBot`: hand-heuristic belief (no hypergeometric), taker scan + gap fill + pending-order management. `MediumBot`: hypergeometric opening posterior, noisy Bayesian fill update, EV-threshold maker/taker decisions. `HardBot`: exact Bayesian belief update, book-event observation, per-player pressure tracking, deterministic lock-in on posterior collapse or card-count elimination.
 
 **Planned modules (future slices):**
-- `BotAgent` (Slice 10) — strategy implementations connecting via the same WS interface as human players
 - `EvalModule` / `EvalRunner` (Slice 11) — plugin-style analysis running on a separate thread, read-only game state snapshots
 - `ReplayEngine` (Slice 13) — deterministic state reconstruction from event log
 
@@ -120,6 +120,8 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 **Threading model (Slices 1-6):** Single uWS event loop thread. No locks. Engine calls happen synchronously on the event loop. Heartbeat runs on a second thread but does not touch engine state.
 
 **Threading model (Slice 7+):** Each active game session runs on a dedicated `GameSession` thread. The uWS event loop thread and the game-loop thread share no mutable state — all communication passes through two lock-free SPSC queues (`moodycamel::ReaderWriterQueue`): `NetEvent` inbound (network → game) and `GameEvent` outbound (game → network). The network thread enqueues on receive; a 16ms uWS timer drains the outbound queue and dispatches to WebSocket handles.
+
+**Threading model (Slice 10+):** A third threading axis — `BotScheduler` manages a fixed thread pool (configurable, default 4 threads) that calls `BotAdapter::tick()` on a recurring schedule. Each tick: drains `BotAdapter::event_queue_` (JSON strings pushed by the uWS drain loop), updates the strategy snapshot, calls `decide()`, and pushes the resulting action into `BotAdapter::action_queue_` after `sim_network_delay_ms`. The uWS drain loop (`drain_bot_actions`) then moves actions from `action_queue_` into the session's inbound `NetEvent` SPSC queue. No locks are taken across the three threads — all cross-thread data transfer uses moodycamel lock-free SPSC queues.
 
 ## Frontend Layer
 
@@ -213,7 +215,7 @@ N connections reach the server (N = game.player_count in config)
   → server sleeps countdown_seconds, then defers to the event-loop thread:
 
   GameSession picks a DeckDef from the static kDecks table (12 variants, uniform random)
-    → deck specifies: per-suit distribution, explicit goal_suit, bonus_pool
+    → deck specifies: per-suit distribution, explicit goal_suit
 
   GameState.deal(rng)
     → distributes cards per deck's distribution, round-robin to player slots (one slot gets remainder if uneven)
@@ -237,7 +239,7 @@ Round expiry timer fires
   score_round(hands, goal_suit, disconnected, ScoringConfig)
     → pot      = player_count × buy_in
     → per-card = points_per_card × goal_cards_held (per player)
-    → bonus_pool = ScoringConfig::bonus_pool (explicit from the deck — not derived)
+    → bonus_pool = pot_size − total_goal_cards × points_per_card (derived by server at round end)
     → majority threshold = total_goal_cards / 2 + 1 (strict)
         if exactly one player holds ≥ threshold → they receive full bonus_pool
         else → bonus split evenly among player(s) holding the most goal cards (integer division)
@@ -269,6 +271,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Game lifecycle (Slice 7+) | `inter_round`, `vote_tally`, `game_ended`, `game_player_left`, `session_error` |
 | Market state (Slice 8+) | `delta_update` (full per-player per-suit net flow snapshot), `all_balances` (all slots after each trade), `hand_totals` (total cards per slot after each trade) |
 | API / spectator (Slice 9+) | `api_key_invalid` (key expired or revoked — connection closed after), `rate_limit_warning` (bucket empty), `script_log` (forwarded from script to spectators only) |
+| Lobby bots (Slice 10+) | `player_joined` gains `is_bot`, `bot_uuid`, `bot_difficulty` fields for bot entries |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
 
 **Client → Server categories:**
@@ -279,6 +282,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Game (Slice 7+) | `vote_to_end` |
 | Spectator (Slice 9+) | `spectate_lobby` |
 | Script (Slice 9+) | `script_log` (player → server → spectators; plain string, max 500 chars) |
+| Lobby bots (Slice 10+) | `add_bot` (owner only; `difficulty`: easy/medium/hard), `remove_bot` (owner only; `bot_uuid`) |
 | Subscription (Slice 17+) | `subscribe`, `unsubscribe` |
 
 **Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`, `NOT_LOBBY_OWNER`, `INSUFFICIENT_PLAYERS`, `GAME_ALREADY_STARTED`, `LOBBY_NOT_FOUND`, `LOBBY_FULL`, `ALREADY_JOINED`, `LOBBY_MODE_MISMATCH`, `SPECTATOR_NOT_ALLOWED`
@@ -295,6 +299,7 @@ All tuneable values live in `config/default.json`. Key sections:
 - `lobby` — `min_players`, `max_players` (Slice 6+)
 - `event_bus` — `"local"` (in-process) or `"redis"` (Upstash, Slice 16+)
 - `rate_limit` — `capacity`, `refill_rate`, `suspend_threshold`, `suspend_seconds` (Slice 9+)
+- `bots` — `scheduler_threads`, `tick_interval_ms`, `tick_jitter_ms`, `thinking_min_ms`, `thinking_max_ms`, `sim_network_delay_ms`, `spawn_bots_on_leave` (server-wide default; per-lobby override in DB), `bot_spawn_difficulty`; per-difficulty sub-objects `easy`/`medium`/`hard` with strategy-specific thresholds (Slice 10+)
 
 ## When to Update This Document
 

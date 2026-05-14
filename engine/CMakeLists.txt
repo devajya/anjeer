@@ -11,6 +11,10 @@ add_library(engine STATIC
     src/order_book.cpp
     src/game_state.cpp
     src/scoring_engine.cpp
+    src/bots/bot_agent.cpp
+    src/bots/easy_bot.cpp
+    src/bots/medium_bot.cpp
+    src/bots/hard_bot.cpp
 )
 
 target_include_directories(engine PUBLIC include)
@@ -59,8 +63,18 @@ target_link_libraries(scoring_engine_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
+add_executable(bot_tests
+    tests/test_bots.cpp
+)
+
+target_link_libraries(bot_tests PRIVATE
+    engine
+    Catch2::Catch2WithMain
+)
+
 include(CTest)
 include(Catch)
 catch_discover_tests(engine_tests)
 catch_discover_tests(game_state_tests)
 catch_discover_tests(scoring_engine_tests)
+catch_discover_tests(bot_tests)

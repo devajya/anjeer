@@ -61,6 +61,7 @@ WsServer::WsServer(const ServerConfig& cfg, WsServerDeps deps)
     , auth_service_ (deps.auth_service)
     , api_key_repo_ (deps.api_key_repo)
     , event_bus_    (deps.event_bus)
+    , bot_manager_  (deps.bot_manager)
     , rate_limiter_ (RateLimitConfig{
           cfg.rate_limit.capacity,
           cfg.rate_limit.refill_rate,
@@ -299,8 +300,11 @@ void WsServer::run() {
 
                 // Lobby subscriptions — always handled regardless of game state
                 if (type == "subscribe_lobby") {
-                    lobby_gateway_.handle_subscribe(ws, j.value("lobby_id", ""),
-                                                    loop, server_log_);
+                    const std::string lid = j.value("lobby_id", "");
+                    std::vector<BotPlayerEntry> bot_entries;
+                    for (const auto& b : bot_manager_.get_bots(lid))
+                        bot_entries.push_back({b.bot_uuid, b.username, b.difficulty});
+                    lobby_gateway_.handle_subscribe(ws, lid, loop, server_log_, bot_entries);
                     return;
                 }
                 if (type == "unsubscribe_lobby") {
@@ -338,6 +342,16 @@ void WsServer::run() {
                         return;
                     }
                     handle_spectate_lobby(ws, sid);
+                    return;
+                }
+                if (type == "add_bot") {
+                    handle_add_bot(ws, j.value("lobby_id", ""),
+                                   j.value("difficulty", ""));
+                    return;
+                }
+                if (type == "remove_bot") {
+                    handle_remove_bot(ws, j.value("lobby_id", ""),
+                                      j.value("bot_uuid", ""));
                     return;
                 }
 
@@ -578,7 +592,9 @@ void WsServer::create_session(const std::string& lobby_id) {
 
     std::vector<LobbyPlayer> players;
     std::string session_id;
-    LobbyMode lobby_mode = LobbyMode::UI;
+    LobbyMode   lobby_mode            = LobbyMode::UI;
+    bool        spawn_bots_on_leave   = false;
+    std::string bot_spawn_difficulty  = "easy";
     try {
         auto handle = db_pool_.acquire();
         pqxx::work txn(handle.get());
@@ -588,7 +604,9 @@ void WsServer::create_session(const std::string& lobby_id) {
             return;
         }
         if (auto lobby = lobby_repo_.find_by_id(txn, lobby_id)) {
-            lobby_mode = lobby->mode;
+            lobby_mode           = lobby->mode;
+            spawn_bots_on_leave  = lobby->spawn_bots_on_leave;
+            bot_spawn_difficulty = lobby->bot_spawn_difficulty;
         }
         session_id = session_repo_.create_session(txn, lobby_id);
         // AGENT-CTX: Transition Starting→InGame here (not in HttpServer) because
@@ -616,6 +634,16 @@ void WsServer::create_session(const std::string& lobby_id) {
                                  cfg_.scoring.starting_balance, false, true});
     }
 
+    // Append bot slots after all human slots. Bot player_ids are negative so
+    // they are never matched in the human .open / player_to_lobby_ path.
+    const auto bot_list    = bot_manager_.get_bots(lobby_id);
+    const int  human_count = static_cast<int>(slots.size());
+    for (int i = 0; i < static_cast<int>(bot_list.size()); ++i) {
+        const int64_t bot_pid = -(static_cast<int64_t>(human_count + i) + 1);
+        slots.push_back(SlotInfo{bot_pid, bot_list[i].username,
+                                 cfg_.scoring.starting_balance, false, true});
+    }
+
     // Populate the session map entry before constructing GameSession so that
     // we can pass queue refs by reference (GameSession stores refs, not copies).
     auto& as        = active_sessions_[lobby_id];
@@ -624,18 +652,45 @@ void WsServer::create_session(const std::string& lobby_id) {
     as.inbound  = std::make_unique<moodycamel::ReaderWriterQueue<NetEvent>>(256);
     as.outbound = std::make_unique<moodycamel::ReaderWriterQueue<GameEvent>>(256);
 
+    // Wire bot adapters and enqueue their NetConnect before NetStartGame so
+    // GameSession registers all bot slots before the countdown begins.
+    if (!bot_list.empty()) {
+        std::unordered_map<std::string, int> slot_map;
+        for (int i = 0; i < static_cast<int>(bot_list.size()); ++i)
+            slot_map[bot_list[i].bot_uuid] = human_count + i;
+        bot_manager_.attach_to_session(
+            lobby_id, slot_map,
+            cfg_.scoring.points_per_card,
+            cfg_.scoring.pot_size / static_cast<int>(slots.size()),
+            cfg_.game.round_duration_seconds,
+            lobby_mode == LobbyMode::UI
+        );
+        for (int i = 0; i < static_cast<int>(bot_list.size()); ++i) {
+            const int     slot    = human_count + i;
+            const int64_t bot_pid = -(static_cast<int64_t>(slot) + 1);
+            as.inbound->enqueue(NetConnect{slot, bot_pid, bot_list[i].username});
+        }
+    }
+
+    as.spawn_bots_on_leave_  = spawn_bots_on_leave;
+    as.bot_spawn_difficulty_ = bot_spawn_difficulty;
+
+    GameSessionContext gs_ctx{cfg_, server_log_, engine_log_, std::mt19937{rng_()}, db_pool_};
+
     as.session = std::make_unique<GameSession>(
         session_id, lobby_id,
         as.slots_,          // copy: GameSession owns its own SlotInfo vector
-        GameSessionContext{cfg_, server_log_, engine_log_, std::mt19937{rng_()}, db_pool_},
+        std::move(gs_ctx),
         *as.inbound, *as.outbound);
 
     as.session->start();
     as.inbound->enqueue(NetStartGame{});
 
-    // Populate reverse-lookup so .open can route reconnecting players
+    // Populate reverse-lookup so .open can route reconnecting players.
+    // Skip bot slots (negative player_ids) — bots never reconnect.
     for (const auto& slot_info : as.slots_) {
-        player_to_lobby_[slot_info.player_id] = lobby_id;
+        if (slot_info.player_id >= 0)
+            player_to_lobby_[slot_info.player_id] = lobby_id;
     }
 
     server_log_.info("create_session",
@@ -664,8 +719,11 @@ void WsServer::teardown_session(const std::string& lobby_id) {
                           std::string("DB error closing lobby: ") + ex.what());
     }
 
+    bot_manager_.teardown_session(lobby_id);
+
     for (const auto& slot_info : as.slots_) {
-        player_to_lobby_.erase(slot_info.player_id);
+        if (slot_info.player_id >= 0)
+            player_to_lobby_.erase(slot_info.player_id);
     }
     active_sessions_.erase(it);
     server_log_.info("teardown_session", "session torn down for lobby " + lobby_id);
@@ -689,10 +747,12 @@ void WsServer::drain_all_on_loop() {
                     // trade feed, balances) but never player-targeted messages.
                     for (auto& [sid, ws] : as.spectator_handles_)
                         ws->send(arg.json, uWS::OpCode::TEXT);
+                    bot_manager_.dispatch_to_bots(lobby_id, arg.json, -1);
                 } else if constexpr (std::is_same_v<T, GameTargeted>) {
                     auto wh = as.slot_to_ws_.find(arg.slot);
                     if (wh != as.slot_to_ws_.end())
                         wh->second->send(arg.json, uWS::OpCode::TEXT);
+                    bot_manager_.dispatch_to_bots(lobby_id, arg.json, arg.slot);
                 } else if constexpr (std::is_same_v<T, GameSpectatorTargeted>) {
                     auto wh = as.spectator_handles_.find(arg.spectator_id);
                     if (wh != as.spectator_handles_.end())
@@ -702,9 +762,45 @@ void WsServer::drain_all_on_loop() {
                         ws->send(arg.json, uWS::OpCode::TEXT);
                 } else if constexpr (std::is_same_v<T, GameDone>) {
                     done.push_back(lobby_id);
+                } else if constexpr (std::is_same_v<T, GameSpawnBot>) {
+                    if (as.inbound && as.spawn_bots_on_leave_) {
+                        bot_manager_.spawn_replacement(
+                            lobby_id,
+                            BotSpawnContext{
+                                arg.slot,
+                                arg.hand,
+                                arg.balance,
+                                arg.remaining_s,
+                                as.bot_spawn_difficulty_,
+                                cfg_.scoring.points_per_card,
+                                cfg_.scoring.pot_size / static_cast<int>(as.slots_.size()),
+                                cfg_.game.round_duration_seconds,
+                            },
+                            *as.inbound,
+                            as.lobby_mode_ == LobbyMode::UI
+                        );
+                        // Notify all clients so they un-grey the slot and update the roster.
+                        auto bots = bot_manager_.get_bots(lobby_id);
+                        for (const auto& b : bots) {
+                            if (b.slot != arg.slot) continue;
+                            nlohmann::json n;
+                            n["type"]           = "game_bot_joined";
+                            n["player_slot"]    = arg.slot;
+                            n["username"]       = b.username;
+                            n["bot_uuid"]       = b.bot_uuid;
+                            n["bot_difficulty"] = b.difficulty;
+                            std::string payload = n.dump();
+                            for (auto& [slot, ws] : as.slot_to_ws_)
+                                ws->send(payload, uWS::OpCode::TEXT);
+                            for (auto& [sid, ws] : as.spectator_handles_)
+                                ws->send(payload, uWS::OpCode::TEXT);
+                            break;
+                        }
+                    }
                 }
             }, ev);
         }
+        bot_manager_.drain_bot_actions(lobby_id, *as.inbound);
     }
 
     for (const auto& lid : done) {
@@ -828,6 +924,186 @@ void WsServer::handle_spectate_lobby(WsHandle ws, const std::string& lobby_id) {
         "spectator player_id=" + std::to_string(data->player_id) +
         " joined lobby " + lobby_id +
         " (count=" + std::to_string(as.spectator_count_) + ")");
+}
+
+// ─── handle_add_bot ───────────────────────────────────────────────────────
+void WsServer::handle_add_bot(WsHandle ws, const std::string& lobby_id,
+                               const std::string& difficulty) {
+    auto* data = ws->getUserData();
+
+    if (lobby_id.empty() || difficulty.empty()) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "add_bot requires lobby_id and difficulty", server_log_);
+        return;
+    }
+
+    // Parse difficulty
+    anjeer::engine::BotDifficulty diff;
+    if      (difficulty == "easy")   diff = anjeer::engine::BotDifficulty::Easy;
+    else if (difficulty == "medium") diff = anjeer::engine::BotDifficulty::Medium;
+    else if (difficulty == "hard")   diff = anjeer::engine::BotDifficulty::Hard;
+    else {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "difficulty must be easy, medium, or hard", server_log_);
+        return;
+    }
+
+    std::vector<LobbyPlayer> db_players;
+    std::optional<Lobby> opt_lobby;
+    try {
+        auto handle = db_pool_.acquire();
+        pqxx::work txn(handle.get());
+        opt_lobby  = lobby_repo_.find_by_id(txn, lobby_id);
+        if (opt_lobby) db_players = lobby_repo_.list_players(txn, lobby_id);
+    } catch (const std::exception& ex) {
+        server_log_.error("add_bot", std::string("DB error: ") + ex.what());
+        serialise::error(ws, WsErrorCode::MalformedMessage, "internal error", server_log_);
+        return;
+    }
+
+    if (!opt_lobby) {
+        serialise::error(ws, WsErrorCode::LobbyNotFound, "lobby not found", server_log_);
+        return;
+    }
+    if (opt_lobby->creator_id != data->player_id) {
+        serialise::error(ws, WsErrorCode::NotLobbyOwner,
+                         "only the lobby owner can add bots", server_log_);
+        return;
+    }
+    if (opt_lobby->status != LobbyStatus::Waiting) {
+        serialise::error(ws, WsErrorCode::LobbyAlreadyStarted,
+                         "lobby has already started", server_log_);
+        return;
+    }
+
+    const int total      = static_cast<int>(db_players.size())
+                         + static_cast<int>(bot_manager_.get_bots(lobby_id).size());
+    const int open_slots = opt_lobby->max_players - total;
+    if (open_slots <= 0) {
+        serialise::error(ws, WsErrorCode::BotLimitReached, "lobby is full", server_log_);
+        return;
+    }
+
+    auto [ok, result] = bot_manager_.add_bot(lobby_id, diff, open_slots);
+    if (!ok) {
+        serialise::error(ws, WsErrorCode::BotLimitReached, result, server_log_);
+        return;
+    }
+
+    try {
+        auto handle = db_pool_.acquire();
+        pqxx::work txn(handle.get());
+        lobby_repo_.adjust_bot_count(txn, lobby_id, +1);
+        txn.commit();
+    } catch (const std::exception& ex) {
+        // Non-fatal: bot is live in BotManager but DB counter may be stale.
+        // bot_count divergence is detectable by comparing BotManager::get_bots() with
+        // the DB value. Log enough context to diagnose without a full investigation.
+        server_log_.error("add_bot",
+            "bot_count update failed lobby=" + lobby_id +
+            " bot_uuid=" + result +
+            " err=" + ex.what());
+    }
+
+    const std::string& bot_uuid = result;
+    const auto bots = bot_manager_.get_bots(lobby_id);
+    std::string username;
+    for (const auto& b : bots)
+        if (b.bot_uuid == bot_uuid) { username = b.username; break; }
+
+    nlohmann::json ev{
+        {"type",           "player_joined"},
+        {"lobby_id",       lobby_id},
+        {"player_id",      nullptr},
+        {"bot_uuid",       bot_uuid},
+        {"username",       username},
+        {"is_bot",         true},
+        {"bot_difficulty", difficulty},
+        {"joined_at",      ""},
+        {"player_count",   total + 1},
+    };
+    event_bus_.publish("lobby:" + lobby_id, ev.dump());
+    server_log_.info("add_bot", "added " + difficulty + " bot to lobby " + lobby_id);
+}
+
+// ─── handle_remove_bot ────────────────────────────────────────────────────
+void WsServer::handle_remove_bot(WsHandle ws, const std::string& lobby_id,
+                                  const std::string& bot_uuid) {
+    auto* data = ws->getUserData();
+
+    if (lobby_id.empty() || bot_uuid.empty()) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "remove_bot requires lobby_id and bot_uuid", server_log_);
+        return;
+    }
+
+    std::optional<Lobby> opt_lobby;
+    int db_player_count = 0;
+    try {
+        auto handle = db_pool_.acquire();
+        pqxx::work txn(handle.get());
+        opt_lobby = lobby_repo_.find_by_id(txn, lobby_id);
+        if (opt_lobby)
+            db_player_count = static_cast<int>(
+                lobby_repo_.list_players(txn, lobby_id).size());
+    } catch (const std::exception& ex) {
+        server_log_.error("remove_bot", std::string("DB error: ") + ex.what());
+        serialise::error(ws, WsErrorCode::MalformedMessage, "internal error", server_log_);
+        return;
+    }
+
+    if (!opt_lobby) {
+        serialise::error(ws, WsErrorCode::LobbyNotFound, "lobby not found", server_log_);
+        return;
+    }
+    if (opt_lobby->creator_id != data->player_id) {
+        serialise::error(ws, WsErrorCode::NotLobbyOwner,
+                         "only the lobby owner can remove bots", server_log_);
+        return;
+    }
+    if (opt_lobby->status != LobbyStatus::Waiting) {
+        serialise::error(ws, WsErrorCode::LobbyAlreadyStarted,
+                         "cannot remove bots after game starts", server_log_);
+        return;
+    }
+
+    // Find username before removal for the broadcast
+    std::string username;
+    for (const auto& b : bot_manager_.get_bots(lobby_id))
+        if (b.bot_uuid == bot_uuid) { username = b.username; break; }
+
+    if (!bot_manager_.remove_bot(lobby_id, bot_uuid)) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "bot not found in lobby", server_log_);
+        return;
+    }
+
+    try {
+        auto handle = db_pool_.acquire();
+        pqxx::work txn(handle.get());
+        lobby_repo_.adjust_bot_count(txn, lobby_id, -1);
+        txn.commit();
+    } catch (const std::exception& ex) {
+        // Non-fatal: bot is removed from BotManager but DB counter may be stale.
+        server_log_.error("remove_bot",
+            "bot_count update failed lobby=" + lobby_id +
+            " bot_uuid=" + bot_uuid +
+            " err=" + ex.what());
+    }
+
+    const int new_total = db_player_count
+                        + static_cast<int>(bot_manager_.get_bots(lobby_id).size());
+    nlohmann::json ev{
+        {"type",         "player_left"},
+        {"lobby_id",     lobby_id},
+        {"player_id",    nullptr},
+        {"bot_uuid",     bot_uuid},
+        {"username",     username},
+        {"is_bot",       true},
+        {"player_count", new_total},
+    };
+    event_bus_.publish("lobby:" + lobby_id, ev.dump());
+    server_log_.info("remove_bot", "removed bot " + bot_uuid + " from lobby " + lobby_id);
 }
 
 } // namespace anjeer::server

@@ -19,6 +19,7 @@ export function DocsPage() {
           <li><a href="#inbound">Inbound Messages (Server → Client)</a></li>
           <li><a href="#outbound">Outbound Messages (Client → Server)</a></li>
           <li><a href="#sequences">Event Sequences</a></li>
+          <li><a href="#bot-patterns">Bot Design Patterns</a></li>
           <li><a href="#templates">Template Downloads</a></li>
         </ol>
       </nav>
@@ -207,6 +208,14 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <h3><code>script_log</code></h3>
           <p>Forwarded to <em>spectators only</em> when an API-lobby player sends a script_log command. Control characters stripped, truncated to 500 chars.</p>
           <pre><code>{`{ type: 'script_log', player_slot: number, message: string, timestamp: number }`}</code></pre>
+
+          <h3><code>heartbeat</code></h3>
+          <p>Sent by the server at a fixed interval. No response required — safe to ignore.</p>
+          <pre><code>{`{ type: 'heartbeat', server_time: string /* ISO 8601 UTC */ }`}</code></pre>
+
+          <h3><code>waiting_for_start</code></h3>
+          <p>Broadcast while the lobby is waiting for enough players to connect before the countdown begins.</p>
+          <pre><code>{`{ type: 'waiting_for_start', connected: number, required: number }`}</code></pre>
         </section>
 
         {/* ── 5. Outbound Messages ────────────────────────────────────── */}
@@ -269,9 +278,116 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           </ol>
         </section>
 
-        {/* ── 7. Template Downloads ───────────────────────────────────── */}
+        {/* ── 7. Bot Design Patterns ──────────────────────────────────── */}
+        <section id="bot-patterns">
+          <h2>7. Bot Design Patterns</h2>
+          <p>
+            The message schemas above describe individual events. This section describes how
+            to compose them into a working bot — covering the state you need to track, the
+            signals worth acting on, and the pitfalls that aren&apos;t obvious from the schema alone.
+          </p>
+
+          <h3>The wipe mechanic</h3>
+          <p>
+            <strong>Every trade wipes all four order books.</strong> After any <code>trade</code> event,
+            every resting order across all suits is cancelled — including yours. Your bot must
+            re-post orders after every trade, not just at round start. A bot that posts once and
+            waits will go idle after the first trade fires.
+          </p>
+          <p>
+            This also means you never need to explicitly cancel a resting order after a trade —
+            the wipe has already done it. Sending a <code>cancel_order</code> for a wiped order
+            returns <code>ORDER_NOT_FOUND</code>.
+          </p>
+
+          <h3>Pending order state</h3>
+          <p>Track your resting order as a single object updated by these four events:</p>
+          <pre><code>{`// On order_ack → store the full order
+pending = { order_id, suit, side, price }
+
+// On order_cancel_ack → clear it
+pending = null
+
+// On trade (any) → clear it — the wipe removed your order regardless of your_side
+pending = null
+
+// On round_end / inter_round → clear it
+pending = null`}</code></pre>
+          <p>
+            The key mistake is clearing <code>pending</code> only when <code>your_side</code> is set on a
+            trade. A trade by <em>anyone</em> wipes your order. If you only clear on fills, you&apos;ll
+            loop sending cancels for an order that no longer exists.
+          </p>
+
+          <h3>Hand tracking</h3>
+          <p>Your hand is not re-broadcast after each trade — you must maintain it yourself:</p>
+          <pre><code>{`// On round_start → set initial hand
+hand = msg.hand  // { clubs, diamonds, hearts, spades }
+
+// On trade where your_side is set → update
+if (msg.your_side === 'buy')  hand[msg.suit] += 1
+if (msg.your_side === 'sell') hand[msg.suit] -= 1`}</code></pre>
+
+          <h3>Mid-price construction</h3>
+          <p>
+            After a wipe, both sides of a book may be empty. Rather than hardcoding a fallback
+            price, maintain a last-trade-price per suit and derive a mid from what&apos;s available:
+          </p>
+          <pre><code>{`function midPrice(suit) {
+  const { best_bid, best_ask } = books[suit]
+  if (best_bid != null && best_ask != null) return (best_bid + best_ask) / 2
+  if (best_ask != null) return best_ask
+  if (best_bid != null) return best_bid
+  if (lastTradePrice[suit] != null) return lastTradePrice[suit]
+  return pointsPerCard  // cold fallback
+}
+
+// Update lastTradePrice on every trade event
+lastTradePrice[msg.suit] = msg.price`}</code></pre>
+          <p>
+            Use <code>midPrice(suit)</code> to anchor passive bids (e.g. <code>midPrice * 0.9</code>) and
+            passive offers (e.g. <code>midPrice * 1.1</code>). To trade aggressively, lift the ask or
+            hit the bid directly.
+          </p>
+
+          <h3><code>delta_update</code> as the primary alpha signal</h3>
+          <p>
+            <code>delta_update</code> broadcasts a cumulative snapshot of net card flow per player per
+            suit since round start. It is the strongest public signal for inferring the goal suit —
+            sustained net buying of suit S by multiple opponents is evidence S is likely the goal.
+          </p>
+          <pre><code>{`// deltas[player_slot][suit_index]
+// suit indices: 0=clubs 1=diamonds 2=hearts 3=spades
+
+// Diff successive snapshots to get the per-trade increment
+const inc = deltas[p][s] - prevDeltas[p][s]
+// inc > 0 → player p bought a card of suit s this trade
+// inc < 0 → player p sold`}</code></pre>
+          <p>
+            A simple signal: sum increments across all opponents for each suit after each trade.
+            The suit with the most sustained opponent buying is the highest-conviction goal candidate.
+            Weight recent increments more heavily than early-round ones.
+          </p>
+
+          <h3>Recommended event loop structure</h3>
+          <pre><code>{`on_message(msg):
+  update_book_state(msg)       // book_update, trade → lastTradePrice
+  update_hand(msg)             // trade where your_side is set
+  update_pending(msg)          // order_ack, cancel_ack, any trade
+  update_alpha(msg)            // delta_update → belief/signal update
+  if should_act():             // round active, no pending order
+    action = decide()          // buy / sell / hold
+    send(action)`}</code></pre>
+          <p>
+            The key constraint: <strong>check for a pending order before acting</strong>. Submitting
+            while one is resting adds a second resting order, which is fine, but you lose track of
+            which cancel belongs to which order. The simplest correct model is one resting order at a time.
+          </p>
+        </section>
+
+        {/* ── 8. Template Downloads ───────────────────────────────────── */}
         <section id="templates">
-          <h2>7. Template Downloads</h2>
+          <h2>8. Template Downloads</h2>
           <p>
             These templates handle connection, authentication, and all message types.
             They are designed to be launched via <code>anjeer join</code> or <code>anjeer create</code> —

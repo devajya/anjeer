@@ -2,6 +2,7 @@
 
 #include "server/api_key_repo.h"
 #include "server/auth_service.h"
+#include "server/bot_manager.h"
 #include "server/config.h"
 #include "server/db.h"
 #include "server/event_bus.h"
@@ -31,6 +32,7 @@ struct WsServerDeps {
     AuthService&  auth_service;
     ApiKeyRepo&   api_key_repo;
     IEventBus&    event_bus;
+    BotManager&   bot_manager;
 };
 
 class WsServer {
@@ -51,7 +53,9 @@ private:
         std::vector<SlotInfo>                                      slots_;        // authoritative slot list
         std::unordered_map<int32_t, WsHandle>                      slot_to_ws_;
         std::unordered_map<WsHandle, int32_t>                      ws_to_slot_;
-        LobbyMode                                                  lobby_mode_    = LobbyMode::UI;
+        LobbyMode                                                  lobby_mode_          = LobbyMode::UI;
+        bool                                                       spawn_bots_on_leave_ = false;
+        std::string                                                bot_spawn_difficulty_= "easy";
         // Spectators are tracked separately from player slots; spectator_id is
         // player_id (may be -1 for unauthenticated). ws_to_spectator_ enables
         // O(1) cleanup in .close without scanning the forward map.
@@ -65,6 +69,10 @@ private:
     void drain_all_on_loop   ();
     void handle_leave_lobby  (WsHandle ws, const std::string& lobby_id);
     void handle_spectate_lobby(WsHandle ws, const std::string& lobby_id);
+    void handle_add_bot      (WsHandle ws, const std::string& lobby_id,
+                               const std::string& difficulty);
+    void handle_remove_bot   (WsHandle ws, const std::string& lobby_id,
+                               const std::string& bot_uuid);
 
     // ── Dependencies ─────────────────────────────────────────────────────────
     ServerConfig   cfg_;
@@ -74,6 +82,7 @@ private:
     AuthService&   auth_service_;
     ApiKeyRepo&    api_key_repo_;
     IEventBus&     event_bus_;
+    BotManager&    bot_manager_;
     RateLimiter    rate_limiter_;
 
     // AGENT-CTX: Loggers are members (not locals in run()) so that create_session,

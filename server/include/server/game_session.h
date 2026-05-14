@@ -89,7 +89,7 @@ private:
     // ── Session / round lifecycle ─────────────────────────────────────────────
     void begin_countdown  ();
     void begin_round      ();          // first round and every subsequent round
-    void collect_buy_ins  ();
+    void collect_buy_ins  (int buy_in);
     void end_round        ();
     void begin_inter_round(const std::vector<struct WirePlayerResult>& results,
                             const std::string& goal_suit);
@@ -99,7 +99,9 @@ private:
     // disconnect. It does NOT fire during RoundActive because we allow temporary
     // disconnection without ending the round — the round timer drives expiry.
     void check_end_condition();
-    int  majority_threshold() const { return (active_player_count_ + 1) / 2; }
+    // Majority is computed over real players only — bots (negative player_id) never
+    // vote and are excluded so a lobby of 1 human + 4 bots needs only 1 vote.
+    int  majority_threshold() const { return (real_player_count_ + 1) / 2; }
 
     // ── Engine event pipeline ─────────────────────────────────────────────────
     // AGENT-CTX: Returns true if a trade occurred in the batch. Callers use
@@ -141,7 +143,7 @@ private:
     const ServerConfig& cfg_;
     Logger&             server_log_;
     Logger&             engine_log_;
-    std::mt19937&       rng_;
+    std::mt19937        rng_;
     DbPool&             db_pool_;
 
     moodycamel::ReaderWriterQueue<NetEvent>&  inbound_;
@@ -156,6 +158,10 @@ private:
     std::vector<bool>        vote_to_end_;
     std::vector<bool>        funded_this_round_;   // set by collect_buy_ins each round
     int                      active_player_count_ = 0;
+    // Counts only human slots (player_id >= 0); decremented when a real player
+    // permanently leaves. Majority threshold and min-players check use this so
+    // bot replacements never inflate the required vote count.
+    int                      real_player_count_   = 0;
     std::unordered_set<int32_t> spectator_ids_;   // IDs only — WsHandles stay in WsServer
 
     // AGENT-CTX: Grace window before ending on all-disconnected. 500ms lets
@@ -174,6 +180,7 @@ private:
     // deck properties (goal_suit, bonus_pool, distribution). Points into the static
     // kDecks table — always valid after begin_round, null in Lobby/Countdown phase.
     const struct DeckDef* current_deck_ = nullptr;
+    int                   current_buy_in_ = 0;
 
     std::string current_goal_suit_str() const;  // convenience: suit_name(current_deck_->goal_suit)
 
@@ -183,7 +190,8 @@ private:
 
     // AGENT-CTX: delta_table_[player_slot][suit_index] — net cards gained this
     // round visible to all players. Suit indices match engine::kAllSuits order.
-    std::array<std::array<int,4>, 4>   delta_table_{};
+    // Sized to slots_.size() at construction — supports any player count.
+    std::vector<std::array<int,4>>     delta_table_;
 
     // Per-round result accumulation for game_ended summary
     struct RoundSummary {

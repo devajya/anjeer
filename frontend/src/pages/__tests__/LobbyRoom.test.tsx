@@ -40,9 +40,11 @@ const BASE_LOBBY_STATE: LobbyStateMessage = {
   min_players: 2,
   max_players: 8,
   mode: 'ui',
+  spawn_bots_on_leave: false,
+  bot_spawn_difficulty: 'easy',
   players: [
-    { player_id: 1, username: 'owner', joined_at: '2026-04-23T00:00:00Z' },
-    { player_id: 2, username: 'alice', joined_at: '2026-04-23T00:00:00Z' },
+    { player_id: 1, username: 'owner', joined_at: '2026-04-23T00:00:00Z', is_bot: false },
+    { player_id: 2, username: 'alice', joined_at: '2026-04-23T00:00:00Z', is_bot: false },
   ],
 }
 
@@ -166,7 +168,7 @@ describe('LobbyRoom — start button', () => {
     renderRoom()
 
     await waitFor(() => {
-      expect(screen.getByText('Start Game')).toBeInTheDocument()
+      expect(screen.getByText('Start')).toBeInTheDocument()
     })
   })
 
@@ -191,7 +193,7 @@ describe('LobbyRoom — membership events', () => {
     vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
       lobbyState: {
         ...BASE_LOBBY_STATE,
-        players: [{ player_id: 1, username: 'owner', joined_at: '' }],
+        players: [{ player_id: 1, username: 'owner', joined_at: '', is_bot: false }],
       },
     }))
 
@@ -205,8 +207,8 @@ describe('LobbyRoom — membership events', () => {
       lobbyState: {
         ...BASE_LOBBY_STATE,
         players: [
-          { player_id: 1, username: 'owner', joined_at: '' },
-          { player_id: 2, username: 'alice', joined_at: '' },
+          { player_id: 1, username: 'owner', joined_at: '', is_bot: false },
+          { player_id: 2, username: 'alice', joined_at: '', is_bot: false },
         ],
       },
     }))
@@ -232,7 +234,7 @@ describe('LobbyRoom — membership events', () => {
     vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
       lobbyState: {
         ...BASE_LOBBY_STATE,
-        players: [{ player_id: 1, username: 'owner', joined_at: '' }],
+        players: [{ player_id: 1, username: 'owner', joined_at: '', is_bot: false }],
       },
     }))
 
@@ -260,5 +262,116 @@ describe('LobbyRoom — membership events', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/game?lobby_id=lobby-uuid-1')
     })
+  })
+})
+
+// ─── T17–T19: Bot controls ────────────────────────────────────────────────────
+
+const BOT_PLAYER = {
+  player_id: null,
+  bot_uuid: 'bot-uuid-1',
+  username: 'EasyBot #1',
+  is_bot: true,
+  bot_difficulty: 'easy' as const,
+  joined_at: '',
+}
+
+describe('LobbyRoom — bot controls', () => {
+  test('T17: renders bot difficulty toggle for is_bot player in lobby_state', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: {
+        ...BASE_LOBBY_STATE,
+        players: [
+          { player_id: 1, username: 'owner', joined_at: '', is_bot: false },
+          BOT_PLAYER,
+        ],
+      },
+    }))
+
+    renderRoom()
+
+    await waitFor(() => {
+      // Bot seat shows a per-seat difficulty segmented toggle; "easy" segment is active
+      expect(screen.getByRole('button', { name: 'easy' })).toBeInTheDocument()
+    })
+    expect(screen.getByText('EasyBot #1')).toBeInTheDocument()
+  })
+
+  test('T18: lobby owner sees clickable empty seats when slots available', async () => {
+    // creator_id=1 matches user.id=1; 2 players, max=8 → 6 empty seats clickable
+    renderRoom()
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /add bot to seat/i }).length).toBeGreaterThan(0)
+    })
+  })
+
+  test('T19: non-owner does not see clickable empty seats', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: { ...BASE_LOBBY_STATE, creator_id: 99 },
+    }))
+
+    renderRoom()
+
+    await waitFor(() => screen.getByText('owner'))
+    expect(screen.queryByRole('button', { name: /add bot to seat/i })).toBeNull()
+  })
+
+  test('clicking empty seat then difficulty sends add_bot message', async () => {
+    renderRoom()
+
+    await waitFor(() => screen.getAllByRole('button', { name: /add bot to seat/i }))
+    // Click the first available empty seat
+    fireEvent.click(screen.getAllByRole('button', { name: /add bot to seat/i })[0])
+
+    await waitFor(() => screen.getByRole('button', { name: /easy/i }))
+    fireEvent.click(screen.getByRole('button', { name: /easy/i }))
+
+    expect(mockSendMsg).toHaveBeenCalledWith({
+      type: 'add_bot',
+      lobby_id: 'lobby-uuid-1',
+      difficulty: 'easy',
+    })
+  })
+
+  test('clicking remove sends remove_bot message', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: {
+        ...BASE_LOBBY_STATE,
+        players: [
+          { player_id: 1, username: 'owner', joined_at: '', is_bot: false },
+          BOT_PLAYER,
+        ],
+      },
+    }))
+
+    renderRoom()
+
+    await waitFor(() => screen.getByLabelText(/remove bot/i))
+    fireEvent.click(screen.getByLabelText(/remove bot/i))
+
+    expect(mockSendMsg).toHaveBeenCalledWith({
+      type: 'remove_bot',
+      lobby_id: 'lobby-uuid-1',
+      bot_uuid: 'bot-uuid-1',
+    })
+  })
+})
+
+// ─── CSS regression guards ────────────────────────────────────────────────────
+
+import lobbyRoomCss from '../LobbyRoom.css?raw'
+
+describe('LobbyRoom.css — circle guarantees', () => {
+  const css = lobbyRoomCss
+
+  test('seat__avatar uses aspect-ratio:1 to stay circular', () => {
+    expect(css).toMatch(/\.seat__avatar\s*\{[^}]*aspect-ratio:\s*1/)
+    expect(css).not.toMatch(/\.seat__avatar\s*\{[^}]*height:\s*clamp\(/)
+  })
+
+  test('seat--empty uses aspect-ratio:1 to stay circular', () => {
+    expect(css).toMatch(/\.seat--empty\s*\{[^}]*aspect-ratio:\s*1/)
+    expect(css).not.toMatch(/\.seat--empty\s*\{[^}]*height:\s*clamp\(/)
   })
 })

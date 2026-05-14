@@ -424,3 +424,61 @@
 .lp__btn--spectate:hover {
   background: #254b78;
 }
+
+/* ── Create form (spawn bots toggle + difficulty) ────────────────────────── */
+
+.lp__create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  min-width: 240px;
+}
+
+.lp__create-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.lp__create-toggle input[type="checkbox"] {
+  accent-color: #2e6fda;
+}
+
+.lp__create-difficulty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 1.4rem;
+}
+
+.lp__create-difficulty-label {
+  font-size: 0.78rem;
+  color: #888;
+  width: 100%;
+}
+
+.lp__create-diff-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.lp__create-diff-opt input[type="radio"] {
+  accent-color: #2e6fda;
+}
+
+.lp__create-actions {
+  display: flex;
+  gap: 0.4rem;
+}

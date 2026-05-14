@@ -120,7 +120,7 @@ describe('LobbyBrowser — create lobby', () => {
     fireEvent.click(screen.getByText('Create Lobby'))
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/lobby/NEW999')
+      expect(mockNavigate).toHaveBeenCalledWith('/lobby/NEW999', expect.objectContaining({ state: expect.objectContaining({ lobbyId: expect.any(String) }) }))
     })
   })
 })
@@ -138,7 +138,7 @@ describe('LobbyBrowser — join by code', () => {
     fireEvent.click(screen.getByText('Join by Code'))
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/lobby/ABC123')
+      expect(mockNavigate).toHaveBeenCalledWith('/lobby/ABC123', expect.objectContaining({ state: expect.objectContaining({ lobbyId: expect.any(String) }) }))
     })
   })
 
@@ -167,7 +167,7 @@ describe('LobbyBrowser — Active tab', () => {
     player_count: 4,
   }
 
-  test('Active tab shows in-progress lobbies with disabled In Progress button', async () => {
+  test('Active tab shows in-progress lobbies', async () => {
     vi.stubGlobal('fetch', makeFetch({ list: [LOBBY_ABC, ACTIVE_LOBBY] }))
     renderBrowser()
 
@@ -176,12 +176,8 @@ describe('LobbyBrowser — Active tab', () => {
     fireEvent.click(screen.getByText(/^Active/))
 
     await waitFor(() => {
-      // Active tab card title renders as "Game {code}"
       expect(screen.getByText(/XYZ999/)).toBeInTheDocument()
     })
-
-    const inProgressBtn = screen.getByRole('button', { name: /In Progress/i })
-    expect(inProgressBtn).toBeDisabled()
   })
 
   test('Active tab shows empty state when no games in progress', async () => {

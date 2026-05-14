@@ -80,29 +80,8 @@ const { user, logout } = useAuth()
     sendMessage({ type: 'vote_to_end' })
   }
 
-  // AGENT-CTX: sessionError and gameEnded are terminal states — the session is
-  // over and there is no game to show beneath. Return early so the full game
-  // layout (books, orders, timers) is never rendered in these states.
-  // sessionError takes priority over gameEnded in case both arrive in one
-  // render cycle (e.g. crash fires after game_ended; shouldn't happen but safe).
-  if (sessionError) return <SessionError sessionError={sessionError} />
-  if (gameEnded)    return <GameEndScreen gameEnded={gameEnded} playerSlot={playerSlot} />
-
-  const showRoundEnd    = roundEnd !== null && !roundEndDismissed
-  // AGENT-CTX: InterRoundScreen is shown while interRound is set AND not locally
-  // dismissed. It does not suppress the game layout beneath it — players can see
-  // (but not interact with) the board through the semi-transparent backdrop.
-  const showInterRound  = interRound !== null && !interRoundDismissed
-  const activeSuits  = SUIT_ORDER.filter(s => s in books)
-
-  const lastTradePrices: Record<string, number> = {}
-  for (const t of trades) {
-    if (!(t.suit in lastTradePrices)) lastTradePrices[t.suit] = t.price
-  }
-
-  function handleCancel(orderId: number) {
-    sendMessage({ type: 'cancel_order', order_id: orderId })
-  }
+  const showRoundEnd   = roundEnd !== null && !roundEndDismissed
+  const showInterRound = interRound !== null && !interRoundDismissed
 
   // AGENT-CTX: submit_buy/sell keyboard shortcuts focus the price input rather
   // than hitting market immediately — the flow is: suit key → b/a → type price → Enter.
@@ -171,6 +150,26 @@ const { user, logout } = useAuth()
     onCancelBestSell:  handleCancelBestSell,
     onToggleShortcuts: () => setShowShortcuts(v => !v),
   })
+
+  // AGENT-CTX: sessionError and gameEnded are terminal states — the session is
+  // over and there is no game to show beneath. Return early so the full game
+  // layout (books, orders, timers) is never rendered in these states.
+  // sessionError takes priority over gameEnded in case both arrive in one
+  // render cycle (e.g. crash fires after game_ended; shouldn't happen but safe).
+  // All hooks above must be called before these returns to avoid a hooks-order violation.
+  if (sessionError) return <SessionError sessionError={sessionError} />
+  if (gameEnded)    return <GameEndScreen gameEnded={gameEnded} playerSlot={playerSlot} />
+
+  const activeSuits  = SUIT_ORDER.filter(s => s in books)
+
+  const lastTradePrices: Record<string, number> = {}
+  for (const t of trades) {
+    if (!(t.suit in lastTradePrices)) lastTradePrices[t.suit] = t.price
+  }
+
+  function handleCancel(orderId: number) {
+    sendMessage({ type: 'cancel_order', order_id: orderId })
+  }
 
   const displayBalance = balance ?? null
 

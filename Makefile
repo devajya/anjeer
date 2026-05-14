@@ -73,7 +73,7 @@ dev-frontend:
 dev: build-server reset-lobby-db
 	@fuser -k 9001/tcp 2>/dev/null || true; \
 	fuser -k 10000/tcp 2>/dev/null || true; \
-	trap 'kill $$server_pid $$vite_pid 2>/dev/null; exit 0' INT TERM; \
+	trap 'kill $$server_pid $$vite_pid 2>/dev/null; fuser -k 9001/tcp 2>/dev/null || true; fuser -k 10000/tcp 2>/dev/null || true; exit 0' INT TERM; \
 	./$(BUILD_DIR)/server/server --config $(CONFIG) & server_pid=$$!; \
 	npm run dev --prefix frontend & vite_pid=$$!; \
 	wait
@@ -88,6 +88,7 @@ test-unit: $(BUILD_DIR)/Makefile
 	cmake --build $(BUILD_DIR) --target engine_tests --parallel
 	cmake --build $(BUILD_DIR) --target game_state_tests --parallel
 	cmake --build $(BUILD_DIR) --target scoring_engine_tests --parallel
+	cmake --build $(BUILD_DIR) --target bot_tests --parallel
 	cmake --build $(BUILD_DIR) --target server_tests --parallel
 	cmake --build $(BUILD_DIR) --target ws_server_tests --parallel
 	cmake --build $(BUILD_DIR) --target auth_integration_tests --parallel
@@ -100,6 +101,10 @@ test-unit: $(BUILD_DIR)/Makefile
 	cmake --build $(BUILD_DIR) --target session_queue_tsan_tests --parallel
 	cmake --build $(BUILD_DIR) --target api_key_repo_tests --parallel
 	cmake --build $(BUILD_DIR) --target rate_limiter_tests --parallel
+	cmake --build $(BUILD_DIR) --target bot_scheduler_tests --parallel
+	cmake --build $(BUILD_DIR) --target bot_adapter_tests --parallel
+	cmake --build $(BUILD_DIR) --target bot_manager_tests --parallel
+	cmake --build $(BUILD_DIR) --target bot_headless_tests --parallel
 	# AGENT-CTX: NTFS (/mnt/c/) does not reliably preserve the execute bit on
 	# newly linked ELF binaries. chmod after every build so ctest can run them
 	# regardless of which targets were just rebuilt.

@@ -11,16 +11,19 @@ namespace anjeer::server {
 // ---------------------------------------------------------------------------
 
 Lobby LobbyRepo::row_to_lobby(const pqxx::row& row) {
-    return Lobby{
-        row["id"].as<std::string>(),
-        row["code"].as<std::string>(),
-        row["creator_id"].as<int64_t>(),
-        parse_status(row["status"].as<std::string>()),
-        row["min_players"].as<int>(),
-        row["max_players"].as<int>(),
-        row["created_at"].as<std::string>(),
-        parse_lobby_mode(row["mode"].as<std::string>())
-    };
+    Lobby l;
+    l.id                   = row["id"].as<std::string>();
+    l.code                 = row["code"].as<std::string>();
+    l.creator_id           = row["creator_id"].as<int64_t>();
+    l.status               = parse_status(row["status"].as<std::string>());
+    l.min_players          = row["min_players"].as<int>();
+    l.max_players          = row["max_players"].as<int>();
+    l.created_at           = row["created_at"].as<std::string>();
+    l.mode                 = parse_lobby_mode(row["mode"].as<std::string>());
+    l.spawn_bots_on_leave  = row["spawn_bots_on_leave"].as<bool>();
+    l.bot_spawn_difficulty = row["bot_spawn_difficulty"].as<std::string>();
+    l.bot_count            = row["bot_count"].as<int>();
+    return l;
 }
 
 LobbyPlayer LobbyRepo::row_to_player(const pqxx::row& row) {
@@ -88,7 +91,8 @@ std::string LobbyRepo::generate_code() {
 // SELECT-before-INSERT avoids pqxx::subtransaction, which requires dbtransaction&
 // (incompatible with our DbTxn = transaction_base signature).
 Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
-                         int min_players, int max_players, LobbyMode mode) {
+                         int min_players, int max_players, LobbyMode mode,
+                         bool spawn_bots_on_leave, std::string bot_spawn_difficulty) {
     for (int attempt = 0; attempt < 10; ++attempt) {
         const auto code = generate_code();
         const auto exists = txn.exec_params(
@@ -97,10 +101,13 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
         if (!exists.empty()) continue;
 
         const auto r = txn.exec_params(
-            "INSERT INTO lobbies (code, creator_id, min_players, max_players, mode) "
-            "VALUES ($1, $2, $3, $4, $5) "
-            "RETURNING id, code, creator_id, status, min_players, max_players, created_at, mode",
-            code, creator_id, min_players, max_players, mode_str(mode)
+            "INSERT INTO lobbies (code, creator_id, min_players, max_players, mode, "
+            "                     spawn_bots_on_leave, bot_spawn_difficulty) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+            "RETURNING id, code, creator_id, status, min_players, max_players, created_at, mode, "
+            "          spawn_bots_on_leave, bot_spawn_difficulty, bot_count",
+            code, creator_id, min_players, max_players, mode_str(mode),
+            spawn_bots_on_leave, bot_spawn_difficulty
         );
         if (r.empty())
             throw std::runtime_error("LobbyRepo::create: INSERT RETURNING returned no rows");
@@ -123,7 +130,8 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
 std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
                                              const std::string& lobby_id) {
     const auto r = txn.exec_params(
-        "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode "
+        "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode, "
+        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count "
         "FROM lobbies WHERE id = $1",
         lobby_id
     );
@@ -134,7 +142,8 @@ std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
 std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
                                                const std::string& code) {
     const auto r = txn.exec_params(
-        "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode "
+        "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode, "
+        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count "
         "FROM lobbies WHERE code = $1",
         code
     );
@@ -146,7 +155,8 @@ std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn,
                                                   std::optional<LobbyMode> mode) {
     std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, l.mode, COUNT(lp.player_id) AS player_count "
+        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, "
+        "       COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
         "WHERE l.status = 'waiting'";
@@ -169,7 +179,8 @@ std::vector<LobbyView> LobbyRepo::list_active(pqxx::transaction_base& txn,
                                                 std::optional<LobbyMode> mode) {
     std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, l.mode, COUNT(lp.player_id) AS player_count "
+        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, "
+        "       COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
         "WHERE l.status = 'in_game'";
@@ -285,6 +296,25 @@ bool LobbyRepo::transition_status(pqxx::transaction_base& txn,
         lobby_id, status_str(from), status_str(to)
     );
     return r.affected_rows() > 0;
+}
+
+void LobbyRepo::update_bot_settings(pqxx::transaction_base& txn,
+                                     const std::string& lobby_id,
+                                     bool spawn_bots_on_leave,
+                                     const std::string& bot_spawn_difficulty) {
+    txn.exec_params(
+        "UPDATE lobbies SET spawn_bots_on_leave = $2, bot_spawn_difficulty = $3 WHERE id = $1",
+        lobby_id, spawn_bots_on_leave, bot_spawn_difficulty
+    );
+}
+
+void LobbyRepo::adjust_bot_count(pqxx::transaction_base& txn,
+                                  const std::string& lobby_id,
+                                  int delta) {
+    txn.exec_params(
+        "UPDATE lobbies SET bot_count = GREATEST(0, bot_count + $2) WHERE id = $1",
+        lobby_id, delta
+    );
 }
 
 } // namespace anjeer::server

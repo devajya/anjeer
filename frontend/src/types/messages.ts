@@ -157,6 +157,15 @@ export interface WaitingForStartMessage {
   required: number
 }
 
+export interface LobbyPlayer {
+  player_id: number | null
+  bot_uuid?: string | null
+  username: string
+  is_bot: boolean
+  bot_difficulty?: 'easy' | 'medium' | 'hard'
+  joined_at?: string
+}
+
 /** Full snapshot of a lobby, sent on subscribe_lobby and after reconnect. */
 export interface LobbyStateMessage {
   type: 'lobby_state'
@@ -167,16 +176,21 @@ export interface LobbyStateMessage {
   min_players: number
   max_players: number
   mode: 'ui' | 'api'
-  players: Array<{ player_id: number; username: string; joined_at: string }>
+  spawn_bots_on_leave: boolean
+  bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
+  players: LobbyPlayer[]
 }
 
 /** Broadcast to all subscribers of lobby:{id} when a player joins. */
 export interface PlayerJoinedMessage {
   type: 'player_joined'
   lobby_id: string
-  player_id: number
+  player_id: number | null
+  bot_uuid?: string | null
   username: string
   joined_at: string
+  is_bot: boolean
+  bot_difficulty?: 'easy' | 'medium' | 'hard'
   player_count: number
 }
 
@@ -184,9 +198,25 @@ export interface PlayerJoinedMessage {
 export interface PlayerLeftMessage {
   type: 'player_left'
   lobby_id: string
-  player_id: number
+  player_id: number | null
+  bot_uuid?: string | null
   username: string
+  is_bot: boolean
   player_count: number
+}
+
+/** Client → Server: add a bot to the lobby (owner only). */
+export interface AddBotMessage {
+  type: 'add_bot'
+  lobby_id: string
+  difficulty: 'easy' | 'medium' | 'hard'
+}
+
+/** Client → Server: remove a bot from the lobby (owner only). */
+export interface RemoveBotMessage {
+  type: 'remove_bot'
+  lobby_id: string
+  bot_uuid: string
 }
 
 /**
@@ -254,6 +284,15 @@ export interface GamePlayerLeftMessage {
   type: 'game_player_left'
   player_slot: number
   username: string
+}
+
+/** Broadcast to all connected players when a replacement bot takes a vacated mid-round slot. */
+export interface GameBotJoinedMessage {
+  type: 'game_bot_joined'
+  player_slot: number
+  username: string
+  bot_uuid: string
+  bot_difficulty: 'easy' | 'medium' | 'hard'
 }
 
 /**
@@ -336,6 +375,7 @@ export type ServerMessage =
   | VoteTallyMessage
   | GameEndedMessage
   | GamePlayerLeftMessage
+  | GameBotJoinedMessage
   | SessionErrorMessage
   | DeltaUpdateMessage
   | AllBalancesMessage
@@ -434,6 +474,8 @@ export type ClientCommand =
   | LeaveLobbyCommand
   | SpectateLobbyCommand
   | ScriptLogCommand
+  | AddBotMessage
+  | RemoveBotMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HTTP REST types (not WebSocket)

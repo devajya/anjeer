@@ -24,7 +24,7 @@
   },
   "scoring": {
     "starting_balance": 100,
-    "round_buy_in_pct": 0.20,
+    "pot_size": 40,
     "points_per_card": 20
   },
   "db": {
@@ -46,6 +46,45 @@
     "max_players": 8
   },
   "event_bus": "local",
+  "bots": {
+    "scheduler_threads": 2,
+    "scheduler_tick_ms": 100,
+    "sim_network_delay_ms": 0,
+    "spawn_bots_on_leave": false,
+    "easy": {
+      "tick_interval_ms": 100, "tick_jitter_ms": 0,
+      "thinking_min_ms": 0, "thinking_max_ms": 0,
+      "confidence_discount": 0.80, "taker_threshold": 0.85,
+      "min_bid_ev": 3.0, "max_ask_ev": 7.0,
+      "hand_size_cap": 4, "offload_threshold": 3,
+      "max_concurrent_orders": 2, "conviction_threshold": 0.0,
+      "max_resting_ms": 6000, "nudge_probability": 0.0,
+      "nudge_patience_ms": 3000, "nudge_max_gap": 3,
+      "endgame_threshold_s": 0, "early_seed_threshold": 0.0
+    },
+    "medium": {
+      "tick_interval_ms": 50, "tick_jitter_ms": 0,
+      "thinking_min_ms": 0, "thinking_max_ms": 0,
+      "confidence_discount": 0.90, "taker_threshold": 0.95,
+      "min_bid_ev": 2.0, "max_ask_ev": 8.0,
+      "hand_size_cap": 5, "offload_threshold": 4,
+      "max_concurrent_orders": 4, "conviction_threshold": 0.70,
+      "max_resting_ms": 3000, "nudge_probability": 0.0,
+      "nudge_patience_ms": 1500, "nudge_max_gap": 2,
+      "endgame_threshold_s": 0, "early_seed_threshold": 0.0
+    },
+    "hard": {
+      "tick_interval_ms": 20, "tick_jitter_ms": 0,
+      "thinking_min_ms": 0, "thinking_max_ms": 0,
+      "confidence_discount": 1.00, "taker_threshold": 1.05,
+      "min_bid_ev": 1.5, "max_ask_ev": 8.5,
+      "hand_size_cap": 6, "offload_threshold": 4,
+      "max_concurrent_orders": 6, "conviction_threshold": 0.85,
+      "max_resting_ms": 1500, "nudge_probability": 0.0,
+      "nudge_patience_ms": 500, "nudge_max_gap": 1,
+      "endgame_threshold_s": 0, "early_seed_threshold": 0.0
+    }
+  },
   "rate_limit": {
     "capacity": 20,
     "refill_rate": 5.0,

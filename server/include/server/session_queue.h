@@ -2,6 +2,7 @@
 
 #include "engine/engine.h"
 
+#include <array>
 #include <string>
 #include <variant>
 
@@ -44,6 +45,19 @@ struct GameDone      {};                              // session ended; WsServer
 struct GameSpectatorTargeted  { int32_t spectator_id; std::string json; };
 struct GameSpectatorBroadcast { std::string json; };  // send to all spectators only
 
-using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone, GameSpectatorTargeted, GameSpectatorBroadcast>;
+// Signals WsServer to spawn a replacement bot for a slot vacated mid-round.
+// Always emitted by GameSession::handle_permanent_leave when a real player leaves
+// during RoundActive. WsServer decides whether to act on it based on lobby policy
+// (ActiveSession::spawn_bots_on_leave). Difficulty is also supplied by WsServer.
+struct GameSpawnBot {
+    int                slot;
+    std::array<int, 4> hand;        // card counts per suit at departure
+    int32_t            balance;     // departing player's last balance
+    float              remaining_s; // seconds left in the current round
+};
+
+using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
+                               GameSpectatorTargeted, GameSpectatorBroadcast,
+                               GameSpawnBot>;
 
 } // namespace anjeer::server

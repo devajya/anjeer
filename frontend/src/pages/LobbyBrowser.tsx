@@ -55,7 +55,7 @@ export function LobbyBrowser() {
         credentials: 'include',
       })
       if (res.ok) {
-        navigate(`/lobby/${lobby.code}`)
+        navigate(`/lobby/${lobby.code}`, { state: { lobbyId: lobby.id } })
       } else {
         const body = await res.json().catch(() => ({})) as { error?: string }
         setError(body.error ?? 'Failed to join lobby')
@@ -75,11 +75,13 @@ export function LobbyBrowser() {
         method:      'POST',
         credentials: 'include',
         headers:     { 'Content-Type': 'application/json' },
-        body:        JSON.stringify({ mode: 'ui' }),
+        // spawn_bots_on_leave defaults to false; owner toggles it in LobbyRoom.
+        // bot_spawn_difficulty always medium — difficulty picker removed from creation.
+        body:        JSON.stringify({ mode: 'ui', spawn_bots_on_leave: false, bot_spawn_difficulty: 'medium' }),
       })
       if (res.ok) {
         const lobby: LobbyView = await res.json()
-        navigate(`/lobby/${lobby.code}`)
+        navigate(`/lobby/${lobby.code}`, { state: { lobbyId: lobby.id } })
       } else {
         setError('Failed to create lobby')
       }
@@ -91,8 +93,8 @@ export function LobbyBrowser() {
   async function handleJoinByCode(e: React.FormEvent) {
     e.preventDefault()
     setJoinCodeError(null)
-    const code = codeInput.trim().toUpperCase()
-    const match = waitingLobbies.find(l => l.code === code)
+    const trimmed = codeInput.trim().toUpperCase()
+    const match = waitingLobbies.find(l => l.code === trimmed)
     if (!match) { setJoinCodeError('Lobby not found — try refreshing'); return }
     await joinLobby(match)
   }

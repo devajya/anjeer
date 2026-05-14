@@ -29,8 +29,8 @@
     "inter_round_seconds": 30
   },
   "scoring": {
-    "starting_balance": 100,
-    "round_buy_in_pct": 0.20,
+    "starting_balance": 400,
+    "pot_size": 200,
     "points_per_card": 10
   },
   "db": {
@@ -56,10 +56,49 @@
     }
   },
   "lobby": {
-    "min_players": 2,
-    "max_players": 8
+    "min_players": 4,
+    "max_players": 5
   },
   "event_bus": "local",
+  "bots": {
+    "scheduler_threads": 4,
+    "scheduler_tick_ms": 150,
+    "sim_network_delay_ms": 50,
+    "spawn_bots_on_leave": false,
+    "easy": {
+      "tick_interval_ms": 4000, "tick_jitter_ms": 1000,
+      "thinking_min_ms": 2000, "thinking_max_ms": 4000,
+      "confidence_discount": 0.80, "taker_threshold": 0.85,
+      "min_bid_ev": 3.0, "max_ask_ev": 7.0,
+      "hand_size_cap": 4, "offload_threshold": 3,
+      "max_concurrent_orders": 2, "conviction_threshold": 0.0,
+      "max_resting_ms": 6000, "nudge_probability": 0.60,
+      "nudge_patience_ms": 3000, "nudge_max_gap": 3,
+      "endgame_threshold_s": 0, "early_seed_threshold": 0.0
+    },
+    "medium": {
+      "tick_interval_ms": 2000, "tick_jitter_ms": 500,
+      "thinking_min_ms": 500, "thinking_max_ms": 1500,
+      "confidence_discount": 0.90, "taker_threshold": 0.95,
+      "min_bid_ev": 2.0, "max_ask_ev": 8.0,
+      "hand_size_cap": 5, "offload_threshold": 4,
+      "max_concurrent_orders": 4, "conviction_threshold": 0.70,
+      "max_resting_ms": 3000, "nudge_probability": 0.40,
+      "nudge_patience_ms": 1500, "nudge_max_gap": 2,
+      "endgame_threshold_s": 15, "early_seed_threshold": 0.0
+    },
+    "hard": {
+      "tick_interval_ms": 500, "tick_jitter_ms": 100,
+      "thinking_min_ms": 50, "thinking_max_ms": 200,
+      "confidence_discount": 1.00, "taker_threshold": 1.05,
+      "min_bid_ev": 1.5, "max_ask_ev": 8.5,
+      "hand_size_cap": 6, "offload_threshold": 4,
+      "max_concurrent_orders": 6, "conviction_threshold": 0.85,
+      "max_resting_ms": 1500, "nudge_probability": 0.10,
+      "nudge_patience_ms": 500, "nudge_max_gap": 1,
+      "endgame_threshold_s": 45, "early_seed_threshold": 0.40
+    }
+  },
   "rate_limit": {
     "capacity": 20,
     "refill_rate": 5.0,

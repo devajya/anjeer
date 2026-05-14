@@ -5,6 +5,7 @@
   display: flex;
   flex-direction: column;
   background: #0f0f0f;
+  overflow: hidden;
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
@@ -15,6 +16,7 @@
   justify-content: space-between;
   padding: 0.75rem 1.75rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .lr__back {
@@ -28,7 +30,6 @@
   gap: 0.4rem;
   padding: 0;
 }
-
 .lr__back:hover { color: #ccc; }
 
 .lr__brand {
@@ -40,46 +41,10 @@
 }
 
 .lr__header-right {
-  width: 4rem;   /* mirror left width so brand stays centred */
-}
-
-/* ── Body ────────────────────────────────────────────────────────────────── */
-
-.lr__body {
-  flex: 1;
   display: flex;
-  justify-content: center;
-  padding: 2.5rem 1.5rem;
-}
-
-/* ── Panel ───────────────────────────────────────────────────────────────── */
-
-.lr__panel {
-  width: 100%;
-  max-width: 680px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 20px;
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  align-self: flex-start;
-}
-
-/* ── Title row ───────────────────────────────────────────────────────────── */
-
-.lr__title-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.lr__title {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #f0f0f0;
-  letter-spacing: -0.02em;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 4rem;
 }
 
 .lr__code {
@@ -93,122 +58,371 @@
   letter-spacing: 0.08em;
 }
 
-.lr__status-meta {
-  font-size: 0.8rem;
-  color: #666;
-}
+/* ── Arena wrapper ────────────────────────────────────────────────────────── */
 
-/* ── Player list ─────────────────────────────────────────────────────────── */
-
-.lr__section-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #555;
-  margin-bottom: 0.35rem;
-}
-
-.lr__players {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.lr__player {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
-  padding: 0.55rem 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-size: 0.875rem;
-  color: #d0d0d0;
-}
-
-.lr__player-avatar {
-  width: 1.6rem;
-  height: 1.6rem;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+.lr__arena-wrap {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  padding: 0.5rem 1rem;
+  min-height: 0;
+}
+
+/* ── Arena ────────────────────────────────────────────────────────────────── */
+
+.lr__arena {
+  position: relative;
+  width: min(640px, 100%);
+  /* Height controlled by aspect-ratio; seats positioned by % of both axes */
+  aspect-ratio: 1.4;
+  overflow: hidden;
+}
+
+/* Semi-ellipse table surface — center at (50%, 88%), radius 42%W × 80%H */
+.lr__table {
+  position: absolute;
+  left: 50%;
+  top: 88%;
+  width: 84%;   /* 2 × 42% */
+  height: 160%; /* 2 × 80% — bottom half clipped by overflow:hidden */
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse 60% 40% at 50% 30%,
+    rgba(34, 197, 94, 0.06) 0%,
+    rgba(34, 197, 94, 0.02) 60%,
+    transparent 100%
+  );
+  border: 1px solid rgba(34, 197, 94, 0.1);
+  pointer-events: none;
+}
+
+/* ── Seat ─────────────────────────────────────────────────────────────────── */
+
+.seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: clamp(72px, 12%, 90px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  z-index: 1;
+}
+
+/* Empty seat */
+.seat--empty {
+  width: clamp(52px, 9%, 72px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1.5px dashed rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.seat--clickable {
+  cursor: pointer;
+}
+.seat--clickable:hover {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+/* Pending state — showing difficulty picker */
+.seat--pending {
+  width: clamp(80px, 14%, 96px);
+  height: auto;
+  border-radius: 12px;
+  border-style: solid;
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.06);
+  padding: 6px 4px 4px;
+  cursor: default;
+}
+
+.seat__add {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.2);
+  line-height: 1;
+}
+.seat--clickable:hover .seat__add {
+  color: rgba(34, 197, 94, 0.6);
+}
+
+.seat__pick-label {
+  font-size: 0.6rem;
+  color: rgba(34, 197, 94, 0.7);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+/* Difficulty picker (inside pending empty seat) */
+.seat__diff-picker {
+  display: flex;
+  gap: 2px;
+}
+
+.seat__diff-opt {
+  width: 28px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.08);
+  color: rgba(34, 197, 94, 0.85);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.seat__diff-opt:hover {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.6);
+}
+
+.seat__cancel {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.seat__cancel:hover { color: rgba(248, 113, 113, 0.7); }
+
+/* Occupied seat (player or bot) */
+.seat--player,
+.seat--bot {
+  cursor: default;
+}
+
+.seat__avatar {
+  width: clamp(52px, 9%, 72px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(0.85rem, 1.6%, 1.1rem);
   font-weight: 700;
   color: #ccc;
   flex-shrink: 0;
 }
 
-.lr__player-name {
-  flex: 1;
+/* Green ring = lobby creator/host */
+.seat--creator .seat__avatar {
+  border-color: rgba(34, 197, 94, 0.55);
+  border-width: 2.5px;
 }
 
-/* AGENT-CTX: "host" badge — text says "host" not "owner" to avoid duplicate
-   text when the player's username is literally the word "owner". */
-.lr__owner-badge {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: rgba(74, 222, 128, 0.85);
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  border-radius: 6px;
-  padding: 0.1rem 0.45rem;
+/* Bright green ring = current user */
+.seat--me .seat__avatar {
+  border-color: rgba(34, 197, 94, 0.75);
+  background: rgba(34, 197, 94, 0.08);
+  color: rgba(34, 197, 94, 0.9);
 }
 
-/* ── Empty / waiting state ───────────────────────────────────────────────── */
-
-.lr__waiting {
-  text-align: center;
-  color: #555;
-  font-size: 0.875rem;
-  padding: 1.5rem 0;
+/* Both creator and current user */
+.seat--creator.seat--me .seat__avatar {
+  border-color: rgba(34, 197, 94, 0.9);
 }
 
-/* ── Actions row ─────────────────────────────────────────────────────────── */
+.seat--bot .seat__avatar {
+  background: rgba(148, 163, 184, 0.07);
+  border-color: rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.7);
+}
 
-.lr__actions {
+.seat__bot-icon {
+  width: 52%;
+  height: 52%;
+}
+
+.seat__name {
+  font-size: clamp(0.6rem, 1.1%, 0.74rem);
+  color: #bbb;
+  font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.seat--me .seat__name { color: rgba(34, 197, 94, 0.85); }
+
+/* Per-seat difficulty segmented toggle (bot seats) */
+.seat__diff-toggle {
   display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.seat__diff-seg {
+  width: 24px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.62rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.seat__diff-seg:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+}
+.seat__diff-seg--active {
+  background: rgba(148, 163, 184, 0.2) !important;
+  color: rgba(148, 163, 184, 0.9) !important;
+  cursor: default;
+}
+.seat__diff-seg:disabled:not(.seat__diff-seg--active) {
+  cursor: default;
+}
+
+.seat__remove {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.seat__remove:hover { color: rgba(248, 113, 113, 0.8); }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.lr__footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.75rem;
-  flex-wrap: wrap;
+  padding: 0.9rem 1.5rem 1.1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.lr__start-btn {
-  padding: 0.55rem 1.4rem;
-  background: rgba(34, 197, 94, 0.85);
-  color: #050505;
+/* Join toggle row */
+.lr__join-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lr__join-label {
+  font-size: 0.72rem;
+  color: #666;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.lr__toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: default;
+  transition: background 0.2s, border-color 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.lr__toggle--interactive {
+  cursor: pointer;
+  pointer-events: auto;
+}
+.lr__toggle--on {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.lr__toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  transition: left 0.2s, background 0.2s;
+}
+.lr__toggle--on .lr__toggle-thumb {
+  left: 18px;
+  background: rgba(34, 197, 94, 0.9);
+}
+
+.lr__join-state {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #555;
+  min-width: 2rem;
+  transition: color 0.2s;
+}
+.lr__join-state--on { color: rgba(34, 197, 94, 0.8); }
+
+/* Action buttons */
+.lr__footer-btns {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.lr__btn {
   border: none;
   border-radius: 999px;
   font-size: 0.875rem;
   font-weight: 700;
   cursor: pointer;
-  transition: filter 0.12s;
+  padding: 0.55rem 1.5rem;
+  transition: filter 0.12s, background 0.12s;
 }
 
-.lr__start-btn:hover:not(:disabled) {
-  filter: brightness(1.1);
+.lr__btn--primary {
+  background: rgba(34, 197, 94, 0.85);
+  color: #050505;
 }
-
-.lr__start-btn:disabled {
-  background: rgba(255, 255, 255, 0.1);
+.lr__btn--primary:hover:not(:disabled) { filter: brightness(1.1); }
+.lr__btn--primary:disabled {
+  background: rgba(255, 255, 255, 0.08);
   color: #555;
   cursor: default;
 }
 
-.lr__hint {
-  font-size: 0.8rem;
-  color: #666;
+.lr__btn--ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: #999;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
+.lr__btn--ghost:hover { background: rgba(255, 255, 255, 0.1); color: #ccc; }
 
-/* ── Error ───────────────────────────────────────────────────────────────── */
+/* ── Alert ───────────────────────────────────────────────────────────────── */
 
 .lr__alert {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: rgba(248, 113, 113, 0.9);
+  margin: 0;
 }
+
+/* ── Error page ──────────────────────────────────────────────────────────── */
 
 .lr__error-page {
   display: flex;

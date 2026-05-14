@@ -23,22 +23,21 @@ namespace anjeer::server {
 struct DeckDef {
     std::array<int, 4> distribution;
     engine::Suit       goal_suit;
-    int                bonus_pool;
 };
 
 static constexpr std::array<DeckDef, 12> kDecks = {{
-    { {10,  8, 10, 12}, engine::Suit::Clubs,    100 },
-    { {10, 10,  8, 12}, engine::Suit::Clubs,    100 },
-    { { 8, 10, 10, 12}, engine::Suit::Clubs,    120 },
-    { {12, 10, 10,  8}, engine::Suit::Spades,   120 },
-    { {12,  8, 10, 10}, engine::Suit::Diamonds, 100 },
-    { {12, 10,  8, 10}, engine::Suit::Spades,   100 },
-    { { 8, 10, 12, 10}, engine::Suit::Diamonds, 100 },
-    { {10, 10, 12,  8}, engine::Suit::Spades,   100 },
-    { {10,  8, 12, 10}, engine::Suit::Diamonds, 120 },
-    { {10, 12,  8, 10}, engine::Suit::Hearts,   120 },
-    { { 8, 12, 10, 10}, engine::Suit::Clubs,    100 },
-    { {10, 12, 10,  8}, engine::Suit::Spades,   100 },
+    { {10,  8, 10, 12}, engine::Suit::Clubs    },
+    { {10, 10,  8, 12}, engine::Suit::Clubs    },
+    { { 8, 10, 10, 12}, engine::Suit::Clubs    },
+    { {12, 10, 10,  8}, engine::Suit::Spades   },
+    { {12,  8, 10, 10}, engine::Suit::Diamonds },
+    { {12, 10,  8, 10}, engine::Suit::Spades   },
+    { { 8, 10, 12, 10}, engine::Suit::Diamonds },
+    { {10, 10, 12,  8}, engine::Suit::Spades   },
+    { {10,  8, 12, 10}, engine::Suit::Diamonds },
+    { {10, 12,  8, 10}, engine::Suit::Hearts   },
+    { { 8, 12, 10, 10}, engine::Suit::Clubs    },
+    { {10, 12, 10,  8}, engine::Suit::Spades   },
 }};
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -73,7 +72,7 @@ GameSession::GameSession(
     : cfg_(ctx.cfg)
     , server_log_(ctx.server_log)
     , engine_log_(ctx.engine_log)
-    , rng_(ctx.rng)
+    , rng_(std::move(ctx.rng))
     , db_pool_(ctx.db_pool)
     , inbound_(inbound)
     , outbound_(outbound)
@@ -84,7 +83,11 @@ GameSession::GameSession(
 {
     vote_to_end_.assign(slots_.size(), false);
     funded_this_round_.assign(slots_.size(), false);
+    delta_table_.assign(slots_.size(), {0, 0, 0, 0});
     active_player_count_ = static_cast<int>(slots_.size());
+    real_player_count_   = static_cast<int>(std::count_if(
+        slots_.begin(), slots_.end(),
+        [](const SlotInfo& s) { return s.player_id >= 0; }));
 
     for (const auto& suit_str : cfg_.order_book.active_suits) {
         const auto s = engine::suit_from_string(suit_str);
@@ -267,6 +270,13 @@ void GameSession::handle_submit(const NetSubmit& ev) {
         emit_error(ev.slot, "INSUFFICIENT_BALANCE", "insufficient balance");
         return;
     }
+    if (ev.side == engine::Side::Sell && game_state_) {
+        int si = engine::suit_index(*suit_opt);
+        if (game_state_->hand(ev.slot).suit_counts[si] == 0) {
+            emit_error(ev.slot, "INSUFFICIENT_CARDS", "no cards of this suit to sell");
+            return;
+        }
+    }
     auto events = books_[engine::suit_index(*suit_opt)].submit(ev.slot, ev.side, ev.price);
     const bool had_trade = dispatch_events(ev.slot, events);
     if (had_trade) {
@@ -330,7 +340,7 @@ void GameSession::handle_vote_to_end(int32_t slot) {
 
     const int votes  = static_cast<int>(
         std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
-    const int needed = (active_player_count_ + 1) / 2;
+    const int needed = majority_threshold();
 
     server_log_.info("vote_to_end",
         "slot=" + std::to_string(slot) +
@@ -348,12 +358,37 @@ void GameSession::handle_permanent_leave(int32_t slot) {
     s.connected = false;
     active_player_count_--;
 
+    const bool was_real_player = (s.player_id >= 0);
+    if (was_real_player) real_player_count_--;
+
     server_log_.info("permanent_leave",
         "slot=" + std::to_string(slot) + " player=" + s.username +
-        " active_remaining=" + std::to_string(active_player_count_));
+        " active_remaining=" + std::to_string(active_player_count_) +
+        " real_remaining=" + std::to_string(real_player_count_));
 
     if (phase_ == SessionPhase::RoundActive || phase_ == SessionPhase::InterRound)
         emit_broadcast(serialise::game_player_left_payload(slot, s.username));
+
+    // No real players left — end immediately regardless of phase.
+    if (real_player_count_ == 0) {
+        end_game(true);
+        return;
+    }
+
+    // Signal WsServer to consider spawning a replacement bot.
+    // WsServer decides whether to act based on the lobby's spawn_bots_on_leave policy.
+    if (was_real_player && phase_ == SessionPhase::RoundActive && game_state_) {
+        const auto& hand = game_state_->hand(slot);
+        const float remaining = std::max(0.0f, std::chrono::duration<float>(
+            round_deadline_ - std::chrono::steady_clock::now()).count());
+        outbound_.enqueue(GameSpawnBot{
+            slot,
+            {hand.suit_counts[0], hand.suit_counts[1],
+             hand.suit_counts[2], hand.suit_counts[3]},
+            s.balance,
+            remaining
+        });
+    }
 
     bool any_connected = false;
     for (const auto& sl : slots_) {
@@ -405,18 +440,19 @@ void GameSession::begin_round() {
     game_state_ = std::make_unique<engine::GameState>(gs_cfg);
     auto deal   = game_state_->deal(rng_);
 
+    current_buy_in_ = cfg_.scoring.pot_size / active_player_count_;
+
     try {
         auto conn = db_pool_.acquire();
         pqxx::work txn(conn.get());
-        const int pot  = cfg_.scoring.round_buy_in() * active_player_count_;
         current_round_id_ = SessionRepo{}.create_round(
-            txn, session_id_, round_number_, current_goal_suit_str(), pot);
+            txn, session_id_, round_number_, current_goal_suit_str(), cfg_.scoring.pot_size);
         txn.commit();
     } catch (const std::exception& ex) {
         server_log_.warn("db", "create_round failed: " + std::string(ex.what()));
     }
 
-    collect_buy_ins();
+    collect_buy_ins(current_buy_in_);
 
     round_deadline_ = std::chrono::steady_clock::now() +
                       std::chrono::seconds(cfg_.game.round_duration_seconds);
@@ -448,8 +484,7 @@ void GameSession::begin_round() {
         " round_end_at=" + round_end_at);
 }
 
-void GameSession::collect_buy_ins() {
-    const int buy_in = cfg_.scoring.round_buy_in();
+void GameSession::collect_buy_ins(int buy_in) {
     for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
         if (!slots_[i].active || funded_this_round_[i]) continue;
         slots_[i].balance    -= buy_in;
@@ -467,7 +502,11 @@ void GameSession::end_round() {
         disconnected.push_back(!slots_[i].connected);
     }
 
-    const engine::ScoringConfig sc{cfg_.scoring.round_buy_in(), cfg_.scoring.points_per_card, current_deck_->bonus_pool};
+    const int goal_si = engine::suit_index(game_state_->goal_suit());
+    int total_goal_cards = 0;
+    for (const auto& h : hands) total_goal_cards += h.suit_counts[goal_si];
+    const int bonus_pool = cfg_.scoring.pot_size - total_goal_cards * cfg_.scoring.points_per_card;
+    const engine::ScoringConfig sc{current_buy_in_, cfg_.scoring.points_per_card, bonus_pool};
     const auto result = engine::score_round(
         hands, game_state_->goal_suit(), disconnected, sc);
 
@@ -507,7 +546,7 @@ void GameSession::begin_inter_round(
         const std::string& goal_suit) {
     phase_ = SessionPhase::InterRound;
 
-    const int needed = (active_player_count_ + 1) / 2;
+    const int needed = majority_threshold();
 
     inter_round_deadline_ = std::chrono::steady_clock::now() +
                             std::chrono::seconds(cfg_.game.inter_round_seconds);
@@ -551,9 +590,9 @@ void GameSession::end_game(bool forced) {
 
 void GameSession::check_end_condition() {
     if (phase_ == SessionPhase::Ended || phase_ != SessionPhase::InterRound) return;
-    if (active_player_count_ < cfg_.lobby.min_players) {
+    if (real_player_count_ < cfg_.lobby.min_players) {
         server_log_.info("check_end",
-            "active=" + std::to_string(active_player_count_) +
+            "real=" + std::to_string(real_player_count_) +
             " < min=" + std::to_string(cfg_.lobby.min_players));
         end_game(true);
     }
@@ -654,8 +693,9 @@ void GameSession::apply_post_trade_state(const std::vector<engine::OrderEvent>& 
 }
 
 void GameSession::apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx) {
-    if (buyer_slot  >= 0 && buyer_slot  < 4) delta_table_[buyer_slot][suit_idx]++;
-    if (seller_slot >= 0 && seller_slot < 4) delta_table_[seller_slot][suit_idx]--;
+    int n = static_cast<int>(delta_table_.size());
+    if (buyer_slot  >= 0 && buyer_slot  < n) delta_table_[buyer_slot][suit_idx]++;
+    if (seller_slot >= 0 && seller_slot < n) delta_table_[seller_slot][suit_idx]--;
 }
 
 void GameSession::reset_delta_table() {
@@ -806,7 +846,7 @@ void GameSession::send_spectator_snapshot(int32_t spectator_id) {
     case SessionPhase::InterRound: {
         const int votes  = static_cast<int>(
             std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
-        const int needed = (active_player_count_ + 1) / 2;
+        const int needed = majority_threshold();
         const auto& last = round_history_.back();
         emit_spectator_targeted(spectator_id,
             serialise::inter_round_payload(

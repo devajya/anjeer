@@ -3,6 +3,7 @@ import shlex
 import subprocess
 import sys
 import time
+from typing import Optional
 
 import click
 
@@ -77,11 +78,13 @@ def find_cmd() -> None:
         click.echo("No API lobbies found.")
         return
 
-    click.echo(f"{'CODE':<8} {'PLAYERS':<10} {'MIN':>4} {'MAX':>4}")
-    click.echo("-" * 28)
+    click.echo(f"{'CODE':<8} {'PLAYERS':<10} {'MIN':>4} {'MAX':>4}  {'BOTS':<10}")
+    click.echo("-" * 40)
     for l in lobbies:
+        spawn = l.get("spawn_bots_on_leave", False)
+        bots_col = l.get("bot_spawn_difficulty", "easy") if spawn else "off"
         click.echo(
-            f"{l['code']:<8} {l['player_count']:<10} {l['min_players']:>4} {l['max_players']:>4}"
+            f"{l['code']:<8} {l['player_count']:<10} {l['min_players']:>4} {l['max_players']:>4}  {bots_col:<10}"
         )
 
 
@@ -96,6 +99,15 @@ def join(code: str) -> None:
         sys.exit(1)
 
     code = code.upper()
+
+    # Show spawn-bots setting before joining so the player knows what to expect.
+    try:
+        info = get_lobby_by_code(cfg, code)
+        if info and info.get("spawn_bots_on_leave"):
+            diff = info.get("bot_spawn_difficulty", "easy")
+            click.echo(f"Note: this lobby replaces leaving players with {diff} bots.")
+    except Exception:
+        pass
 
     try:
         join_lobby(cfg, code)
@@ -126,7 +138,18 @@ def join(code: str) -> None:
               help="Minimum players required to start.")
 @click.option("--max", "max_players", default=6, show_default=True,
               help="Maximum players allowed.")
-def create(min_players: int, max_players: int) -> None:
+@click.option("--spawn-bots/--no-spawn-bots", default=None,
+              help="Replace leaving players with bots mid-round.")
+@click.option("--bot-difficulty",
+              type=click.Choice(["easy", "medium", "hard", "random"], case_sensitive=False),
+              default=None,
+              help="Bot difficulty when --spawn-bots is set.")
+def create(
+    min_players: int,
+    max_players: int,
+    spawn_bots: Optional[bool],
+    bot_difficulty: Optional[str],
+) -> None:
     """Create an API lobby, wait for players, then start and launch your script."""
     try:
         cfg = load_config()
@@ -134,15 +157,38 @@ def create(min_players: int, max_players: int) -> None:
         click.echo(str(e), err=True)
         sys.exit(1)
 
+    # Interactive prompts for spawn settings when not supplied via flags.
+    if spawn_bots is None:
+        if sys.stdin.isatty():
+            spawn_bots = click.confirm("Replace leaving players with bots?", default=False)
+        else:
+            spawn_bots = False
+
+    if spawn_bots and bot_difficulty is None:
+        if sys.stdin.isatty():
+            bot_difficulty = click.prompt(
+                "Bot difficulty",
+                type=click.Choice(["easy", "medium", "hard", "random"]),
+                default="easy",
+            )
+        else:
+            bot_difficulty = "easy"
+
+    if not spawn_bots:
+        bot_difficulty = "easy"  # ignored server-side, but keep it a valid value
+
     try:
-        lobby = create_lobby(cfg, min_players, max_players)
+        lobby = create_lobby(cfg, min_players, max_players,
+                             spawn_bots_on_leave=spawn_bots,
+                             bot_spawn_difficulty=bot_difficulty or "easy")
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
     code      = lobby["code"]
     lobby_id  = lobby["id"]
-    click.echo(f"Created lobby {code} (need {min_players} players to start)")
+    spawn_note = f" · bots fill leaves ({bot_difficulty})" if spawn_bots else ""
+    click.echo(f"Created lobby {code} (need {min_players} players to start){spawn_note}")
 
     # Poll until enough players have joined, showing a live count.
     while True:

@@ -22,8 +22,26 @@ void LobbyGateway::handle_unsubscribe(WsHandle ws) {
     cleanup(ws);
 }
 
+// Bot wire convention: player_id is null on the wire (bots have no DB row).
+// Internally, GameSession assigns bots negative player_id slots so that
+// player_id < 0 is the authoritative server-side bot marker. That convention
+// never escapes to clients — is_bot: true is the explicit public signal.
+static void append_bot_players(nlohmann::json& arr,
+                                const std::vector<BotPlayerEntry>& bots) {
+    for (const auto& b : bots) {
+        arr.push_back({
+            {"player_id",      nullptr},  // no DB row; internal slot uses negative id
+            {"bot_uuid",       b.bot_uuid},
+            {"username",       b.username},
+            {"is_bot",         true},
+            {"bot_difficulty", b.difficulty},
+        });
+    }
+}
+
 void LobbyGateway::handle_subscribe(WsHandle ws, const std::string& lobby_id,
-                                     uWS::Loop* loop, Logger& log) {
+                                     uWS::Loop* loop, Logger& log,
+                                     const std::vector<BotPlayerEntry>& bots) {
     if (lobby_id.empty()) {
         nlohmann::json err{{"type","error"},{"code","MALFORMED_MESSAGE"},
                            {"message","subscribe_lobby requires lobby_id"}};
@@ -63,18 +81,22 @@ void LobbyGateway::handle_subscribe(WsHandle ws, const std::string& lobby_id,
             {"player_id", p.player_id},
             {"username",  p.username},
             {"joined_at", p.joined_at},
+            {"is_bot",    false},
         });
     }
+    if (!bots.empty()) append_bot_players(players_arr, bots);
     nlohmann::json snap{
-        {"type",        "lobby_state"},
-        {"lobby_id",    lobby.id},
-        {"code",        lobby.code},
-        {"creator_id",  lobby.creator_id},
-        {"status",      lobby_status_string(lobby.status)},
-        {"min_players", lobby.min_players},
-        {"max_players", lobby.max_players},
-        {"mode",        lobby.mode == LobbyMode::API ? "api" : "ui"},
-        {"players",     players_arr},
+        {"type",                   "lobby_state"},
+        {"lobby_id",               lobby.id},
+        {"code",                   lobby.code},
+        {"creator_id",             lobby.creator_id},
+        {"status",                 lobby_status_string(lobby.status)},
+        {"min_players",            lobby.min_players},
+        {"max_players",            lobby.max_players},
+        {"mode",                   lobby.mode == LobbyMode::API ? "api" : "ui"},
+        {"spawn_bots_on_leave",    lobby.spawn_bots_on_leave},
+        {"bot_spawn_difficulty",   lobby.bot_spawn_difficulty},
+        {"players",                players_arr},
     };
     ws->send(snap.dump(), uWS::OpCode::TEXT);
     log.info("subscribe_lobby", "sent lobby_state to ws for lobby " + lobby_id);

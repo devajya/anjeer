@@ -7,3 +7,5 @@
 #include "engine/suit.h"           // Slice 3: Suit enum, color helpers, suit_name
 #include "engine/game_state.h"     // Slice 3: GameState, PlayerHand, DealResult
 #include "engine/scoring_engine.h" // Slice 4: ScoringConfig, PlayerResult, RoundResult, score_round
+#include "engine/bots/bot_types.h" // Slice 10: BotConfig, BotGameSnapshot, BotAction, BotEvent
+#include "engine/bots/bot_agent.h" // Slice 10: BotAgent base class + make_bot() factory

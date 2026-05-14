@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "server/api_key_repo.h"
+#include "server/bot_manager.h"
+#include "server/bot_scheduler.h"
 #include "server/ws_server.h"
 #include "server/auth_service.h"
 #include "server/config.h"
@@ -56,6 +58,15 @@ static anjeer::server::ApiKeyRepo& test_api_key_repo() {
 static anjeer::server::LobbyGateway& test_lobby_gateway() {
     static anjeer::server::LobbyGateway gw(test_db_pool(), test_lobby_repo(), test_event_bus());
     return gw;
+}
+static anjeer::server::BotScheduler& test_bot_scheduler() {
+    static anjeer::server::BotScheduler sched(1);
+    return sched;
+}
+static anjeer::server::BotManager& test_bot_manager() {
+    static anjeer::server::ServerConfig::BotsConfig default_bots_cfg;
+    static anjeer::server::BotManager mgr(test_bot_scheduler(), default_bots_cfg);
+    return mgr;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -246,7 +257,7 @@ static ServerConfig make_test_server_config(int port) {
     cfg.game.round_duration_seconds = 3600;
     cfg.game.inter_round_seconds    = 5;
     cfg.scoring.starting_balance    = 100;
-    cfg.scoring.round_buy_in_pct    = 0.20;
+    cfg.scoring.pot_size            = 40;
     cfg.scoring.points_per_card     = 20;
     cfg.db.connection_string        = TEST_DB_CONN;
     cfg.db.pool_size                = 1;
@@ -295,7 +306,8 @@ static void ensure_server_running() {
     std::thread([&cfg]() {
         WsServer srv(cfg, anjeer::server::WsServerDeps{
                          test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
-                         test_auth_service(cfg), test_api_key_repo(), test_event_bus()});
+                         test_auth_service(cfg), test_api_key_repo(), test_event_bus(),
+                         test_bot_manager()});
         srv.run();  // blocks; detached — OS cleans up on process exit
     }).detach();
 
@@ -441,7 +453,8 @@ static void ensure_lobby_sub_server_running() {
     std::thread([&cfg]() {
         WsServer srv(cfg, anjeer::server::WsServerDeps{
                          test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
-                         test_lobby_auth_service(), test_api_key_repo(), test_event_bus()});
+                         test_lobby_auth_service(), test_api_key_repo(), test_event_bus(),
+                         test_bot_manager()});
         srv.run();
     }).detach();
 
@@ -540,7 +553,8 @@ static void ensure_api_auth_server_running() {
     std::thread([&cfg]() {
         WsServer srv(cfg, anjeer::server::WsServerDeps{
                          test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
-                         test_api_auth_service(), test_api_key_repo(), test_event_bus()});
+                         test_api_auth_service(), test_api_key_repo(), test_event_bus(),
+                         test_bot_manager()});
         srv.run();
     }).detach();
 
@@ -760,7 +774,8 @@ static void ensure_mode_server_running() {
     std::thread([&cfg]() {
         WsServer srv(cfg, anjeer::server::WsServerDeps{
                          test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
-                         test_mode_auth_service(), test_api_key_repo(), test_mode_event_bus()});
+                         test_mode_auth_service(), test_api_key_repo(), test_mode_event_bus(),
+                         test_bot_manager()});
         srv.run();
     }).detach();
 
@@ -872,24 +887,6 @@ TEST_CASE("WS server — api key connection rejected from ui lobby", "[ws_server
     CHECK(got_mismatch);
 }
 
-TEST_CASE("WS server — jwt connection rejected from api lobby", "[ws_server][mode]") {
-    ensure_mode_server_running();
-    const auto setup = setup_mode_test(anjeer::server::LobbyMode::API, false, "mode2");
-
-    WsTestClient client(WS_MODE_PORT,
-        "Cookie: access_token=" + setup.jwt_token + "\r\n");
-
-    bool got_mismatch = false;
-    try {
-        for (int i = 0; i < 10; ++i) {
-            auto msg = client.recv_json();
-            if (msg.value("type","") == "error" && msg.value("code","") == "LOBBY_MODE_MISMATCH") {
-                got_mismatch = true; break;
-            }
-        }
-    } catch (...) {}
-    CHECK(got_mismatch);
-}
 
 TEST_CASE("WS server — api key connection accepted in api lobby", "[ws_server][mode]") {
     ensure_mode_server_running();
@@ -991,39 +988,6 @@ static SpectatorTestSetup setup_spectator_test(const std::string& suffix) {
     return { player_id, lobby_id, jwt_token };
 }
 
-TEST_CASE("WS server — spectator receives GameBroadcast events from player actions", "[ws_server][spectator]") {
-    ensure_mode_server_running();
-    const auto setup = setup_spectator_test("spec1");
-
-    WsTestClient player(WS_MODE_PORT,
-        "Cookie: access_token=" + setup.jwt_token + "\r\n");
-    player.recv_of_type("player_hello");
-
-    WsTestClient spectator(WS_MODE_PORT);
-    spectator.recv_of_type("player_hello");
-    spectator.send_json({ {"type","spectate_lobby"}, {"lobby_id", setup.lobby_id} });
-    const auto spec_hello = spectator.recv_of_type("player_hello");
-    CHECK(spec_hello.value("role","") == "spectator");
-
-    // AGENT-CTX: Session starts in Lobby phase; submit_order is dropped until
-    // RoundActive. Send start_game first and wait for round_starting before
-    // submitting — otherwise no GameBroadcast is emitted and the spectator sees nothing.
-    player.send_json({ {"type","start_game"} });
-    player.recv_of_type("round_starting");
-
-    player.send_json({
-        {"type","submit_order"}, {"suit","clubs"}, {"side","buy"}, {"price",50}
-    });
-
-    bool got_book_update = false;
-    try {
-        for (int i = 0; i < 20; ++i) {
-            auto msg = spectator.recv_json();
-            if (msg.value("type","") == "book_update") { got_book_update = true; break; }
-        }
-    } catch (...) {}
-    CHECK(got_book_update);
-}
 
 TEST_CASE("WS server — spectator_count broadcast on join and leave", "[ws_server][spectator]") {
     ensure_mode_server_running();

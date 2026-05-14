@@ -64,23 +64,8 @@ ServerConfig load_config(const std::string& path) {
 
         const auto& sc = j.at("scoring");
         cfg.scoring.starting_balance = sc.at("starting_balance").get<int>();
-        cfg.scoring.round_buy_in_pct = sc.at("round_buy_in_pct").get<double>();
+        cfg.scoring.pot_size         = sc.at("pot_size").get<int>();
         cfg.scoring.points_per_card  = sc.at("points_per_card").get<int>();
-
-        // AGENT-CTX: round_buy_in_pct must be in (0, 1]. A pct that makes round_buy_in()
-        // exceed starting_balance puts a player into negative balance on round entry.
-        // Equality (pct=1.0) is allowed — the player spends their entire balance to enter.
-        if (cfg.scoring.round_buy_in_pct <= 0.0 || cfg.scoring.round_buy_in_pct > 1.0) {
-            throw std::runtime_error(
-                "scoring.round_buy_in_pct must be in (0, 1]; got " +
-                std::to_string(cfg.scoring.round_buy_in_pct));
-        }
-        if (cfg.scoring.round_buy_in() > cfg.scoring.starting_balance) {
-            throw std::runtime_error(
-                "computed round_buy_in (" + std::to_string(cfg.scoring.round_buy_in()) +
-                ") must be <= starting_balance (" +
-                std::to_string(cfg.scoring.starting_balance) + ")");
-        }
 
         cfg.http_port   = srv.at("http_port").get<int>();
         cfg.cors_origin = srv.at("cors_origin").get<std::string>();
@@ -117,6 +102,39 @@ ServerConfig load_config(const std::string& path) {
         cfg.lobby.max_players = lb.at("max_players").get<int>();
 
         cfg.event_bus = j.at("event_bus").get<std::string>();
+
+        const auto& bo = j.at("bots");
+        cfg.bots.scheduler_threads    = bo.at("scheduler_threads").get<int>();
+        cfg.bots.scheduler_tick_ms    = bo.at("scheduler_tick_ms").get<int>();
+        cfg.bots.sim_network_delay_ms = bo.at("sim_network_delay_ms").get<int>();
+        cfg.bots.spawn_bots_on_leave  = bo.at("spawn_bots_on_leave").get<bool>();
+
+        auto parse_difficulty = [](const nlohmann::json& d)
+            -> ServerConfig::BotsConfig::PerDifficultyParams {
+            ServerConfig::BotsConfig::PerDifficultyParams p;
+            p.tick_interval_ms      = d.at("tick_interval_ms").get<int>();
+            p.tick_jitter_ms        = d.at("tick_jitter_ms").get<int>();
+            p.thinking_min_ms       = d.at("thinking_min_ms").get<int>();
+            p.thinking_max_ms       = d.at("thinking_max_ms").get<int>();
+            p.confidence_discount   = d.at("confidence_discount").get<float>();
+            p.taker_threshold       = d.at("taker_threshold").get<float>();
+            p.min_bid_ev            = d.at("min_bid_ev").get<float>();
+            p.max_ask_ev            = d.at("max_ask_ev").get<float>();
+            p.hand_size_cap         = d.at("hand_size_cap").get<int>();
+            p.offload_threshold     = d.at("offload_threshold").get<int>();
+            p.max_concurrent_orders = d.at("max_concurrent_orders").get<int>();
+            p.conviction_threshold  = d.at("conviction_threshold").get<float>();
+            p.max_resting_ms        = d.at("max_resting_ms").get<int>();
+            p.nudge_probability     = d.at("nudge_probability").get<float>();
+            p.nudge_patience_ms     = d.at("nudge_patience_ms").get<int>();
+            p.nudge_max_gap         = d.at("nudge_max_gap").get<int>();
+            p.endgame_threshold_s   = d.at("endgame_threshold_s").get<int>();
+            p.early_seed_threshold  = d.at("early_seed_threshold").get<float>();
+            return p;
+        };
+        cfg.bots.easy   = parse_difficulty(bo.at("easy"));
+        cfg.bots.medium = parse_difficulty(bo.at("medium"));
+        cfg.bots.hard   = parse_difficulty(bo.at("hard"));
 
         const auto& rl = j.at("rate_limit");
         cfg.rate_limit.capacity          = rl.at("capacity").get<double>();

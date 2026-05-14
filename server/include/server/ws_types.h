@@ -37,6 +37,11 @@ enum class WsErrorCode {
     SpectatorNotAllowed,
     RateLimitWarning,
     RateLimitExceeded,
+    NotLobbyOwner,
+    BotLimitReached,
+    LobbyAlreadyStarted,
+    LobbyNotFound,
+    LobbyFull,
 };
 
 struct PerSocketData {

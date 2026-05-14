@@ -43,10 +43,22 @@ def join_lobby(cfg: AnjeerConfig, code: str) -> dict:
     return {"lobby_id": body.get("lobby_id", code), "code": body.get("code", code)}
 
 
-def create_lobby(cfg: AnjeerConfig, min_players: int, max_players: int) -> dict:
+def create_lobby(
+    cfg: AnjeerConfig,
+    min_players: int,
+    max_players: int,
+    spawn_bots_on_leave: bool = False,
+    bot_spawn_difficulty: str = "easy",
+) -> dict:
     r = requests.post(
         f"{cfg.api_url}/lobbies",
-        json={"mode": "api", "min_players": min_players, "max_players": max_players},
+        json={
+            "mode": "api",
+            "min_players": min_players,
+            "max_players": max_players,
+            "spawn_bots_on_leave": spawn_bots_on_leave,
+            "bot_spawn_difficulty": bot_spawn_difficulty,
+        },
         headers=_headers(cfg),
         timeout=10,
     )

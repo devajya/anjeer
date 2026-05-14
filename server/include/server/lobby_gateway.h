@@ -9,8 +9,15 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace anjeer::server {
+
+struct BotPlayerEntry {
+    std::string bot_uuid;
+    std::string username;
+    std::string difficulty;  // "easy" | "medium" | "hard"
+};
 
 // Encapsulates all lobby-subscription state and the three operations WsServer needs.
 // All public methods must be called on the uWS event-loop thread.
@@ -19,8 +26,10 @@ public:
     LobbyGateway(DbPool& db_pool, LobbyRepo& lobby_repo, IEventBus& event_bus);
 
     // Synchronous DB query — accepted for Slice 6.
+    // bots: in-memory bot entries from BotManager to merge into the player list.
     void handle_subscribe  (WsHandle ws, const std::string& lobby_id,
-                            uWS::Loop* loop, Logger& log);
+                            uWS::Loop* loop, Logger& log,
+                            const std::vector<BotPlayerEntry>& bots = {});
     void handle_unsubscribe(WsHandle ws);
     void cleanup           (WsHandle ws);
 

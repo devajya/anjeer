@@ -53,5 +53,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
+    // Needed for ?raw CSS imports (regression guard tests that read raw CSS content).
+    css: true,
   },
 })

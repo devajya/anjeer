@@ -24,6 +24,9 @@ add_executable(server
     src/api_key_repo.cpp
     src/spectate_token_repo.cpp
     src/rate_limiter.cpp
+    src/bot_scheduler.cpp
+    src/bot_adapter.cpp
+    src/bot_manager.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -87,6 +90,9 @@ add_executable(ws_server_tests
     src/crypto_util.cpp
     src/api_key_repo.cpp
     src/rate_limiter.cpp
+    src/bot_scheduler.cpp
+    src/bot_adapter.cpp
+    src/bot_manager.cpp
 )
 
 target_include_directories(ws_server_tests PRIVATE include)
@@ -379,3 +385,102 @@ target_link_libraries(rate_limiter_tests PRIVATE
 )
 
 catch_discover_tests(rate_limiter_tests)
+
+# ---------------------------------------------------------------------------
+# BotScheduler unit tests — no DB, no network, pure thread-pool logic
+# ---------------------------------------------------------------------------
+add_executable(bot_scheduler_tests
+    tests/test_bot_scheduler.cpp
+    src/bot_scheduler.cpp
+)
+
+target_include_directories(bot_scheduler_tests PRIVATE include)
+
+target_link_libraries(bot_scheduler_tests PRIVATE
+    Catch2::Catch2WithMain
+    pthread
+)
+
+catch_discover_tests(bot_scheduler_tests)
+
+# ---------------------------------------------------------------------------
+# BotAdapter unit tests — no DB, no network; exercises SPSC queue flow
+# ---------------------------------------------------------------------------
+add_executable(bot_adapter_tests
+    tests/test_bot_adapter.cpp
+    src/bot_adapter.cpp
+    src/bot_scheduler.cpp
+)
+
+target_include_directories(bot_adapter_tests PRIVATE include)
+
+target_link_libraries(bot_adapter_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+
+catch_discover_tests(bot_adapter_tests)
+
+# ---------------------------------------------------------------------------
+# BotManager unit tests — no DB, pure in-memory state
+# ---------------------------------------------------------------------------
+add_executable(bot_manager_tests
+    tests/test_bot_manager.cpp
+    src/bot_manager.cpp
+    src/bot_scheduler.cpp
+    src/bot_adapter.cpp
+)
+
+target_include_directories(bot_manager_tests PRIVATE include)
+
+target_link_libraries(bot_manager_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+
+catch_discover_tests(bot_manager_tests)
+
+# ---------------------------------------------------------------------------
+# Bot headless integration tests — full game with bot-only sessions; needs DB
+# ---------------------------------------------------------------------------
+add_executable(bot_headless_tests
+    tests/test_bot_headless.cpp
+    src/config.cpp
+    src/db.cpp
+    src/game_session.cpp
+    src/game_session_wire.cpp
+    src/session_repo.cpp
+    src/lobby_repo.cpp
+    src/logger.cpp
+    src/event_bus.cpp
+    src/bot_scheduler.cpp
+    src/bot_adapter.cpp
+    src/bot_manager.cpp
+)
+
+target_include_directories(bot_headless_tests PRIVATE include)
+
+target_compile_definitions(bot_headless_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(bot_headless_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    libpqxx::pqxx
+    readerwriterqueue
+    crypto
+    pthread
+)
+
+add_test(NAME bot_headless_tests COMMAND bot_headless_tests)
+set_tests_properties(bot_headless_tests PROPERTIES RUN_SERIAL TRUE)

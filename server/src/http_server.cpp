@@ -76,15 +76,17 @@ crow::response unauthorized(const std::string& error_code)
 nlohmann::json lobby_view_json(const LobbyView& lv)
 {
     nlohmann::json j;
-    j["id"]           = lv.lobby.id;
-    j["code"]         = lv.lobby.code;
-    j["creator_id"]   = lv.lobby.creator_id;
-    j["status"]       = lobby_status_string(lv.lobby.status);
-    j["mode"]         = lobby_mode_string(lv.lobby.mode);
-    j["min_players"]  = lv.lobby.min_players;
-    j["max_players"]  = lv.lobby.max_players;
-    j["player_count"] = lv.player_count;
-    j["created_at"]   = lv.lobby.created_at;
+    j["id"]                    = lv.lobby.id;
+    j["code"]                  = lv.lobby.code;
+    j["creator_id"]            = lv.lobby.creator_id;
+    j["status"]                = lobby_status_string(lv.lobby.status);
+    j["mode"]                  = lobby_mode_string(lv.lobby.mode);
+    j["min_players"]           = lv.lobby.min_players;
+    j["max_players"]           = lv.lobby.max_players;
+    j["player_count"]          = lv.player_count;
+    j["created_at"]            = lv.lobby.created_at;
+    j["spawn_bots_on_leave"]   = lv.lobby.spawn_bots_on_leave;
+    j["bot_spawn_difficulty"]  = lv.lobby.bot_spawn_difficulty;
     return j;
 }
 
@@ -345,12 +347,20 @@ void HttpServer::register_lobby_routes(App& app)
         const auto& player = std::get<Player>(auth);
 
         try {
-            LobbyMode mode = LobbyMode::UI;
+            LobbyMode   mode                 = LobbyMode::UI;
+            bool        spawn_bots_on_leave  = false;
+            std::string bot_spawn_difficulty = "easy";
             if (!req.body.empty()) {
                 try {
                     const auto body = nlohmann::json::parse(req.body);
-                    if (body.contains("mode") && body["mode"].is_string()) {
+                    if (body.contains("mode") && body["mode"].is_string())
                         mode = parse_lobby_mode(body["mode"].get<std::string>());
+                    if (body.contains("spawn_bots_on_leave") && body["spawn_bots_on_leave"].is_boolean())
+                        spawn_bots_on_leave = body["spawn_bots_on_leave"].get<bool>();
+                    if (body.contains("bot_spawn_difficulty") && body["bot_spawn_difficulty"].is_string()) {
+                        const auto d = body["bot_spawn_difficulty"].get<std::string>();
+                        if (d == "easy" || d == "medium" || d == "hard" || d == "random")
+                            bot_spawn_difficulty = d;
                     }
                 } catch (const std::exception&) {
                     return make_error(400, "MALFORMED_JSON");
@@ -364,7 +374,9 @@ void HttpServer::register_lobby_routes(App& app)
                 txn, player.id,
                 config_.lobby.min_players,
                 config_.lobby.max_players,
-                mode
+                mode,
+                spawn_bots_on_leave,
+                bot_spawn_difficulty
             );
 
             const int count = lobby_repo_.player_count(txn, lobby.id);
@@ -535,7 +547,7 @@ void HttpServer::register_lobby_routes(App& app)
                 return make_error(409, "GAME_ALREADY_STARTED");
 
             const int count = lobby_repo_.player_count(txn, lobby_id);
-            if (count < lobby.min_players)
+            if (count + lobby.bot_count < lobby.min_players)
                 return make_error(409, "INSUFFICIENT_PLAYERS");
 
             const bool ok = lobby_repo_.transition_status(
@@ -572,6 +584,51 @@ void HttpServer::register_lobby_routes(App& app)
             return res;
         } catch (const std::exception& e) {
             http_log_.error("lobbies", std::string("start failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
+    // Owner-only: toggle spawn_bots_on_leave. Difficulty always fixed to medium.
+    CROW_ROUTE(app, "/lobbies/<string>/bot-settings").methods(crow::HTTPMethod::Patch)
+    ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        bool spawn_bots = false;
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            if (!body.contains("spawn_bots_on_leave") || !body["spawn_bots_on_leave"].is_boolean())
+                return make_error(400, "MALFORMED_MESSAGE");
+            spawn_bots = body["spawn_bots_on_leave"].get<bool>();
+        } catch (...) {
+            return make_error(400, "MALFORMED_MESSAGE");
+        }
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            if (!lobby_opt)
+                return make_error(404, "LOBBY_NOT_FOUND");
+            if (lobby_opt->creator_id != player.id)
+                return make_error(403, "NOT_LOBBY_OWNER");
+            if (lobby_opt->status != LobbyStatus::Waiting)
+                return make_error(409, "GAME_ALREADY_STARTED");
+
+            lobby_repo_.update_bot_settings(txn, lobby_id, spawn_bots, "medium");
+            txn.commit();
+
+            nlohmann::json res_j;
+            res_j["spawn_bots_on_leave"]  = spawn_bots;
+            res_j["bot_spawn_difficulty"] = "medium";
+            crow::response res(200, res_j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("bot-settings update failed: ") + e.what());
             return make_error(500, "INTERNAL_ERROR");
         }
     });

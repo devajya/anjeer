@@ -56,7 +56,7 @@ static ServerConfig make_cfg() {
     cfg.game.round_duration_seconds = 60;
     cfg.game.inter_round_seconds    = 60;
     cfg.scoring.starting_balance    = 1000;
-    cfg.scoring.round_buy_in_pct    = 0.10;
+    cfg.scoring.pot_size            = 200;
     cfg.scoring.points_per_card     = 20;
     cfg.lobby.min_players           = 2;
     cfg.lobby.max_players           = 8;
@@ -256,7 +256,7 @@ TEST_CASE("G3: round_start targeted to each slot after countdown (0s)",
 TEST_CASE("G4: balance in round_start reflects buy-in deduction",
           "[game_session]") {
     run_migrations();
-    Harness h;   // starting_balance=1000, buy_in_pct=0.10 → buy_in=100
+    Harness h;   // starting_balance=1000, pot_size=200, 2 players → buy_in=100
     h.connect_all();
     h.push(NetStartGame{});
     h.recv_type("round_starting");

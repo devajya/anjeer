@@ -46,8 +46,7 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
 
     // AGENT-CTX: scoring section added in Slice 4. Extend here if ScoringConfig grows.
     CHECK(cfg.scoring.starting_balance           == 100);
-    CHECK(cfg.scoring.round_buy_in_pct           == Catch::Approx(0.20));
-    CHECK(cfg.scoring.round_buy_in()             == 20);
+    CHECK(cfg.scoring.pot_size                   == 40);
     CHECK(cfg.scoring.points_per_card            == 20);
 
     CHECK(cfg.auth.spectate_token_ttl_minutes     == 60);

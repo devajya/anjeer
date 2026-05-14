@@ -177,6 +177,16 @@ export function useSpectator(lobbyId: string): WsState {
           }))
           break
 
+        case 'game_bot_joined':
+          setState(s => ({
+            ...s,
+            departedSlots: s.departedSlots.filter(slot => slot !== msg.player_slot),
+            roster: s.roster.map(r =>
+              r.player_slot === msg.player_slot ? { ...r, username: msg.username } : r
+            ),
+          }))
+          break
+
         case 'session_error':
           setState(s => ({ ...s, sessionError: msg, interRound: null }))
           break

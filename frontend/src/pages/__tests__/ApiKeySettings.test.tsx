@@ -32,7 +32,7 @@ describe('ApiKeySettings', () => {
 
     renderPage()
     await waitFor(() =>
-      expect(screen.getByText(/no api keys yet/i)).toBeInTheDocument()
+      expect(screen.getByText(/no keys yet/i)).toBeInTheDocument()
     )
   })
 
@@ -56,7 +56,7 @@ describe('ApiKeySettings', () => {
     fireEvent.change(screen.getByPlaceholderText(/key name/i), {
       target: { value: 'my-bot' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /generate api key/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^generate$/i }))
 
     await waitFor(() =>
       expect(screen.getByText(/ank_/)).toBeInTheDocument()
@@ -83,7 +83,7 @@ describe('ApiKeySettings', () => {
     fireEvent.change(screen.getByPlaceholderText(/key name/i), {
       target: { value: 'bot2' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /generate api key/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^generate$/i }))
     await waitFor(() => screen.getByText(/done/i))
 
     fireEvent.click(screen.getByRole('button', { name: /done/i }))
@@ -130,6 +130,6 @@ describe('ApiKeySettings', () => {
     renderPage()
     await waitFor(() => screen.getByText('active-bot'))
 
-    expect(screen.getByRole('button', { name: /generate api key/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^generate$/i })).toBeDisabled()
   })
 })

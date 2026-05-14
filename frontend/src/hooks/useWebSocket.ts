@@ -414,16 +414,25 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           const joined = msg
           setState(s => {
             if (!s.lobbyState || s.lobbyState.lobby_id !== joined.lobby_id) return s
-            // AGENT-CTX: Guard duplicate join — server may send player_joined for the
-            // subscribing client itself after the initial lobby_state snapshot.
-            if (s.lobbyState.players.some(p => p.player_id === joined.player_id)) return s
+            // Guard duplicate join — deduplicate by bot_uuid for bots, player_id for humans.
+            const isDuplicate = joined.is_bot
+              ? s.lobbyState.players.some(p => p.is_bot && p.bot_uuid === joined.bot_uuid)
+              : s.lobbyState.players.some(p => !p.is_bot && p.player_id === joined.player_id)
+            if (isDuplicate) return s
             return {
               ...s,
               lobbyState: {
                 ...s.lobbyState,
                 players: [
                   ...s.lobbyState.players,
-                  { player_id: joined.player_id, username: joined.username, joined_at: joined.joined_at },
+                  {
+                    player_id:      joined.player_id,
+                    bot_uuid:       joined.bot_uuid ?? null,
+                    username:       joined.username,
+                    joined_at:      joined.joined_at,
+                    is_bot:         joined.is_bot,
+                    bot_difficulty: joined.bot_difficulty,
+                  },
                 ],
               },
             }
@@ -440,7 +449,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
               ...s,
               lobbyState: {
                 ...s.lobbyState,
-                players: s.lobbyState.players.filter(p => p.player_id !== left.player_id),
+                players: s.lobbyState.players.filter(p =>
+                  left.is_bot
+                    ? !(p.is_bot && p.bot_uuid === left.bot_uuid)
+                    : p.player_id !== left.player_id
+                ),
               },
             }
           })
@@ -476,6 +489,17 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             departedSlots: s.departedSlots.includes(msg.player_slot)
               ? s.departedSlots
               : [...s.departedSlots, msg.player_slot],
+          }))
+          break
+
+        case 'game_bot_joined':
+          logger.info('ws/recv', `game_bot_joined slot=${msg.player_slot} username=${msg.username} difficulty=${msg.bot_difficulty}`)
+          setState(s => ({
+            ...s,
+            departedSlots: s.departedSlots.filter(slot => slot !== msg.player_slot),
+            roster: s.roster.map(r =>
+              r.player_slot === msg.player_slot ? { ...r, username: msg.username } : r
+            ),
           }))
           break
 
