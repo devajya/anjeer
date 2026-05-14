@@ -484,3 +484,18 @@ target_link_libraries(bot_headless_tests PRIVATE
 
 add_test(NAME bot_headless_tests COMMAND bot_headless_tests)
 set_tests_properties(bot_headless_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# SimpleCache unit tests — header-only template, no DB, no network
+# ---------------------------------------------------------------------------
+add_executable(simple_cache_tests
+    tests/test_simple_cache.cpp
+)
+
+target_include_directories(simple_cache_tests PRIVATE include)
+
+target_link_libraries(simple_cache_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+catch_discover_tests(simple_cache_tests)

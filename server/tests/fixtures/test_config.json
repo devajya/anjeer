@@ -90,5 +90,9 @@
     "refill_rate": 5.0,
     "suspend_threshold": 50,
     "suspend_seconds": 30
+  },
+  "reconnect": {
+    "reconnect_window_seconds": 20,
+    "max_queue_size": 8
   }
 }

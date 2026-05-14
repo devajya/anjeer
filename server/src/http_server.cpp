@@ -830,6 +830,7 @@ void HttpServer::register_api_key_routes(App& app)
                 return make_error(422, "VALIDATION_ERROR");
             }
             txn.commit();
+            api_keys_cache_.invalidate(player.id);
 
             // Retrieve the stored record to return expires_at.
             auto handle2 = db_pool_.acquire();
@@ -865,6 +866,13 @@ void HttpServer::register_api_key_routes(App& app)
             return std::move(*err);
         const auto& player = std::get<Player>(auth);
 
+        if (auto cached = api_keys_cache_.get(player.id)) {
+            http_log_.info("api-keys", "cache hit api_keys/" + std::to_string(player.id));
+            crow::response res(200, *cached);
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+
         try {
             auto handle = db_pool_.acquire();
             pqxx::work txn(handle.get());
@@ -885,7 +893,10 @@ void HttpServer::register_api_key_routes(App& app)
                 arr.push_back(entry);
             }
 
-            crow::response res(200, arr.dump());
+            const std::string body = arr.dump();
+            api_keys_cache_.set(player.id, body);
+
+            crow::response res(200, body);
             res.set_header("Content-Type", "application/json");
             return res;
         } catch (const std::exception& e) {
@@ -912,6 +923,7 @@ void HttpServer::register_api_key_routes(App& app)
             }
             txn.commit();
 
+            api_keys_cache_.invalidate(player.id);
             http_log_.info("api-keys", "revoked key " + std::to_string(key_id) +
                            " for player " + std::to_string(player.id));
             return crow::response(200);
