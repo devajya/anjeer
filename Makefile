@@ -106,6 +106,7 @@ test-unit: $(BUILD_DIR)/Makefile
 	cmake --build $(BUILD_DIR) --target bot_manager_tests --parallel
 	cmake --build $(BUILD_DIR) --target bot_headless_tests --parallel
 	cmake --build $(BUILD_DIR) --target simple_cache_tests --parallel
+	cmake --build $(BUILD_DIR) --target reconnect_token_repo_tests --parallel
 	# AGENT-CTX: NTFS (/mnt/c/) does not reliably preserve the execute bit on
 	# newly linked ELF binaries. chmod after every build so ctest can run them
 	# regardless of which targets were just rebuilt.

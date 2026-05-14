@@ -43,4 +43,17 @@ std::string generate_api_key() {
     return oss.str();
 }
 
+std::string generate_reconnect_token() {
+    constexpr int kBytes = 32;
+    unsigned char buf[kBytes];
+    if (RAND_bytes(buf, kBytes) != 1)
+        throw std::runtime_error("RAND_bytes failed");
+
+    std::ostringstream oss;
+    oss << "rtk_";
+    for (int i = 0; i < kBytes; ++i)
+        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(buf[i]);
+    return oss.str();
+}
+
 } // namespace anjeer::server

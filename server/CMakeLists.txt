@@ -486,6 +486,32 @@ add_test(NAME bot_headless_tests COMMAND bot_headless_tests)
 set_tests_properties(bot_headless_tests PROPERTIES RUN_SERIAL TRUE)
 
 # ---------------------------------------------------------------------------
+# ReconnectTokenRepo integration tests — requires anjeer_test DB
+# ---------------------------------------------------------------------------
+add_executable(reconnect_token_repo_tests
+    tests/test_reconnect_token_repo.cpp
+    src/db.cpp
+    src/crypto_util.cpp
+    src/reconnect_token_repo.cpp
+)
+
+target_include_directories(reconnect_token_repo_tests PRIVATE include)
+
+target_compile_definitions(reconnect_token_repo_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(reconnect_token_repo_tests PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+
+add_test(NAME reconnect_token_repo_tests COMMAND reconnect_token_repo_tests)
+set_tests_properties(reconnect_token_repo_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
 # SimpleCache unit tests — header-only template, no DB, no network
 # ---------------------------------------------------------------------------
 add_executable(simple_cache_tests
