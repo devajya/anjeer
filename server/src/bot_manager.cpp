@@ -102,6 +102,7 @@ void BotManager::attach_to_session(
             think_min,
             think_max,
             dp.max_concurrent_orders,
+            entry.bot_uuid,
             log_path
         );
 
@@ -249,6 +250,7 @@ void BotManager::spawn_replacement(
         think_min,
         think_max,
         dp.max_concurrent_orders,
+        entry.bot_uuid,
         repl_log_path
     );
 
@@ -353,10 +355,73 @@ std::string BotManager::bot_username(anjeer::engine::BotDifficulty /*d*/, int in
 }
 
 std::string BotManager::generate_bot_id() {
+    // AGENT-CTX: Switched from "bot_<16hex>" to RFC 4122 v4 UUID so that
+    // bot_uuid values are proper UUID4s as required by the T7 spec. Existing
+    // callers only compare for equality — no format assumption was baked in.
     std::uniform_int_distribution<uint64_t> dist;
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "bot_%016llx", (unsigned long long)dist(rng_));
+    uint64_t u1 = dist(rng_);
+    uint64_t u2 = dist(rng_);
+    // Set version 4 (bits 12-15 of u1's low 16 bits).
+    u1 = (u1 & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
+    // Set variant bits 10xx (top 2 bits of u2).
+    u2 = (u2 & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
+    char buf[37];
+    std::snprintf(buf, sizeof(buf),
+        "%08x-%04x-%04x-%04x-%012llx",
+        (uint32_t)(u1 >> 32),
+        (uint32_t)((u1 >> 16) & 0xFFFF),
+        (uint32_t)(u1 & 0xFFFF),
+        (uint32_t)(u2 >> 48),
+        (unsigned long long)(u2 & 0x0000FFFFFFFFFFFFULL));
     return buf;
+}
+
+// ── New T7 methods ────────────────────────────────────────────────────────────
+
+std::string BotManager::bot_uuid_for_slot(const std::string& lobby_id,
+                                          int slot_index) const {
+    auto sit = sessions_.find(lobby_id);
+    if (sit == sessions_.end()) return "";
+    for (const auto& entry : sit->second)
+        if (entry.slot == slot_index) return entry.bot_uuid;
+    return "";
+}
+
+int BotManager::get_displaceable_bot_slot(const std::string& lobby_id,
+                                          const std::unordered_map<int,int>& slot_balances) const {
+    auto sit = sessions_.find(lobby_id);
+    if (sit == sessions_.end()) return -1;
+
+    const BotEntry* best = nullptr;
+    for (const auto& entry : sit->second) {
+        if (entry.slot < 0) continue;  // unassigned
+        if (!best) { best = &entry; continue; }
+
+        const int e_diff  = static_cast<int>(entry.difficulty);
+        const int b_diff  = static_cast<int>(best->difficulty);
+        if (e_diff < b_diff) { best = &entry; continue; }
+        if (e_diff > b_diff) continue;
+
+        // Same difficulty — pick the one with less cash.
+        const int e_cash = [&]{ auto it = slot_balances.find(entry.slot); return it != slot_balances.end() ? it->second : 0; }();
+        const int b_cash = [&]{ auto it = slot_balances.find(best->slot);  return it != slot_balances.end() ? it->second : 0; }();
+        if (e_cash < b_cash) best = &entry;
+    }
+    return best ? best->slot : -1;
+}
+
+void BotManager::spawn_replacement_with_hand(
+        const std::string&                       lobby_id,
+        int                                      slot_index,
+        const std::array<int,4>&                 hand,
+        const std::string&                       difficulty,
+        BotSpawnContext                          ctx,
+        moodycamel::ReaderWriterQueue<NetEvent>& session_inbound,
+        bool                                     is_ui_mode) {
+    ctx.slot           = slot_index;
+    ctx.hand           = hand;
+    ctx.difficulty_str = difficulty;
+    spawn_replacement(lobby_id, ctx, session_inbound, is_ui_mode);
 }
 
 } // namespace anjeer::server

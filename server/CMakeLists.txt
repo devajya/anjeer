@@ -29,6 +29,7 @@ add_executable(server
     src/bot_manager.cpp
     src/game_slots_repo.cpp
     src/lobby_queue.cpp
+    src/bot_manager_session.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -95,6 +96,7 @@ add_executable(ws_server_tests
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/bot_manager_session.cpp
 )
 
 target_include_directories(ws_server_tests PRIVATE include)
@@ -464,6 +466,7 @@ add_executable(bot_headless_tests
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/bot_manager_session.cpp
 )
 
 target_include_directories(bot_headless_tests PRIVATE include)

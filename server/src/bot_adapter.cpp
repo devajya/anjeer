@@ -20,9 +20,11 @@ BotAdapter::BotAdapter(
         int thinking_min_ms,
         int thinking_max_ms,
         int max_concurrent_orders,
+        std::string bot_uuid,
         std::string log_path)
     : strategy_(std::move(strategy))
     , player_slot_(ctx.slot)
+    , bot_uuid_(std::move(bot_uuid))
     , sim_delay_ms_(sim_delay_ms)
     , tick_interval_ms_(tick_interval_ms)
     , tick_jitter_ms_(tick_jitter_ms)

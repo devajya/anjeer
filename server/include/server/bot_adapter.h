@@ -39,6 +39,7 @@ public:
         int thinking_min_ms,
         int thinking_max_ms,
         int max_concurrent_orders,
+        std::string bot_uuid,    // UUID4 assigned by BotManager at bot creation
         std::string log_path = ""
     );
 
@@ -59,8 +60,9 @@ public:
 
     // ── Accessed from either thread (atomic) ─────────────────────────────
 
-    int  slot()     const { return player_slot_; }
-    bool is_alive() const { return alive_.load(std::memory_order_relaxed); }
+    int                 slot()     const { return player_slot_; }
+    bool                is_alive() const { return alive_.load(std::memory_order_relaxed); }
+    const std::string&  bot_uuid() const { return bot_uuid_; }
     void teardown();
 
 private:
@@ -80,6 +82,7 @@ private:
     int32_t buy_in_;
     int     round_duration_s_;
 
+    std::string       bot_uuid_;
     std::atomic<bool> alive_{true};
 
     moodycamel::ReaderWriterQueue<std::string> event_queue_{256};

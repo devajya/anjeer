@@ -72,7 +72,8 @@ TEST_CASE("BotAdapter applies simulated network delay before enqueue") {
                        delay_ms,
                        /*tick_interval_ms=*/0, /*tick_jitter_ms=*/0,
                        /*thinking_min_ms=*/0,  /*thinking_max_ms=*/0,
-                       /*max_concurrent_orders=*/2);
+                       /*max_concurrent_orders=*/2,
+                       /*bot_uuid=*/"00000000-0000-4000-8000-000000000001");
 
     const std::string round_json = make_round_start_json(0, {10,10,10,10}, 240.0f, 4);
     adapter.on_game_event(round_json, true);
@@ -106,7 +107,8 @@ TEST_CASE("BotAdapter teardown suppresses further action enqueues") {
                        /*sim_delay_ms=*/0,
                        /*tick_interval_ms=*/0, /*tick_jitter_ms=*/0,
                        /*thinking_min_ms=*/0,  /*thinking_max_ms=*/0,
-                       /*max_concurrent_orders=*/2);
+                       /*max_concurrent_orders=*/2,
+                       /*bot_uuid=*/"00000000-0000-4000-8000-000000000002");
 
     const std::string round_json = make_round_start_json(0, {10,10,10,10}, 240.0f, 4);
     adapter.on_game_event(round_json, true);

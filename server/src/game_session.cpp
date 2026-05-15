@@ -108,6 +108,14 @@ void GameSession::shutdown() {
     if (game_loop_thread_.joinable()) game_loop_thread_.join();
 }
 
+std::unordered_map<int,int> GameSession::slot_balances() const {
+    std::unordered_map<int,int> result;
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i)
+        if (slots_[i].player_id != -1)
+            result[i] = slots_[i].balance;
+    return result;
+}
+
 // ─── Game loop ────────────────────────────────────────────────────────────────
 
 void GameSession::run() {

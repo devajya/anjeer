@@ -1,5 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <regex>
+#include <unordered_map>
+
 #include "server/bot_manager.h"
 #include "server/bot_scheduler.h"
 #include "server/config.h"
@@ -59,6 +62,45 @@ TEST_CASE("BotManager remove_bot returns false for unknown uuid", "[bots][manage
     BotManager   mgr(sched, make_bots_cfg());
 
     REQUIRE_FALSE(mgr.remove_bot("lobby-x", "no-such-uuid"));
+}
+
+// T7 — bot_uuid_for_slot returns a non-empty UUID4 after attach_to_session.
+TEST_CASE("BotManager bot_uuid_for_slot returns UUID4 after attach", "[bots][manager][T7]") {
+    BotScheduler sched(1);
+    BotManager   mgr(sched, make_bots_cfg());
+
+    auto [ok, uuid] = mgr.add_bot("lobby-t7a", BotDifficulty::Easy, 4);
+    REQUIRE(ok);
+
+    mgr.attach_to_session("lobby-t7a", {{uuid, 0}},
+                          /*points_per_card=*/10, /*buy_in=*/100,
+                          /*round_duration_s=*/60);
+
+    const std::string result = mgr.bot_uuid_for_slot("lobby-t7a", 0);
+    REQUIRE_FALSE(result.empty());
+
+    // Validate UUID4: 8-4-4-4-12 hex, version nibble=4, variant byte in {8,9,a,b}.
+    static const std::regex kUuid4{
+        "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    };
+    REQUIRE(std::regex_match(result, kUuid4));
+}
+
+// T7 — get_displaceable_bot_slot with two Easy bots returns the one with lower cash.
+TEST_CASE("BotManager get_displaceable_bot_slot picks lower-cash Easy bot", "[bots][manager][T7]") {
+    BotScheduler sched(1);
+    BotManager   mgr(sched, make_bots_cfg());
+
+    auto [ok1, u1] = mgr.add_bot("lobby-t7b", BotDifficulty::Easy, 4);
+    auto [ok2, u2] = mgr.add_bot("lobby-t7b", BotDifficulty::Easy, 3);
+    REQUIRE(ok1); REQUIRE(ok2);
+
+    mgr.attach_to_session("lobby-t7b", {{u1, 0}, {u2, 1}},
+                          10, 100, 60);
+
+    // Slot 1 has less cash → it is more displaceable.
+    const std::unordered_map<int,int> balances{{0, 200}, {1, 50}};
+    REQUIRE(mgr.get_displaceable_bot_slot("lobby-t7b", balances) == 1);
 }
 
 // Extra — multiple bots can be added up to open_slots.

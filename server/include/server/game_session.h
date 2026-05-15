@@ -17,6 +17,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -66,6 +67,12 @@ public:
     void shutdown();  // signals stop_, joins game_loop_thread_
 
     bool is_done() const { return done_.load(std::memory_order_acquire); }
+
+    const std::string& lobby_id() const { return lobby_id_; }
+
+    // Returns {slot_index → balance} for all occupied slots.
+    // Used by BotManager::get_displaceable_bot_slot (via bot_manager_session.cpp).
+    std::unordered_map<int,int> slot_balances() const;
 
 private:
     // ── Game loop ─────────────────────────────────────────────────────────────
