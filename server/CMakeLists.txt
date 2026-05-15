@@ -28,6 +28,7 @@ add_executable(server
     src/bot_adapter.cpp
     src/bot_manager.cpp
     src/game_slots_repo.cpp
+    src/lobby_queue.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -551,3 +552,27 @@ target_link_libraries(game_slots_repo_tests PRIVATE
 
 add_test(NAME game_slots_repo_tests COMMAND game_slots_repo_tests)
 set_tests_properties(game_slots_repo_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# LobbyQueue unit tests — no DB, no network; pure in-process queue logic
+# ---------------------------------------------------------------------------
+# AGENT-CTX: lobby_queue.h includes ws_types.h which pulls in uWS App.h, so
+# the test binary must link uWebSockets and crypto (OpenSSL) even though no
+# live server is started. broadcast_positions is NOT tested here; it requires
+# a live uWS::Loop and is covered by T10 WS integration tests.
+add_executable(lobby_queue_tests
+    tests/test_lobby_queue.cpp
+    src/lobby_queue.cpp
+)
+
+target_include_directories(lobby_queue_tests PRIVATE include)
+
+target_link_libraries(lobby_queue_tests PRIVATE
+    Catch2::Catch2WithMain
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    crypto
+    pthread
+)
+
+catch_discover_tests(lobby_queue_tests)
