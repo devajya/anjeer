@@ -537,6 +537,23 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           }))
           break
 
+        // ── Slice 10.5 stubs — full logic added in T11 ────────────────────
+        // AGENT-CTX: These cases are intentionally no-ops here. useReconnect
+        // (T11) and QueuePopup (T12) consume these messages directly via their
+        // own state machines. useWebSocket is not the right place for reconnect
+        // or queue state — it only handles session-level events.
+        case 'reconnect_token':
+        case 'game_state_snapshot':
+        case 'game_bot_replaced':
+        case 'queue_joined':
+        case 'queue_left':
+        case 'queue_position_update':
+        case 'queue_overflow':
+        case 'queue_admitted':
+        case 'reconnect_window_expired':
+          logger.info('ws/recv', `${msg.type} — handled by dedicated hook (T11/T12)`)
+          break
+
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new
           // ServerMessage variant is added but not handled above.

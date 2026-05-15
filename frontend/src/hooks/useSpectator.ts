@@ -224,6 +224,18 @@ export function useSpectator(lobbyId: string): WsState {
         case 'lobby_started':
           break
 
+        // Slice 10.5 — not delivered to spectators; stubs for exhaustiveness.
+        case 'reconnect_token':
+        case 'game_state_snapshot':
+        case 'game_bot_replaced':
+        case 'queue_joined':
+        case 'queue_left':
+        case 'queue_position_update':
+        case 'queue_overflow':
+        case 'queue_admitted':
+        case 'reconnect_window_expired':
+          break
+
         default: {
           const _exhaustive: never = msg
           logger.warn('spectator/recv', 'unhandled message type', _exhaustive)
