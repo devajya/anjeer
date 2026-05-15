@@ -82,6 +82,9 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     ownsBestAskBySuit: {},
     spectatorCount:    0,
     scriptLogs:        [],
+    reconnectTokenMsg:      null,
+    gameStateSnapshot:      null,
+    reconnectWindowExpired: false,
     ...overrides,
   }
 }

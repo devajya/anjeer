@@ -38,6 +38,10 @@ const INITIAL_STATE: WsState = {
   allBalances: [],
   spectatorCount: 0,
   scriptLogs: [],
+  // Reconnect fields: spectators never receive these; fixed null/false.
+  reconnectTokenMsg:    null,
+  gameStateSnapshot:    null,
+  reconnectWindowExpired: false,
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and

@@ -55,7 +55,6 @@ const { user, logout } = useAuth()
 
   const {
     status: reconnectStatus,
-    remainingSeconds,
     onTokenReceived,
     onSnapshotReceived,
     onWindowExpired,

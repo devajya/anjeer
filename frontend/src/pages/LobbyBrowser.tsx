@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
+import { useQueueSocket } from '../hooks/useQueueSocket'
+import { QueuePopup } from '../components/QueuePopup'
 import type { LobbyView } from '../types/lobby'
 import './LobbyBrowser.css'
 
@@ -22,6 +24,10 @@ export function LobbyBrowser() {
   // AGENT-CTX: menuRef used for click-outside detection — closes the dropdown when
   // the user clicks anywhere outside the hamburger + menu container.
   const menuRef = useRef<HTMLDivElement>(null)
+  // AGENT-CTX: Queue state managed by a lightweight WS hook; overflowLobbyIds persists
+  // overflow signals per lobby so the Join button stays disabled after a full-queue attempt.
+  const queueSocket       = useQueueSocket()
+  const [overflowLobbyIds, setOverflowLobbyIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!menuOpen) return
@@ -46,6 +52,17 @@ export function LobbyBrowser() {
   }
 
   useEffect(() => { loadLobbies() }, [])
+
+  useEffect(() => {
+    const { state } = queueSocket
+    if (state.status === 'overflow') {
+      setOverflowLobbyIds(prev => new Set([...prev, state.lobbyId]))
+    }
+    if (state.status === 'admitted') {
+      navigate(`/game?lobby_id=${state.lobbyId}`)
+      queueSocket.reset()
+    }
+  }, [queueSocket.state.status])
 
   async function joinLobby(lobby: LobbyView) {
     setJoining(lobby.id)
@@ -280,41 +297,73 @@ export function LobbyBrowser() {
                 {!loading && activeLobbies.length === 0 && (
                   <p className="lp__empty">No active games right now</p>
                 )}
-                {activeLobbies.map(lobby => (
-                  <div key={lobby.id} className="lp__card">
-                    <div className="lp__card-left">
-                      <div className="lp__card-title-row">
-                        <span className="lp__card-title">Game {lobby.code}</span>
-                        <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
-                          {(lobby.mode ?? 'ui').toUpperCase()}
+                {activeLobbies.map(lobby => {
+                  const isFull = overflowLobbyIds.has(lobby.id)
+                  return (
+                    <div key={lobby.id} className="lp__card">
+                      <div className="lp__card-left">
+                        <div className="lp__card-title-row">
+                          <span className="lp__card-title">Game {lobby.code}</span>
+                          <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
+                            {(lobby.mode ?? 'ui').toUpperCase()}
+                          </span>
+                        </div>
+                        <span className="lp__card-meta">
+                          <span className="lp__card-meta-icon">♟</span>
+                          Standard · In progress
+                        </span>
+                        <span className="lp__card-players">
+                          <span className="lp__card-meta-icon">👥</span>
+                          {lobby.player_count} players
                         </span>
                       </div>
-                      <span className="lp__card-meta">
-                        <span className="lp__card-meta-icon">♟</span>
-                        Standard · In progress
-                      </span>
-                      <span className="lp__card-players">
-                        <span className="lp__card-meta-icon">👥</span>
-                        {lobby.player_count} players
-                      </span>
+                      <div className="lp__card-actions">
+                        <button
+                          className="lp__btn lp__btn--spectate"
+                          onClick={() => navigate(`/spectate/${lobby.code}`)}
+                          aria-label={`Spectate lobby ${lobby.code}`}
+                        >
+                          Spectate
+                        </button>
+                        {/* AGENT-CTX: Only UI-mode active lobbies show Join; API-mode lobbies
+                            are accessed via CLI. isFull is set reactively on queue_overflow. */}
+                        {lobby.mode !== 'api' && (
+                          <button
+                            className="lp__btn lp__btn--join"
+                            disabled={isFull}
+                            onClick={() => queueSocket.joinQueue(lobby.id)}
+                            aria-label={isFull ? 'Queue full' : `Join lobby ${lobby.code}`}
+                          >
+                            {isFull ? 'Queue Full' : 'Join'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="lp__card-actions">
-                      <button
-                        className="lp__btn lp__btn--spectate"
-                        onClick={() => navigate(`/spectate/${lobby.code}`)}
-                        aria-label={`Spectate lobby ${lobby.code}`}
-                      >
-                        Spectate
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </>
             )}
           </div>
 
         </div>
       </div>
+
+      {/* ── Queue popup overlay ─────────────────────────────────────────── */}
+      {queueSocket.state.status === 'queued' && (
+        <QueuePopup
+          lobbyId={queueSocket.state.lobbyId}
+          position={queueSocket.state.position}
+          queueSize={queueSocket.state.queueSize}
+          playersAround={queueSocket.state.playersAround}
+          onLeave={() => queueSocket.leaveQueue()}
+          onSpectate={() => {
+            const lobbyId = queueSocket.state.status === 'queued' ? queueSocket.state.lobbyId : null
+            const lobby   = activeLobbies.find(l => l.id === lobbyId)
+            queueSocket.reset()
+            if (lobby) navigate(`/spectate/${lobby.code}`)
+          }}
+        />
+      )}
     </div>
   )
 }
