@@ -437,6 +437,9 @@ void GameSession::begin_round() {
     all_disconnected_ = false;
     round_number_++;
 
+    // Signal WsServer to admit queued players before dealing hands.
+    outbound_.enqueue(GameRoundStarted{});
+
     reset_delta_table();
 
     std::fill(vote_to_end_.begin(),      vote_to_end_.end(),      false);

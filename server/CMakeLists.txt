@@ -97,6 +97,9 @@ add_executable(ws_server_tests
     src/bot_adapter.cpp
     src/bot_manager.cpp
     src/bot_manager_session.cpp
+    src/reconnect_token_repo.cpp
+    src/game_slots_repo.cpp
+    src/lobby_queue.cpp
 )
 
 target_include_directories(ws_server_tests PRIVATE include)
@@ -579,3 +582,54 @@ target_link_libraries(lobby_queue_tests PRIVATE
 )
 
 catch_discover_tests(lobby_queue_tests)
+
+# ---------------------------------------------------------------------------
+# Reconnect + queue integration tests — full WsServer, requires anjeer_test DB
+# ---------------------------------------------------------------------------
+add_executable(reconnect_integration_tests
+    tests/test_reconnect_integration.cpp
+    src/config.cpp
+    src/ws_server.cpp
+    src/lobby_gateway.cpp
+    src/game_session.cpp
+    src/game_session_wire.cpp
+    src/session_repo.cpp
+    src/logger.cpp
+    src/db.cpp
+    src/player_repo.cpp
+    src/lobby_repo.cpp
+    src/auth_service.cpp
+    src/event_bus.cpp
+    src/crypto_util.cpp
+    src/api_key_repo.cpp
+    src/rate_limiter.cpp
+    src/bot_scheduler.cpp
+    src/bot_adapter.cpp
+    src/bot_manager.cpp
+    src/bot_manager_session.cpp
+    src/reconnect_token_repo.cpp
+    src/game_slots_repo.cpp
+    src/lobby_queue.cpp
+)
+
+target_include_directories(reconnect_integration_tests PRIVATE include)
+
+target_compile_definitions(reconnect_integration_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(reconnect_integration_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    libpqxx::pqxx
+    jwt-cpp::jwt-cpp
+    readerwriterqueue
+    crypto
+    pthread
+)
+
+add_test(NAME reconnect_integration_tests COMMAND reconnect_integration_tests)
+set_tests_properties(reconnect_integration_tests PROPERTIES RUN_SERIAL TRUE)

@@ -76,8 +76,15 @@ struct GameSpawnBot {
 // connected from a previous session) and removes any pending reconnect token.
 struct GameReconnectExpired { int32_t slot; };
 
+// Outbound signal: a new round just entered begin_round().
+// AGENT-CTX: WsServer handles this to drain LobbyQueue entries into available
+// slots. Emitted before round_start payloads so admitted players are wired up
+// before the game-loop thread sends targeted round_start messages.
+struct GameRoundStarted {};
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
-                               GameSpawnBot, GameReconnectExpired>;
+                               GameSpawnBot, GameReconnectExpired,
+                               GameRoundStarted>;
 
 } // namespace anjeer::server

@@ -6,6 +6,7 @@
 #include <pqxx/pqxx>
 
 #include <algorithm>
+#include <chrono>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -54,23 +55,25 @@ static OpenRole resolve_open_role(AuthType auth, LobbyMode mode)
 
 // ─── Constructor ──────────────────────────────────────────────────────────
 WsServer::WsServer(const ServerConfig& cfg, WsServerDeps deps)
-    : cfg_          (cfg)
-    , lobby_gateway_(deps.lobby_gateway)
-    , db_pool_      (deps.db_pool)
-    , lobby_repo_   (deps.lobby_repo)
-    , auth_service_ (deps.auth_service)
-    , api_key_repo_ (deps.api_key_repo)
-    , event_bus_    (deps.event_bus)
-    , bot_manager_  (deps.bot_manager)
-    , rate_limiter_ (RateLimitConfig{
+    : cfg_                  (cfg)
+    , lobby_gateway_        (deps.lobby_gateway)
+    , db_pool_              (deps.db_pool)
+    , lobby_repo_           (deps.lobby_repo)
+    , auth_service_         (deps.auth_service)
+    , api_key_repo_         (deps.api_key_repo)
+    , event_bus_            (deps.event_bus)
+    , bot_manager_          (deps.bot_manager)
+    , rate_limiter_         (RateLimitConfig{
           cfg.rate_limit.capacity,
           cfg.rate_limit.refill_rate,
           cfg.rate_limit.suspend_threshold,
           cfg.rate_limit.suspend_seconds})
-    , server_log_   ("logs/server_logs.txt")
-    , engine_log_   ("logs/engine_logs.txt")
-    , frontend_log_ ("logs/frontend_logs.txt")
-    , rng_          (std::random_device{}())
+    , server_log_           ("logs/server_logs.txt")
+    , engine_log_           ("logs/engine_logs.txt")
+    , frontend_log_         ("logs/frontend_logs.txt")
+    , reconnect_token_repo_ (deps.db_pool)
+    , game_slots_repo_      (deps.db_pool)
+    , rng_                  (std::random_device{}())
 {}
 
 // ─── run() — blocks until SIGINT ──────────────────────────────────────────
@@ -122,8 +125,9 @@ void WsServer::run() {
             AuthType   auth_type   = AuthType::JWT;
             std::optional<WsErrorCode> pending_close;
 
-            std::string_view auth_hdr = req->getHeader("authorization");
-            std::string_view api_key_qp = req->getQuery("api_key");
+            std::string_view auth_hdr      = req->getHeader("authorization");
+            std::string_view api_key_qp    = req->getQuery("api_key");
+            std::string_view reconnect_qp  = req->getQuery("token");
 
             auto try_api_key = [&](std::string_view raw_key) {
                 try {
@@ -185,10 +189,11 @@ void WsServer::run() {
             }
 
             PerSocketData psd;
-            psd.player_id    = player_id;
-            psd.auth_type    = auth_type;
-            psd.pending_close = pending_close;
-            psd.username     = username;
+            psd.player_id       = player_id;
+            psd.auth_type       = auth_type;
+            psd.pending_close   = pending_close;
+            psd.username        = username;
+            psd.reconnect_token = std::string(reconnect_qp);
 
             res->template upgrade<PerSocketData>(
                 std::move(psd),
@@ -243,23 +248,9 @@ void WsServer::run() {
                         case OpenRole::SpectatorFallthrough:
                             break;
                         case OpenRole::Player: {
-                            // Handle reconnect: evict stale handle for this slot if present
-                            auto old_it = as.slot_to_ws_.find(slot);
-                            if (old_it != as.slot_to_ws_.end()) {
-                                as.ws_to_slot_.erase(old_it->second);
+                            if (!attach_slot(ws, as, slot, lobby_id, loop)) {
+                                loop->defer([ws]() { ws->end(1008, "invalid reconnect token"); });
                             }
-                            as.slot_to_ws_[slot] = ws;
-                            as.ws_to_slot_[ws]   = slot;
-                            data->lobby_id    = lobby_id;
-                            data->player_slot = slot;
-                            as.inbound->enqueue(NetConnect{slot, player_id,
-                                                           as.slots_[slot].username});
-                            ws->send(nlohmann::json{
-                                {"type","player_hello"}, {"player_id", player_id}
-                            }.dump(), uWS::OpCode::TEXT);
-                            server_log_.info("open", "player " + std::to_string(player_id) +
-                                " connected as slot " + std::to_string(slot) +
-                                " in lobby " + lobby_id);
                             return;
                         }
                         } // switch
@@ -352,6 +343,19 @@ void WsServer::run() {
                 if (type == "remove_bot") {
                     handle_remove_bot(ws, j.value("lobby_id", ""),
                                       j.value("bot_uuid", ""));
+                    return;
+                }
+                if (type == "join_queue") {
+                    handle_join_queue(ws, j.value("lobby_id", ""), loop);
+                    return;
+                }
+                if (type == "leave_queue") {
+                    handle_leave_queue(ws, j.value("lobby_id", ""), loop);
+                    return;
+                }
+                if (type == "reconnect_game") {
+                    handle_reconnect_game(ws, j.value("lobby_id", ""),
+                                          j.value("token", ""));
                     return;
                 }
 
@@ -465,7 +469,11 @@ void WsServer::run() {
                             const int32_t slot = ws_it->second;
                             as.ws_to_slot_.erase(ws);
                             as.slot_to_ws_.erase(slot);
-                            as.inbound->enqueue(NetDisconnect{slot});
+                            // Use reconnect-aware disconnect: starts per-slot timer in GameSession.
+                            as.session->handle_player_disconnect(slot);
+                            game_slots_repo_.mark_disconnected(as.session_id_, slot);
+                            server_log_.info("close",
+                                "slot " + std::to_string(slot) + " disconnected — reconnect window started");
                         }
                     }
                 }
@@ -674,6 +682,16 @@ void WsServer::create_session(const std::string& lobby_id) {
 
     as.spawn_bots_on_leave_  = spawn_bots_on_leave;
     as.bot_spawn_difficulty_ = bot_spawn_difficulty;
+    as.session_id_           = session_id;
+    as.queue_                = std::make_unique<LobbyQueue>(cfg_.reconnect.max_queue_size);
+
+    // Record each human slot as active in game_slots so payout reconciliation
+    // can detect any bots that replaced disconnected players.
+    for (int i = 0; i < static_cast<int>(slots.size()); ++i) {
+        if (slots[i].player_id >= 0) {
+            game_slots_repo_.upsert_active(session_id, slots[i].player_id, i);
+        }
+    }
 
     GameSessionContext gs_ctx{cfg_, server_log_, engine_log_, std::mt19937{rng_()}, db_pool_};
 
@@ -795,6 +813,79 @@ void WsServer::drain_all_on_loop() {
                             for (auto& [sid, ws] : as.spectator_handles_)
                                 ws->send(payload, uWS::OpCode::TEXT);
                             break;
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, GameReconnectExpired>) {
+                    // Reconnect window expired: send reconnect_window_expired to the
+                    // stale socket if it somehow re-opened before the timer fired,
+                    // mark slot available for queue admission, and clean up DB token.
+                    auto wh = as.slot_to_ws_.find(arg.slot);
+                    if (wh != as.slot_to_ws_.end())
+                        wh->second->send(nlohmann::json{
+                            {"type","reconnect_window_expired"}}.dump(), uWS::OpCode::TEXT);
+                    as.available_slots_.insert(arg.slot);
+                    game_slots_repo_.mark_expired(as.session_id_, arg.slot);
+                    server_log_.info("reconnect",
+                        "slot " + std::to_string(arg.slot) + " reconnect window expired");
+                } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
+                    // Drain queue into available slots at round boundary.
+                    // AGENT-CTX: admit_from_queue mutates slots_ on the event-loop thread
+                    // while the game-loop thread is (briefly) idle after emitting this event.
+                    // This is safe in practice for single-node but flagged for Slice 16
+                    // where a proper NetAdmitQueue message should replace the direct call.
+                    if (!as.available_slots_.empty() && as.queue_ && as.queue_->size() > 0) {
+                        const int count = static_cast<int>(
+                            std::min(as.available_slots_.size(),
+                                     static_cast<size_t>(as.queue_->size())));
+                        auto entries = as.queue_->drain(count);
+                        std::vector<SlotAdmitInfo> admits;
+                        auto slot_it = as.available_slots_.begin();
+                        for (auto& entry : entries) {
+                            const int slot = *slot_it++;
+                            admits.push_back(SlotAdmitInfo{
+                                slot,
+                                std::stoll(entry.player_id),
+                                entry.username});
+                        }
+                        as.session->admit_from_queue(admits);
+                        // Wire sockets and update WsServer maps for admitted players.
+                        for (int i = 0; i < static_cast<int>(admits.size()); ++i) {
+                            const auto& info  = admits[i];
+                            const auto& entry = entries[i];
+                            const int   slot  = info.slot_index;
+                            as.slot_to_ws_[slot]          = entry.ws;
+                            as.ws_to_slot_[entry.ws]      = slot;
+                            as.slots_[slot].player_id     = info.player_id;
+                            as.slots_[slot].username      = info.username;
+                            player_to_lobby_[info.player_id] = lobby_id;
+                            auto* d = entry.ws->getUserData();
+                            d->lobby_id    = lobby_id;
+                            d->player_slot = slot;
+                            as.available_slots_.erase(slot);
+                            entry.ws->send(nlohmann::json{
+                                {"type","queue_admitted"}, {"slot_index", slot}
+                            }.dump(), uWS::OpCode::TEXT);
+                            game_slots_repo_.upsert_active(
+                                as.session_id_, std::stoll(entry.player_id), slot);
+                            // Bot displacement: if a bot was in this slot, broadcast replacement.
+                            const std::string bot_uuid = bot_manager_.bot_uuid_for_slot(
+                                lobby_id, slot);
+                            if (!bot_uuid.empty()) {
+                                const std::string rep_payload = nlohmann::json{
+                                    {"type",          "game_bot_replaced"},
+                                    {"slot_index",    slot},
+                                    {"bot_uuid",      bot_uuid},
+                                    {"new_player_id", info.player_id},
+                                    {"username",      info.username},
+                                }.dump();
+                                for (auto& [s, wh] : as.slot_to_ws_)
+                                    wh->send(rep_payload, uWS::OpCode::TEXT);
+                                for (auto& [sid, wh] : as.spectator_handles_)
+                                    wh->send(rep_payload, uWS::OpCode::TEXT);
+                            }
+                            server_log_.info("queue",
+                                "player " + entry.username + " admitted into slot " +
+                                std::to_string(slot));
                         }
                     }
                 }
@@ -1104,6 +1195,191 @@ void WsServer::handle_remove_bot(WsHandle ws, const std::string& lobby_id,
     };
     event_bus_.publish("lobby:" + lobby_id, ev.dump());
     server_log_.info("remove_bot", "removed bot " + bot_uuid + " from lobby " + lobby_id);
+}
+
+// ─── attach_slot ──────────────────────────────────────────────────────────────
+// Shared connect/reconnect logic called from .open and handle_reconnect_game.
+// If data->reconnect_token is non-empty, validates it; returns false on failure.
+// Always creates a fresh token, updates WsServer maps, and calls handle_player_reattach.
+// AGENT-CTX: Using handle_player_reattach for ALL slot connections (initial and
+// reconnect) keeps a single code path. handle_reconnect_reattach sends a full
+// snapshot in RoundActive and is a no-op (just marks connected=true) otherwise,
+// matching what we need for initial lobby-phase connects too.
+bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
+                            int32_t slot, const std::string& lobby_id,
+                            uWS::Loop* /*loop*/) {
+    auto* data = ws->getUserData();
+
+    // Evict any stale handle already registered for this slot.
+    auto old_it = as.slot_to_ws_.find(slot);
+    if (old_it != as.slot_to_ws_.end()) {
+        as.ws_to_slot_.erase(old_it->second);
+    }
+
+    // If a reconnect token was supplied (via ?token= query param or reconnect_game),
+    // validate it. An invalid/expired token is rejected to prevent session hijacking.
+    if (!data->reconnect_token.empty()) {
+        auto rec = reconnect_token_repo_.validate(data->reconnect_token);
+        if (!rec) {
+            serialise::error(ws, WsErrorCode::MalformedMessage,
+                             "reconnect token invalid or expired", server_log_);
+            return false;
+        }
+        if (rec->player_id != data->player_id ||
+            rec->lobby_id  != lobby_id) {
+            serialise::error(ws, WsErrorCode::MalformedMessage,
+                             "reconnect token player/lobby mismatch", server_log_);
+            return false;
+        }
+        reconnect_token_repo_.revoke(rec->token_hash);
+    }
+
+    // Issue a fresh token with a long TTL so the client can reconnect any time
+    // during the game. The 20s reconnect window is enforced server-side by
+    // GameSession's timer, not by this token's expiry.
+    constexpr int kTokenTtlSeconds = 7200;  // 2 hours — covers any realistic game duration
+    const bool was_reconnect = !data->reconnect_token.empty();
+    const std::string new_token = reconnect_token_repo_.create(
+        data->player_id, lobby_id, kTokenTtlSeconds);
+    const int64_t expires_at_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count()
+        + static_cast<int64_t>(kTokenTtlSeconds) * 1000;
+
+    as.slot_to_ws_[slot] = ws;
+    as.ws_to_slot_[ws]   = slot;
+    data->lobby_id        = lobby_id;
+    data->player_slot     = slot;
+
+    // player_hello must arrive before game_state_snapshot so the client
+    // initialises its player_id before processing the snapshot fields.
+    ws->send(nlohmann::json{{"type","player_hello"}, {"player_id", data->player_id}
+    }.dump(), uWS::OpCode::TEXT);
+
+    as.session->handle_player_reattach(slot, new_token, expires_at_ms);
+    game_slots_repo_.upsert_active(as.session_id_, data->player_id, slot);
+
+    server_log_.info("open",
+        "player " + std::to_string(data->player_id) + " attached to slot " +
+        std::to_string(slot) + " in lobby " + lobby_id +
+        (was_reconnect ? " (reattach)" : " (initial)"));
+    data->reconnect_token.clear();  // consumed; avoid re-use on next call
+    return true;
+}
+
+// ─── handle_reconnect_game ────────────────────────────────────────────────────
+// Handles explicit in-session reattach via WS message (client-initiated, e.g.
+// when the tab stayed open but the connection dropped momentarily).
+void WsServer::handle_reconnect_game(WsHandle ws,
+                                      const std::string& lobby_id,
+                                      const std::string& token) {
+    auto* data = ws->getUserData();
+
+    if (lobby_id.empty() || token.empty()) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "reconnect_game requires lobby_id and token", server_log_);
+        return;
+    }
+
+    auto session_it = active_sessions_.find(lobby_id);
+    if (session_it == active_sessions_.end()) {
+        serialise::error(ws, WsErrorCode::RoundNotActive,
+                         "no active session for lobby", server_log_);
+        return;
+    }
+    auto& as = session_it->second;
+
+    // Find this player's slot
+    int32_t slot = -1;
+    for (int i = 0; i < static_cast<int>(as.slots_.size()); ++i) {
+        if (as.slots_[i].player_id == data->player_id) { slot = i; break; }
+    }
+    if (slot < 0) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "player has no slot in this session", server_log_);
+        return;
+    }
+
+    data->reconnect_token = token;
+
+    uWS::Loop* loop = uWS::Loop::get();
+    if (!attach_slot(ws, as, slot, lobby_id, loop)) {
+        loop->defer([ws]() { ws->end(1008, "invalid reconnect token"); });
+    }
+}
+
+// ─── handle_join_queue ────────────────────────────────────────────────────────
+// Enqueues a player for an active session. Fails gracefully if queue is full
+// or the player is already waiting.
+void WsServer::handle_join_queue(WsHandle ws, const std::string& lobby_id,
+                                  uWS::Loop* loop) {
+    auto* data = ws->getUserData();
+
+    if (lobby_id.empty()) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "join_queue requires lobby_id", server_log_);
+        return;
+    }
+
+    auto it = active_sessions_.find(lobby_id);
+    if (it == active_sessions_.end()) {
+        serialise::error(ws, WsErrorCode::RoundNotActive,
+                         "no active session for lobby", server_log_);
+        return;
+    }
+    auto& as = it->second;
+
+    const std::string pid_str = std::to_string(data->player_id);
+
+    if (as.queue_->has(pid_str)) {
+        // Already in queue — send a refreshed position rather than an error.
+        const int pos = as.queue_->position_of(pid_str);
+        ws->send(nlohmann::json{
+            {"type","queue_joined"}, {"position", pos}, {"queue_size", as.queue_->size()}
+        }.dump(), uWS::OpCode::TEXT);
+        return;
+    }
+
+    const int pos = as.queue_->enqueue(pid_str, data->username, ws);
+    if (pos < 0) {
+        ws->send(nlohmann::json{
+            {"type","queue_overflow"}, {"lobby_id", lobby_id}
+        }.dump(), uWS::OpCode::TEXT);
+        server_log_.info("queue", "queue full for lobby " + lobby_id +
+                         " — sent overflow to player " + pid_str);
+        return;
+    }
+
+    ws->send(nlohmann::json{
+        {"type","queue_joined"}, {"position", pos}, {"queue_size", as.queue_->size()}
+    }.dump(), uWS::OpCode::TEXT);
+    as.queue_->broadcast_positions(loop);
+
+    server_log_.info("queue", "player " + pid_str + " enqueued pos=" +
+                     std::to_string(pos) + " lobby=" + lobby_id);
+}
+
+// ─── handle_leave_queue ───────────────────────────────────────────────────────
+void WsServer::handle_leave_queue(WsHandle ws, const std::string& lobby_id,
+                                   uWS::Loop* loop) {
+    auto* data = ws->getUserData();
+
+    if (lobby_id.empty()) {
+        serialise::error(ws, WsErrorCode::MalformedMessage,
+                         "leave_queue requires lobby_id", server_log_);
+        return;
+    }
+
+    auto it = active_sessions_.find(lobby_id);
+    if (it == active_sessions_.end()) return;  // session gone — silently OK
+    auto& as = it->second;
+
+    const std::string pid_str = std::to_string(data->player_id);
+    as.queue_->dequeue(pid_str);
+    as.queue_->broadcast_positions(loop);
+
+    ws->send(nlohmann::json{{"type","queue_left"}}.dump(), uWS::OpCode::TEXT);
+    server_log_.info("queue", "player " + pid_str + " left queue lobby=" + lobby_id);
 }
 
 } // namespace anjeer::server

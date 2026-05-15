@@ -7,10 +7,13 @@
 #include "server/db.h"
 #include "server/event_bus.h"
 #include "server/game_session.h"
+#include "server/game_slots_repo.h"
 #include "server/lobby_gateway.h"
+#include "server/lobby_queue.h"
 #include "server/lobby_repo.h"
 #include "server/logger.h"
 #include "server/rate_limiter.h"
+#include "server/reconnect_token_repo.h"
 #include "server/session_queue.h"
 #include "server/session_repo.h"
 #include "server/ws_types.h"
@@ -21,6 +24,7 @@
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace anjeer::server {
@@ -50,6 +54,7 @@ private:
         std::unique_ptr<moodycamel::ReaderWriterQueue<NetEvent>>  inbound;
         std::unique_ptr<moodycamel::ReaderWriterQueue<GameEvent>> outbound;
         std::unique_ptr<GameSession>                               session;
+        std::string                                                session_id_;   // for GameSlotsRepo calls
         std::vector<SlotInfo>                                      slots_;        // authoritative slot list
         std::unordered_map<int32_t, WsHandle>                      slot_to_ws_;
         std::unordered_map<WsHandle, int32_t>                      ws_to_slot_;
@@ -62,6 +67,10 @@ private:
         std::unordered_map<int32_t, WsHandle>                      spectator_handles_;
         std::unordered_map<WsHandle, int32_t>                      ws_to_spectator_;
         int32_t                                                    spectator_count_ = 0;
+        // Slots whose reconnect window expired and are awaiting queue admission.
+        std::unordered_set<int32_t>                                available_slots_;
+        // Queue of players waiting to enter when a slot opens at round boundary.
+        std::unique_ptr<LobbyQueue>                                queue_;
     };
 
     void create_session      (const std::string& lobby_id);
@@ -73,6 +82,19 @@ private:
                                const std::string& difficulty);
     void handle_remove_bot   (WsHandle ws, const std::string& lobby_id,
                                const std::string& bot_uuid);
+    void handle_join_queue   (WsHandle ws, const std::string& lobby_id,
+                               uWS::Loop* loop);
+    void handle_leave_queue  (WsHandle ws, const std::string& lobby_id,
+                               uWS::Loop* loop);
+    void handle_reconnect_game(WsHandle ws, const std::string& lobby_id,
+                                const std::string& token);
+
+    // Shared slot-connect logic: validates token (if present), creates a fresh
+    // reconnect token, updates WsServer maps, and calls handle_player_reattach.
+    // Returns false if token validation fails (caller should close the socket).
+    bool attach_slot(WsHandle ws, ActiveSession& as,
+                     int32_t slot, const std::string& lobby_id,
+                     uWS::Loop* loop);
 
     // ── Dependencies ─────────────────────────────────────────────────────────
     ServerConfig   cfg_;
@@ -93,8 +115,10 @@ private:
     Logger engine_log_;
     Logger frontend_log_;
 
-    SessionRepo  session_repo_;
-    std::mt19937 rng_;
+    SessionRepo          session_repo_;
+    ReconnectTokenRepo   reconnect_token_repo_;
+    GameSlotsRepo        game_slots_repo_;
+    std::mt19937         rng_;
 
     // AGENT-CTX: Both maps are only ever accessed on the uWS event-loop thread.
     // player_to_lobby_ provides O(1) reconnect routing without a DB query.

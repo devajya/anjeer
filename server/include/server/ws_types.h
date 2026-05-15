@@ -54,6 +54,9 @@ struct PerSocketData {
     // Set in .upgrade when auth fails or player is suspended; checked in .open
     // to send a typed error and close before the connection is used.
     std::optional<WsErrorCode> pending_close;
+    // Populated in .upgrade from ?token= query param; consumed in .open to
+    // validate and trigger the reattach path instead of a fresh NetConnect.
+    std::string reconnect_token;
 };
 
 using WsHandle = uWS::WebSocket<false, true, PerSocketData>*;
