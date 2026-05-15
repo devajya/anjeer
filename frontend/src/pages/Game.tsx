@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { useKeyBinds } from '../hooks/useKeyBinds'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useReconnect } from '../hooks/useReconnect'
 import { ConnectionBanner } from '../components/ConnectionBanner'
 import { RoundCountdown } from '../components/RoundCountdown'
 import { MarketOverview } from '../components/MarketOverview'
@@ -16,6 +18,7 @@ import { SessionError } from '../components/SessionError'
 import { PlayerBadge } from '../components/PlayerBadge'
 import { ShortcutHelp } from '../components/ShortcutHelp'
 import { SpectatorBadge } from '../components/SpectatorBadge'
+import { ReconnectOverlay } from '../components/ReconnectOverlay'
 import { slotColorSemi } from '../utils/playerColors'
 import '../App.css'
 
@@ -27,13 +30,53 @@ const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 export function Game() {
 const { user, logout } = useAuth()
   const { binds } = useKeyBinds()
+  const [searchParams] = useSearchParams()
+  const lobbyId = searchParams.get('lobby_id') ?? ''
+
+  // Fetch reconnect window from server config; fall back to 20 s.
+  const [windowSeconds, setWindowSeconds] = useState(20)
+  useEffect(() => {
+    fetch('/config/client')
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { reconnect_window_seconds?: number } | null) => {
+        if (data?.reconnect_window_seconds) setWindowSeconds(data.reconnect_window_seconds)
+      })
+      .catch(() => {})
+  }, [])
+
   const {
     connected, playerId, books, trades, myOrders, errors, sendMessage,
     startsAt, roundEndAt, hand, initialHand, playerSlot, roundEnd, balance,
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
     interRound, voteTally, gameEnded, sessionError,
     roster, deltas, allBalances, allHandTotals, spectatorCount,
+    reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired,
   } = useWebSocket('/ws')
+
+  const {
+    status: reconnectStatus,
+    remainingSeconds,
+    onTokenReceived,
+    onSnapshotReceived,
+    onWindowExpired,
+  } = useReconnect(lobbyId, windowSeconds, connected, sendMessage)
+
+  // Wire useWebSocket signals → useReconnect callbacks.
+  // AGENT-CTX: useEffect deps on the message object means each distinct message
+  // fires once. reconnectTokenMsg / gameStateSnapshot are never cleared by
+  // useWebSocket (see WsState comment there), so the effect only re-fires on a
+  // genuinely new token/snapshot (object identity changes on setState).
+  useEffect(() => {
+    if (reconnectTokenMsg) onTokenReceived(reconnectTokenMsg.token, reconnectTokenMsg.expires_at)
+  }, [reconnectTokenMsg]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (gameStateSnapshot) onSnapshotReceived()
+  }, [gameStateSnapshot]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (reconnectWindowExpired) onWindowExpired()
+  }, [reconnectWindowExpired]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // AGENT-CTX: selectedSuit drives keyboard order submission. null = no suit
   // focused; keyboard buy/sell/nudge are no-ops until a suit is focused.
@@ -160,6 +203,12 @@ const { user, logout } = useAuth()
   if (sessionError) return <SessionError sessionError={sessionError} />
   if (gameEnded)    return <GameEndScreen gameEnded={gameEnded} playerSlot={playerSlot} />
 
+  // AGENT-CTX: ReconnectOverlay is rendered as a sibling *outside* the game
+  // layout fragment so it can cover the full viewport. It is a no-op (returns
+  // null) when reconnectStatus !== 'reconnecting', so there is no layout cost.
+  // Placed after the terminal-state early returns to avoid rendering a reconnect
+  // overlay over a crash screen or game-end screen.
+
   const activeSuits  = SUIT_ORDER.filter(s => s in books)
 
   const lastTradePrices: Record<string, number> = {}
@@ -175,6 +224,7 @@ const { user, logout } = useAuth()
 
   return (
     <>
+      <ReconnectOverlay status={reconnectStatus} />
       {showShortcuts && (
         <ShortcutHelp binds={binds} onClose={() => setShowShortcuts(false)} />
       )}

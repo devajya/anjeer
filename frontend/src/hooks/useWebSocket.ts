@@ -15,6 +15,7 @@ import type {
   GameEndedMessage,
   SessionErrorMessage,
   AllBalancesMessage,
+  GameStateSnapshotMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -157,6 +158,17 @@ export interface WsState {
   spectatorCount: number
   /** Script log entries from API-lobby players. Delivered to spectators only. */
   scriptLogs: import('../types/messages').ScriptLogMessage[]
+  // ── Slice 10.5 reconnect signals ─────────────────────────────────────────
+  // AGENT-CTX: These three fields are write-once signals set by the switch below
+  // and consumed by useReconnect / Game.tsx. They are never cleared by the hook
+  // because Game.tsx reacts via useEffect on change; clearing them would require
+  // a second state flush and risks a missed event on fast successive messages.
+  /** Latest reconnect_token message from server. null until first token issued. */
+  reconnectTokenMsg: { token: string; expires_at: number } | null
+  /** Full state snapshot from server on slot reattach. null until first reattach. */
+  gameStateSnapshot: GameStateSnapshotMessage | null
+  /** True once reconnect_window_expired is received (terminal; never cleared). */
+  reconnectWindowExpired: boolean
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -211,6 +223,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     allBalances: [],
     spectatorCount: 0,
     scriptLogs: [],
+    reconnectTokenMsg: null,
+    gameStateSnapshot: null,
+    reconnectWindowExpired: false,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -537,21 +552,91 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           }))
           break
 
-        // ── Slice 10.5 stubs — full logic added in T11 ────────────────────
-        // AGENT-CTX: These cases are intentionally no-ops here. useReconnect
-        // (T11) and QueuePopup (T12) consume these messages directly via their
-        // own state machines. useWebSocket is not the right place for reconnect
-        // or queue state — it only handles session-level events.
-        case 'reconnect_token':
-        case 'game_state_snapshot':
-        case 'game_bot_replaced':
+        case 'reconnect_token': {
+          logger.info('ws/recv', `reconnect_token expires_at=${msg.expires_at}`)
+          setState(s => ({ ...s, reconnectTokenMsg: { token: msg.token, expires_at: msg.expires_at } }))
+          break
+        }
+
+        case 'game_state_snapshot': {
+          // AGENT-CTX: Full state restore on slot reattach. Game state lives here
+          // (not in useReconnect) to keep a single source of truth for hand/books/etc.
+          // Books are derived from full bids/asks: best bid = max bid price, best ask
+          // = min ask price. myOrders reconstructed by filtering on player_slot.
+          // roundEndAt is computed as absolute ISO from relative remaining seconds.
+          const snap: GameStateSnapshotMessage = msg
+          logger.info('ws/recv', `game_state_snapshot slot=${snap.player_slot} timer=${snap.round_timer_remaining}`)
+
+          const books: Record<string, BookState> = {}
+          const myOrders: MyOrder[] = []
+
+          for (const [suit, book] of Object.entries(snap.order_books)) {
+            const sortedBids = [...book.bids].sort((a, b) => b.price - a.price)
+            const sortedAsks = [...book.asks].sort((a, b) => a.price - b.price)
+            books[suit] = {
+              best_bid:      sortedBids[0]?.price      ?? null,
+              best_ask:      sortedAsks[0]?.price      ?? null,
+              best_bid_slot: sortedBids[0]?.player_slot ?? null,
+              best_ask_slot: sortedAsks[0]?.player_slot ?? null,
+            }
+            for (const bid of book.bids) {
+              if (bid.player_slot === snap.player_slot)
+                myOrders.push({ order_id: bid.order_id, suit, side: 'buy', price: bid.price })
+            }
+            for (const ask of book.asks) {
+              if (ask.player_slot === snap.player_slot)
+                myOrders.push({ order_id: ask.order_id, suit, side: 'sell', price: ask.price })
+            }
+          }
+
+          const roundEndAt = new Date(Date.now() + snap.round_timer_remaining * 1000).toISOString()
+
+          setState(s => ({
+            ...s,
+            hand:         snap.hand,
+            playerSlot:   snap.player_slot,
+            startsAt:     null,
+            roundEndAt,
+            balance:      snap.all_balances[snap.player_slot] ?? s.balance,
+            allBalances:  snap.all_balances,
+            deltas:       snap.deltas,
+            roster:       snap.roster,
+            books,
+            myOrders,
+            gameStateSnapshot: snap,
+          }))
+          break
+        }
+
+        case 'game_bot_replaced': {
+          // AGENT-CTX: A queued player displaced a bot — update roster so the
+          // trade feed shows the correct username for that slot going forward.
+          logger.info('ws/recv', `game_bot_replaced slot=${msg.slot_index} username=${msg.username}`)
+          setState(s => ({
+            ...s,
+            roster: s.roster.map(r =>
+              r.player_slot === msg.slot_index ? { ...r, username: msg.username } : r
+            ),
+            departedSlots: s.departedSlots.filter(slot => slot !== msg.slot_index),
+          }))
+          break
+        }
+
+        case 'reconnect_window_expired': {
+          logger.info('ws/recv', 'reconnect_window_expired')
+          setState(s => ({ ...s, reconnectWindowExpired: true }))
+          break
+        }
+
+        // ── Slice 10.5 queue stubs — full logic added in T12 ──────────────
+        // AGENT-CTX: Queue messages are consumed by QueuePopup (T12) via its own
+        // state machine. useWebSocket is not the right place for queue position state.
         case 'queue_joined':
         case 'queue_left':
         case 'queue_position_update':
         case 'queue_overflow':
         case 'queue_admitted':
-        case 'reconnect_window_expired':
-          logger.info('ws/recv', `${msg.type} — handled by dedicated hook (T11/T12)`)
+          logger.info('ws/recv', `${msg.type} — handled by QueuePopup (T12)`)
           break
 
         default: {

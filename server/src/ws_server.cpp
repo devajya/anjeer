@@ -1300,6 +1300,19 @@ void WsServer::handle_reconnect_game(WsHandle ws,
         return;
     }
 
+    // If the slot is available for queue admission the reconnect window already
+    // expired and a bot has taken over. Block the attach and tell the client so
+    // the expiry overlay is shown instead of attaching the player to the bot.
+    // AGENT-CTX: available_slots_ is inserted on GameReconnectExpired and erased
+    // only when a queued player is admitted, so it is a reliable liveness guard.
+    if (as.available_slots_.count(slot) > 0) {
+        ws->send(nlohmann::json{{"type","reconnect_window_expired"}}.dump(),
+                 uWS::OpCode::TEXT);
+        server_log_.info("reconnect",
+            "slot " + std::to_string(slot) + " window already expired — blocked");
+        return;
+    }
+
     data->reconnect_token = token;
 
     uWS::Loop* loop = uWS::Loop::get();

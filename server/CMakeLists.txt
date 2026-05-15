@@ -27,6 +27,7 @@ add_executable(server
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/reconnect_token_repo.cpp
     src/game_slots_repo.cpp
     src/lobby_queue.cpp
     src/bot_manager_session.cpp
