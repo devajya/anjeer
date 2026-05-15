@@ -27,6 +27,7 @@ add_executable(server
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/game_slots_repo.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -525,3 +526,28 @@ target_link_libraries(simple_cache_tests PRIVATE
 )
 
 catch_discover_tests(simple_cache_tests)
+
+# ---------------------------------------------------------------------------
+# GameSlotsRepo integration tests — requires anjeer_test DB
+# ---------------------------------------------------------------------------
+add_executable(game_slots_repo_tests
+    tests/test_game_slots_repo.cpp
+    src/db.cpp
+    src/game_slots_repo.cpp
+)
+
+target_include_directories(game_slots_repo_tests PRIVATE include)
+
+target_compile_definitions(game_slots_repo_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(game_slots_repo_tests PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    pthread
+)
+
+add_test(NAME game_slots_repo_tests COMMAND game_slots_repo_tests)
+set_tests_properties(game_slots_repo_tests PROPERTIES RUN_SERIAL TRUE)
