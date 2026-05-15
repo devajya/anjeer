@@ -173,6 +173,38 @@ struct Harness {
         return std::nullopt;
     }
 
+    // Drain outbound until a GameReconnectExpired for `slot` arrives.
+    bool recv_reconnect_expired(int32_t slot,
+                                std::chrono::milliseconds timeout = 3000ms) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            GameEvent ev;
+            if (outbound.try_dequeue(ev)) {
+                if (const auto* e = std::get_if<GameReconnectExpired>(&ev))
+                    if (e->slot == slot) return true;
+            } else {
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+        return false;
+    }
+
+    // Drain outbound until a GameSpawnBot for `slot` arrives.
+    std::optional<GameSpawnBot> recv_spawn_bot(int32_t slot,
+                                               std::chrono::milliseconds timeout = 3000ms) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            GameEvent ev;
+            if (outbound.try_dequeue(ev)) {
+                if (const auto* e = std::get_if<GameSpawnBot>(&ev))
+                    if (e->slot == slot) return *e;
+            } else {
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+        return std::nullopt;
+    }
+
     bool recv_done(std::chrono::milliseconds timeout = 2000ms) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -389,4 +421,132 @@ TEST_CASE("G10: submit_order in Lobby phase returns ROUND_NOT_ACTIVE error",
     const auto err = h.recv_targeted(0, "error");
     REQUIRE(err.has_value());
     CHECK(err->value("code", "") == "ROUND_NOT_ACTIVE");
+}
+
+// ─── G-T1: handle_player_disconnect logs and broadcasts player_left ───────────
+
+// handle_player_disconnect enqueues NetReconnectDisconnect; game loop emits
+// game_player_left to inform remaining players.
+TEST_CASE("G-T1: handle_player_disconnect during RoundActive broadcasts game_player_left",
+          "[game_session][reconnect]") {
+    run_migrations();
+    Harness h;
+    h.advance_to_round_active();
+
+    h.session->handle_player_disconnect(1);
+
+    const auto left = h.recv_type("game_player_left");
+    REQUIRE(left.has_value());
+    CHECK(left->value("player_slot", -1) == 1);
+    CHECK(left->value("username",    "") == "player1");
+}
+
+// ─── G-T2: cancel_orders_for_slot broadcasts book_update ─────────────────────
+
+// Orders for disconnecting slot must be cancelled immediately so remaining
+// players see an accurate book and can act on open prices.
+TEST_CASE("G-T2: handle_player_disconnect cancels open orders and broadcasts book_update",
+          "[game_session][reconnect]") {
+    run_migrations();
+    Harness h;
+    h.advance_to_round_active();
+
+    // Slot 0 places a bid; drain both the order_ack and the placement book_update
+    // so the queue is clean before we trigger the disconnect.
+    h.push(NetSubmit{0, "clubs", Side::Buy, 30});
+    REQUIRE(h.recv_targeted(0, "order_ack").has_value());
+    REQUIRE(h.recv_type("book_update").has_value());  // placement broadcast (best_bid=30)
+
+    // Disconnect slot 0 — should cancel the order and broadcast book_update.
+    h.session->handle_player_disconnect(0);
+
+    // cancel_orders_for_slot emits book_update BEFORE game_player_left, so drain
+    // book_update first to avoid recv_type("game_player_left") discarding it.
+    const auto book_upd = h.recv_type("book_update");
+    REQUIRE(book_upd.has_value());
+    CHECK(book_upd->value("suit", "") == "clubs");
+    CHECK(book_upd->at("best_bid").is_null());
+}
+
+// ─── G-T3: reconnect window expiry emits GameReconnectExpired + GameSpawnBot ──
+
+// After reconnect_window_seconds elapses the slot must be marked expired and
+// a bot spawned so the round continues with a full table.
+TEST_CASE("G-T3: reconnect window expiry fires GameReconnectExpired and GameSpawnBot",
+          "[game_session][reconnect]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.reconnect.reconnect_window_seconds = 1;  // short window for test speed
+    Harness h(cfg);
+    h.advance_to_round_active();
+
+    h.session->handle_player_disconnect(1);
+    // Drain the game_player_left so it doesn't block recv_reconnect_expired.
+    h.recv_type("game_player_left");
+
+    CHECK(h.recv_reconnect_expired(1, 3000ms));
+    CHECK(h.recv_spawn_bot(1, 500ms).has_value());
+}
+
+// ─── G-T4: handle_player_reattach sends game_state_snapshot ──────────────────
+
+// On reattach the returning player must receive a full state snapshot so their
+// client can repopulate the board without a page reload.
+TEST_CASE("G-T4: handle_player_reattach emits game_state_snapshot to the slot",
+          "[game_session][reconnect]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.reconnect.reconnect_window_seconds = 10;
+    Harness h(cfg);
+    h.advance_to_round_active();
+
+    h.session->handle_player_disconnect(1);
+    h.recv_type("game_player_left");  // drain
+
+    // Reattach within window with a dummy token.
+    h.session->handle_player_reattach(1, "rtk_test_token", 9999999);
+
+    const auto snap = h.recv_targeted(1, "game_state_snapshot", 2000ms);
+    REQUIRE(snap.has_value());
+    CHECK(snap->contains("hand"));
+    CHECK(snap->contains("order_books"));
+    CHECK(snap->contains("all_balances"));
+    CHECK(snap->value("player_slot", -1) == 1);
+    CHECK(snap->value("reconnect_token", "") == "rtk_test_token");
+}
+
+// ─── G-T5: admit_from_queue fills an inactive slot ───────────────────────────
+
+// Queued players admitted at round boundaries must be visible to the session
+// as active real-player slots for the next round.
+TEST_CASE("G-T5: admit_from_queue activates a previously inactive slot",
+          "[game_session][reconnect]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.reconnect.reconnect_window_seconds = 1;
+    Harness h(cfg);
+    h.advance_to_round_active();
+
+    // Expire slot 1 so it becomes inactive.
+    h.session->handle_player_disconnect(1);
+    h.recv_type("game_player_left");
+    REQUIRE(h.recv_reconnect_expired(1, 3000ms));
+    h.recv_spawn_bot(1, 500ms);  // drain
+
+    // Admit a new player into the now-inactive slot.
+    std::vector<SlotAdmitInfo> entries{{1, 99, "newcomer"}};
+    const int admitted = h.session->admit_from_queue(entries);
+    CHECK(admitted == 1);
+}
+
+// ─── G-T6: hand_for_slot returns zero hand when no round active ───────────────
+
+TEST_CASE("G-T6: hand_for_slot returns zero hand before round starts",
+          "[game_session][reconnect]") {
+    run_migrations();
+    Harness h;
+    h.connect_all();
+    // Lobby phase — no game_state_
+    const auto hand = h.session->hand_for_slot(0);
+    for (int i = 0; i < 4; ++i) CHECK(hand.suit_counts[i] == 0);
 }

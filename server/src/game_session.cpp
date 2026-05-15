@@ -84,6 +84,7 @@ GameSession::GameSession(
     vote_to_end_.assign(slots_.size(), false);
     funded_this_round_.assign(slots_.size(), false);
     delta_table_.assign(slots_.size(), {0, 0, 0, 0});
+    reconnect_deadlines_.assign(slots_.size(), std::nullopt);
     active_player_count_ = static_cast<int>(slots_.size());
     real_player_count_   = static_cast<int>(std::count_if(
         slots_.begin(), slots_.end(),
@@ -153,6 +154,7 @@ void GameSession::tick() {
         break;
 
     case SessionPhase::RoundActive:
+        check_reconnect_expirations();
         if (now >= round_deadline_) {
             end_round();
         } else if (all_disconnected_ &&
@@ -196,6 +198,10 @@ void GameSession::process_inbound() {
             else if constexpr (std::is_same_v<T, NetPermanentLeave>) handle_permanent_leave(e.slot);
             else if constexpr (std::is_same_v<T, NetSpectatorJoin>)  handle_spectator_join(e);
             else if constexpr (std::is_same_v<T, NetSpectatorLeave>) handle_spectator_leave(e);
+            else if constexpr (std::is_same_v<T, NetReconnectDisconnect>)
+                handle_reconnect_disconnect(e.slot);
+            else if constexpr (std::is_same_v<T, NetReconnectReattach>)
+                handle_reconnect_reattach(e.slot, e.reconnect_token, e.reconnect_expires_at_ms);
         }, ev);
     }
 }
@@ -959,6 +965,248 @@ std::string GameSession::steady_to_iso(std::chrono::steady_clock::time_point tp)
     const auto delta      = tp - steady_now;
     return to_iso_string(sys_now +
         std::chrono::duration_cast<std::chrono::system_clock::duration>(delta));
+}
+
+// ─── T9: Reconnect / queue public API ────────────────────────────────────────
+
+void GameSession::handle_player_disconnect(int slot_index) {
+    // Thread-safe: enqueues onto the SPSC inbound queue; game-loop thread processes.
+    inbound_.enqueue(NetReconnectDisconnect{static_cast<int32_t>(slot_index)});
+}
+
+void GameSession::handle_player_reattach(int slot_index,
+                                          const std::string& reconnect_token,
+                                          int64_t reconnect_expires_at_ms) {
+    inbound_.enqueue(NetReconnectReattach{
+        static_cast<int32_t>(slot_index),
+        reconnect_token,
+        reconnect_expires_at_ms});
+}
+
+// ─── T9: Reconnect internal handlers ─────────────────────────────────────────
+
+void GameSession::handle_reconnect_disconnect(int32_t slot) {
+    if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
+    auto& s = slots_[slot];
+    if (!s.active) return;
+    s.connected = false;
+
+    server_log_.info("session", "slot " + std::to_string(slot) + " disconnected");
+
+    // Cancel open orders so remaining players see an accurate book immediately.
+    cancel_orders_for_slot(slot);
+
+    if (phase_ == SessionPhase::RoundActive) {
+        // Start reconnect window; check_reconnect_expirations() fires expiry logic.
+        reconnect_deadlines_[slot] = std::chrono::steady_clock::now() +
+            std::chrono::seconds(cfg_.reconnect.reconnect_window_seconds);
+    }
+    // Outside RoundActive, no timer — the slot stays disconnected until the
+    // next round when admit_from_queue may fill it, or the session ends.
+
+    if (phase_ == SessionPhase::RoundActive || phase_ == SessionPhase::InterRound)
+        emit_broadcast(serialise::game_player_left_payload(slot, s.username));
+
+    bool any_connected = false;
+    for (const auto& sl : slots_) {
+        if (sl.active && sl.connected) { any_connected = true; break; }
+    }
+    if (!any_connected && !all_disconnected_) {
+        all_disconnected_       = true;
+        all_disconnected_since_ = std::chrono::steady_clock::now();
+    }
+}
+
+void GameSession::handle_reconnect_reattach(int32_t slot,
+                                             const std::string& token,
+                                             int64_t expires_at_ms) {
+    if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
+    auto& s = slots_[slot];
+
+    reconnect_deadlines_[slot].reset();
+    s.connected       = true;
+    all_disconnected_ = false;
+
+    server_log_.info("session", "slot " + std::to_string(slot) + " reattached");
+
+    if (phase_ == SessionPhase::RoundActive && game_state_) {
+        emit_targeted(slot, build_state_snapshot(slot, token, expires_at_ms));
+    }
+}
+
+// ─── T9: check_reconnect_expirations ─────────────────────────────────────────
+
+void GameSession::check_reconnect_expirations() {
+    // Only runs during RoundActive — timers are not started in other phases.
+    const auto now = std::chrono::steady_clock::now();
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        if (!reconnect_deadlines_[i]) continue;
+        if (now < *reconnect_deadlines_[i]) continue;
+
+        reconnect_deadlines_[i].reset();
+
+        server_log_.info("session",
+            "slot " + std::to_string(i) + " expired — spawning bot");
+
+        auto& s = slots_[i];
+        s.active    = false;
+        s.connected = false;
+        active_player_count_--;
+        if (s.player_id >= 0) real_player_count_--;
+
+        // Tell WsServer to send reconnect_window_expired to the stale socket.
+        outbound_.enqueue(GameReconnectExpired{i});
+
+        // Signal WsServer to spawn a replacement bot (same path as permanent leave).
+        if (game_state_) {
+            const auto& hand = game_state_->hand(i);
+            const float remaining = std::max(0.0f, std::chrono::duration<float>(
+                round_deadline_ - now).count());
+            outbound_.enqueue(GameSpawnBot{
+                i,
+                {hand.suit_counts[0], hand.suit_counts[1],
+                 hand.suit_counts[2], hand.suit_counts[3]},
+                s.balance,
+                remaining
+            });
+        }
+
+        if (real_player_count_ == 0) { end_game(true); return; }
+    }
+}
+
+// ─── T9: cancel_orders_for_slot ──────────────────────────────────────────────
+
+std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) {
+    std::vector<CancelledOrder> cancelled;
+    for (auto s : engine::kAllSuits) {
+        const int si = engine::suit_index(s);
+        if (!active_suits_[si]) continue;
+        auto events = books_[si].cancel_player(static_cast<int32_t>(slot_index));
+        bool had_cancel = false;
+        for (const auto& ev : events) {
+            if (const auto* cack = std::get_if<engine::OrderCancelAckEvent>(&ev)) {
+                cancelled.push_back({si, cack->order_id});
+                had_cancel = true;
+            }
+        }
+        // Broadcast final book state once per suit (not once per cancelled order).
+        if (had_cancel) {
+            emit_broadcast(serialise::book_update_payload(
+                std::string(engine::suit_name(s)),
+                books_[si].best_bid(), books_[si].best_ask()));
+        }
+    }
+    return cancelled;
+}
+
+// ─── T9: build_state_snapshot ────────────────────────────────────────────────
+
+std::string GameSession::build_state_snapshot(int slot_index,
+                                               const std::string& reconnect_token,
+                                               int64_t reconnect_expires_at_ms) const {
+    if (!game_state_) {
+        return nlohmann::json{{"type", "game_state_snapshot"},
+                              {"error", "no active round"}}.dump();
+    }
+
+    const auto& hand = game_state_->hand(slot_index);
+    const float remaining = std::max(0.0f, std::chrono::duration<float>(
+        round_deadline_ - std::chrono::steady_clock::now()).count());
+
+    nlohmann::json hand_json = {
+        {"clubs",    hand.suit_counts[0]},
+        {"diamonds", hand.suit_counts[1]},
+        {"hearts",   hand.suit_counts[2]},
+        {"spades",   hand.suit_counts[3]},
+    };
+
+    nlohmann::json books_json = nlohmann::json::object();
+    for (auto s : engine::kAllSuits) {
+        const int si = engine::suit_index(s);
+        if (!active_suits_[si]) continue;
+        const std::string suit = std::string(engine::suit_name(s));
+        nlohmann::json bids_arr = nlohmann::json::array();
+        for (const auto& b : books_[si].bids_snapshot())
+            bids_arr.push_back({{"order_id", b.order_id}, {"price", b.price},
+                                {"player_slot", b.player_slot}});
+        nlohmann::json asks_arr = nlohmann::json::array();
+        for (const auto& a : books_[si].asks_snapshot())
+            asks_arr.push_back({{"order_id", a.order_id}, {"price", a.price},
+                                {"player_slot", a.player_slot}});
+        books_json[suit] = {{"bids", bids_arr}, {"asks", asks_arr}};
+    }
+
+    nlohmann::json deltas_json = nlohmann::json::array();
+    for (const auto& row : delta_table_)
+        deltas_json.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
+
+    nlohmann::json balances_json = nlohmann::json::array();
+    for (const auto& sl : slots_) balances_json.push_back(sl.balance);
+
+    const auto all_scores = compute_all_scores();
+    nlohmann::json scores_json = nlohmann::json::array();
+    for (auto sc : all_scores) scores_json.push_back(sc);
+
+    nlohmann::json roster_json = nlohmann::json::array();
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i)
+        roster_json.push_back({{"player_slot", i}, {"username", slots_[i].username}});
+
+    return nlohmann::json{
+        {"type",                  "game_state_snapshot"},
+        {"player_slot",           slot_index},
+        {"hand",                  hand_json},
+        {"order_books",           books_json},
+        {"deltas",                deltas_json},
+        {"round_timer_remaining", remaining},
+        {"all_balances",          balances_json},
+        {"all_scores",            scores_json},
+        {"roster",                roster_json},
+        {"reconnect_token",       reconnect_token},
+        {"reconnect_expires_at",  reconnect_expires_at_ms},
+    }.dump();
+}
+
+// ─── T9: hand_for_slot / compute_all_scores / admit_from_queue ───────────────
+
+engine::PlayerHand GameSession::hand_for_slot(int slot_index) const {
+    if (!game_state_ || slot_index < 0 || slot_index >= game_state_->player_count())
+        return engine::PlayerHand{};
+    return game_state_->hand(slot_index);
+}
+
+std::vector<int> GameSession::compute_all_scores() const {
+    std::vector<int> scores(slots_.size(), 0);
+    for (const auto& rh : round_history_) {
+        for (const auto& r : rh.results) {
+            if (r.player_slot >= 0 && r.player_slot < static_cast<int>(scores.size()))
+                scores[r.player_slot] += r.payout;
+        }
+    }
+    return scores;
+}
+
+int GameSession::admit_from_queue(const std::vector<SlotAdmitInfo>& entries) {
+    int admitted = 0;
+    for (const auto& entry : entries) {
+        const int idx = entry.slot_index;
+        if (idx < 0 || idx >= static_cast<int>(slots_.size())) continue;
+        auto& s = slots_[idx];
+        if (s.active) continue;  // slot is still occupied — caller misidentified it
+
+        s.player_id = entry.player_id;
+        s.username  = entry.username;
+        s.connected = false;  // WsServer wires the socket after this call returns
+        s.active    = true;
+        reconnect_deadlines_[idx].reset();
+        active_player_count_++;
+        real_player_count_++;
+        ++admitted;
+
+        server_log_.info("queue",
+            "slot " + std::to_string(idx) + " admitted player=" + entry.username);
+    }
+    return admitted;
 }
 
 } // namespace anjeer::server

@@ -37,6 +37,25 @@ struct SlotInfo {
     bool        active    = true;
 };
 
+// Returned by cancel_orders_for_slot to let the caller (WsServer) log or
+// persist cancelled orders without re-reading engine state.
+struct CancelledOrder {
+    int     suit_index;
+    int64_t order_id;
+};
+
+// Minimal admission info passed to admit_from_queue. WsHandle is omitted:
+// GameSession does not own sockets. WsServer updates its own handle map
+// independently after calling admit_from_queue.
+// AGENT-CTX: Spec used QueueEntry (which carries WsHandle) but that would
+// pull uWS into game_session.h. SlotAdmitInfo holds only what GameSession
+// needs to reconstitute a slot.
+struct SlotAdmitInfo {
+    int         slot_index;   // target slot (caller picks, avoids game-state reads)
+    int64_t     player_id;    // numeric ID (WsServer resolves from DB)
+    std::string username;
+};
+
 class SessionRepo;  // forward declaration — used in persist helpers
 
 // Non-owning bundle of stable server-wide dependencies passed to GameSession.
@@ -74,6 +93,42 @@ public:
     // Used by BotManager::get_displaceable_bot_slot (via bot_manager_session.cpp).
     std::unordered_map<int,int> slot_balances() const;
 
+    // ── T9: Reconnect / queue public API ─────────────────────────────────────
+    // Called from the uWS event-loop thread (WsServer) — enqueues NetEvents so
+    // all state mutations happen on the game-loop thread.
+
+    // Starts the reconnect window timer for this slot. Safe to call from any thread.
+    void handle_player_disconnect(int slot_index);
+
+    // Cancels the reconnect timer; sends state snapshot to the reattaching slot.
+    // WsServer creates the token BEFORE calling this so the snapshot includes it.
+    void handle_player_reattach(int slot_index,
+                                const std::string& reconnect_token,
+                                int64_t reconnect_expires_at_ms);
+
+    // Cancels all open orders for the slot across all books; broadcasts book
+    // updates to remaining players. Returns the cancelled orders.
+    // Must be called on the game-loop thread.
+    std::vector<CancelledOrder> cancel_orders_for_slot(int slot_index);
+
+    // Builds the full JSON state snapshot for the given slot.
+    // AGENT-CTX: serialize_state_snapshot was not added to game_session_wire.h
+    // because the complete snapshot requires books_, delta_table_, and slots_,
+    // all of which are GameSession-private. The snapshot is built inline here
+    // to avoid a complex multi-arg wire helper or exposing private state via getters.
+    std::string build_state_snapshot(int slot_index,
+                                     const std::string& reconnect_token,
+                                     int64_t reconnect_expires_at_ms) const;
+
+    // Returns the current hand for the slot (suit_counts).
+    // AGENT-CTX: Spec used std::vector<Card> but Card does not exist in the engine;
+    // engine::PlayerHand (suit_counts array) is the correct type.
+    engine::PlayerHand hand_for_slot(int slot_index) const;
+
+    // Called at round start to admit queued players into available (inactive) slots.
+    // Returns number of players admitted.
+    int admit_from_queue(const std::vector<SlotAdmitInfo>& entries);
+
 private:
     // ── Game loop ─────────────────────────────────────────────────────────────
     void run();
@@ -92,6 +147,14 @@ private:
     void handle_spectator_join (const NetSpectatorJoin&);
     void handle_spectator_leave(const NetSpectatorLeave&);
     void send_spectator_snapshot(int32_t spectator_id);
+
+    // ── Reconnect internal handlers (called on game-loop thread) ──────────────
+    void handle_reconnect_disconnect(int32_t slot);
+    void handle_reconnect_reattach  (int32_t slot,
+                                     const std::string& token,
+                                     int64_t expires_at_ms);
+    // Checks per-slot reconnect timers each tick; fires expiry logic when window lapses.
+    void check_reconnect_expirations();
 
     // ── Session / round lifecycle ─────────────────────────────────────────────
     void begin_countdown  ();
@@ -170,6 +233,15 @@ private:
     // bot replacements never inflate the required vote count.
     int                      real_player_count_   = 0;
     std::unordered_set<int32_t> spectator_ids_;   // IDs only — WsHandles stay in WsServer
+
+    // Per-slot reconnect deadlines. Populated when a reconnect-aware disconnect is
+    // processed; cleared on reattach or expiry. nullopt = no active timer.
+    // Sized to slots_.size() at construction. Only checked during RoundActive.
+    std::vector<std::optional<std::chrono::steady_clock::time_point>> reconnect_deadlines_;
+
+    // Returns cumulative payouts per slot across all completed rounds.
+    // Used in build_state_snapshot for the all_scores field.
+    std::vector<int> compute_all_scores() const;
 
     // AGENT-CTX: Grace window before ending on all-disconnected. 500ms lets
     // WsServer reconnect a client to a freed slot (slot reuse for test compat)

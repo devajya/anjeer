@@ -26,11 +26,26 @@ struct NetPermanentLeave { int32_t slot; };
 struct NetSpectatorJoin  { int32_t spectator_id; std::string spectator_name; };
 struct NetSpectatorLeave { int32_t spectator_id; };
 
+// Reconnect-aware disconnect: starts the per-slot reconnect window timer in
+// GameSession. WsServer calls handle_player_disconnect() which enqueues this.
+// Distinct from NetDisconnect so the two flows (legacy close vs. reattach-aware
+// close) can coexist until T10 migrates WsServer entirely to the new path.
+struct NetReconnectDisconnect { int32_t slot; };
+
+// Carries the fresh token WsServer created BEFORE enqueuing so that the
+// game-loop thread can embed it in the state snapshot without a DB call.
+struct NetReconnectReattach {
+    int32_t     slot;
+    std::string reconnect_token;
+    int64_t     reconnect_expires_at_ms;
+};
+
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
     NetStartGame, NetVoteToEnd, NetPermanentLeave,
-    NetSpectatorJoin, NetSpectatorLeave>;
+    NetSpectatorJoin, NetSpectatorLeave,
+    NetReconnectDisconnect, NetReconnectReattach>;
 
 // ── Outbound: game-loop thread → network thread ───────────────────────────────
 // AGENT-CTX: GameSession never touches WsHandle or uWS directly — it writes
@@ -56,8 +71,13 @@ struct GameSpawnBot {
     float              remaining_s; // seconds left in the current round
 };
 
+// Outbound signal: reconnect window expired for this slot.
+// WsServer sends reconnect_window_expired to the client socket (if it is still
+// connected from a previous session) and removes any pending reconnect token.
+struct GameReconnectExpired { int32_t slot; };
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
-                               GameSpawnBot>;
+                               GameSpawnBot, GameReconnectExpired>;
 
 } // namespace anjeer::server
