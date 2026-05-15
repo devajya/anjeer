@@ -19,6 +19,7 @@ import { PlayerBadge } from '../components/PlayerBadge'
 import { ShortcutHelp } from '../components/ShortcutHelp'
 import { SpectatorBadge } from '../components/SpectatorBadge'
 import { ReconnectOverlay } from '../components/ReconnectOverlay'
+import { StaleLobbyModal } from '../components/StaleLobbyModal'
 import { slotColorSemi } from '../utils/playerColors'
 import '../App.css'
 
@@ -50,7 +51,7 @@ const { user, logout } = useAuth()
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
     interRound, voteTally, gameEnded, sessionError,
     roster, deltas, allBalances, allHandTotals, spectatorCount,
-    reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired,
+    reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueOverflow,
   } = useWebSocket('/ws')
 
   const {
@@ -199,6 +200,12 @@ const { user, logout } = useAuth()
   // sessionError takes priority over gameEnded in case both arrive in one
   // render cycle (e.g. crash fires after game_ended; shouldn't happen but safe).
   // All hooks above must be called before these returns to avoid a hooks-order violation.
+  if (queueOverflow) return (
+    <StaleLobbyModal
+      title="This lobby is full"
+      message="The lobby and wait queue are both full."
+    />
+  )
   if (sessionError) return <SessionError sessionError={sessionError} />
   if (gameEnded)    return <GameEndScreen gameEnded={gameEnded} playerSlot={playerSlot} />
 

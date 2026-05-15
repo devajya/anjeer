@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import { AuthProvider } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login } from './pages/Login'
@@ -9,6 +10,15 @@ import { KeybindSettings } from './pages/KeybindSettings'
 import { ApiKeySettings } from './pages/ApiKeySettings'
 import { SpectatorView } from './pages/SpectatorView'
 import { DocsPage } from './pages/DocsPage'
+
+// AGENT-CTX: Prevents direct access to /game without a lobby_id query param.
+// A valid lobby_id is required because Game.tsx uses it for WS join and reconnect
+// token storage. Without it there is no recoverable game state to present.
+function GameRouteGuard({ children }: { children: ReactNode }) {
+  const [searchParams] = useSearchParams()
+  if (!searchParams.get('lobby_id')) return <Navigate to="/lobby" replace />
+  return <>{children}</>
+}
 
 // AGENT-CTX: App.tsx is the route map. Lobby pages sit between login and game.
 // Default route redirects to /lobby so new users land in the lobby browser.
@@ -39,7 +49,9 @@ export default function App() {
           path="/game"
           element={
             <ProtectedRoute>
-              <Game />
+              <GameRouteGuard>
+                <Game />
+              </GameRouteGuard>
             </ProtectedRoute>
           }
         />

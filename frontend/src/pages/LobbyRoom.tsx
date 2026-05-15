@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { findLobbyByCode } from '../api/lobbyApi'
+import { StaleLobbyModal } from '../components/StaleLobbyModal'
 import type { LobbyPlayer } from '../types/messages'
 import './LobbyRoom.css'
 
@@ -183,6 +184,7 @@ export function LobbyRoom() {
   // navigates back before findLobbyByCode's REST call resolves.
   const navLobbyId = (location.state as { lobbyId?: string } | null)?.lobbyId ?? null
   const [lobbyId, setLobbyId]               = useState<string | null>(navLobbyId)
+  const [staleLobby, setStaleLobby]         = useState(false)
   const [fetchError, setFetchError]         = useState<string | null>(null)
   const [startError, setStartError]         = useState<string | null>(null)
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null)
@@ -229,7 +231,12 @@ export function LobbyRoom() {
     async function resolve() {
       try {
         const found = await findLobbyByCode(code)
-        if (!found) { if (!cancelled) setFetchError('Lobby not found'); return }
+        // AGENT-CTX: 'finished' and 'closed' are the terminal statuses in LobbyView.
+        // Both map to "stale" from the player's perspective — the game is over.
+        if (!found || found.status === 'finished' || found.status === 'closed') {
+          if (!cancelled) setStaleLobby(true)
+          return
+        }
         if (!cancelled) setLobbyId(found.id)
       } catch {
         if (!cancelled) setFetchError('Network error')
@@ -349,6 +356,8 @@ export function LobbyRoom() {
     if (i === creatorIdx) continue
     if (oi < otherPlayers.length) seats[i] = otherPlayers[oi++]
   }
+
+  if (staleLobby) return <StaleLobbyModal />
 
   if (fetchError) {
     return <div className="lr__error-page" role="alert">{fetchError}</div>

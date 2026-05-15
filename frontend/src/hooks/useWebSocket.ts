@@ -169,6 +169,8 @@ export interface WsState {
   gameStateSnapshot: GameStateSnapshotMessage | null
   /** True once reconnect_window_expired is received (terminal; never cleared). */
   reconnectWindowExpired: boolean
+  /** True when server rejects join_queue because the lobby and queue are both full. */
+  queueOverflow: boolean
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -226,6 +228,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     reconnectTokenMsg: null,
     gameStateSnapshot: null,
     reconnectWindowExpired: false,
+    queueOverflow: false,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -631,10 +634,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         // ── Slice 10.5 queue stubs — full logic added in T12 ──────────────
         // AGENT-CTX: Queue messages are consumed by QueuePopup (T12) via its own
         // state machine. useWebSocket is not the right place for queue position state.
+        // queue_overflow is the exception: it is a terminal signal (lobby + queue full)
+        // that Game.tsx must react to, so it is promoted to WsState.
+        case 'queue_overflow':
+          setState(s => ({ ...s, queueOverflow: true }))
+          logger.info('ws/recv', `queue_overflow — lobby ${msg.lobby_id} full`)
+          break
         case 'queue_joined':
         case 'queue_left':
         case 'queue_position_update':
-        case 'queue_overflow':
         case 'queue_admitted':
           logger.info('ws/recv', `${msg.type} — handled by QueuePopup (T12)`)
           break
