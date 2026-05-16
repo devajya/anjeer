@@ -81,7 +81,6 @@ GameSession::GameSession(
     , slots_(std::move(slots))
     , books_(build_books(ctx.cfg))
 {
-    vote_to_end_.assign(slots_.size(), false);
     funded_this_round_.assign(slots_.size(), false);
     delta_table_.assign(slots_.size(), {0, 0, 0, 0});
     reconnect_deadlines_.assign(slots_.size(), std::nullopt);
@@ -165,13 +164,10 @@ void GameSession::tick() {
         break;
 
     case SessionPhase::InterRound: {
-        const int votes  = static_cast<int>(
-            std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
-        const int needed = majority_threshold();
-        if (votes >= needed) {
-            server_log_.info("session", "vote majority reached — ending game");
-            end_game(false);
-        } else if (now >= inter_round_deadline_) {
+        // Auto-start fires when the deadline passes — serves as a safety net
+        // if the owner is disconnected. Owner can also trigger begin_round()
+        // early via handle_owner_start_round (NetOwnerStartRound command).
+        if (now >= inter_round_deadline_) {
             begin_round();
         }
         break;
@@ -194,7 +190,8 @@ void GameSession::process_inbound() {
             else if constexpr (std::is_same_v<T, NetNudge>)      handle_nudge(e);
             else if constexpr (std::is_same_v<T, NetCancel>)     handle_cancel(e);
             else if constexpr (std::is_same_v<T, NetStartGame>)  handle_start_game();
-            else if constexpr (std::is_same_v<T, NetVoteToEnd>)      handle_vote_to_end(e.slot);
+            else if constexpr (std::is_same_v<T, NetOwnerStartRound>) handle_owner_start_round();
+            else if constexpr (std::is_same_v<T, NetOwnerEndGame>)   handle_owner_end_game();
             else if constexpr (std::is_same_v<T, NetPermanentLeave>) handle_permanent_leave(e.slot);
             else if constexpr (std::is_same_v<T, NetSpectatorJoin>)  handle_spectator_join(e);
             else if constexpr (std::is_same_v<T, NetSpectatorLeave>) handle_spectator_leave(e);
@@ -347,20 +344,16 @@ void GameSession::handle_start_game() {
     begin_countdown();
 }
 
-void GameSession::handle_vote_to_end(int32_t slot) {
+void GameSession::handle_owner_start_round() {
     if (phase_ != SessionPhase::InterRound) return;
-    if (slot < 0 || slot >= static_cast<int32_t>(vote_to_end_.size())) return;
-    vote_to_end_[slot] = true;
+    server_log_.info("owner_start_round", "owner triggered early round start");
+    begin_round();
+}
 
-    const int votes  = static_cast<int>(
-        std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
-    const int needed = majority_threshold();
-
-    server_log_.info("vote_to_end",
-        "slot=" + std::to_string(slot) +
-        " votes=" + std::to_string(votes) + "/" + std::to_string(needed));
-
-    emit_broadcast(serialise::vote_tally_payload(votes, needed));
+void GameSession::handle_owner_end_game() {
+    if (phase_ != SessionPhase::InterRound) return;
+    server_log_.info("owner_end_game", "owner force-ended the game");
+    end_game(false);
 }
 
 void GameSession::handle_permanent_leave(int32_t slot) {
@@ -442,7 +435,6 @@ void GameSession::begin_round() {
 
     reset_delta_table();
 
-    std::fill(vote_to_end_.begin(),      vote_to_end_.end(),      false);
     std::fill(funded_this_round_.begin(), funded_this_round_.end(), false);
 
     std::uniform_int_distribution<int> deck_pick(0, static_cast<int>(kDecks.size()) - 1);
@@ -563,14 +555,12 @@ void GameSession::begin_inter_round(
         const std::string& goal_suit) {
     phase_ = SessionPhase::InterRound;
 
-    const int needed = majority_threshold();
-
     inter_round_deadline_ = std::chrono::steady_clock::now() +
                             std::chrono::seconds(cfg_.game.inter_round_seconds);
     const std::string next_round_at = steady_to_iso(inter_round_deadline_);
 
     emit_broadcast(serialise::inter_round_payload(
-        round_number_, goal_suit, results, 0, needed, next_round_at));
+        round_number_, goal_suit, results, next_round_at));
 
     server_log_.info("inter_round",
         "round=" + std::to_string(round_number_) + " next_round_at=" + next_round_at);
@@ -607,10 +597,9 @@ void GameSession::end_game(bool forced) {
 
 void GameSession::check_end_condition() {
     if (phase_ == SessionPhase::Ended || phase_ != SessionPhase::InterRound) return;
-    if (real_player_count_ < cfg_.lobby.min_players) {
-        server_log_.info("check_end",
-            "real=" + std::to_string(real_player_count_) +
-            " < min=" + std::to_string(cfg_.lobby.min_players));
+    // min_players governs game start; mid-game we only end if no real players remain.
+    if (real_player_count_ == 0) {
+        server_log_.info("check_end", "no real players remain — ending game");
         end_game(true);
     }
 }
@@ -861,14 +850,11 @@ void GameSession::send_spectator_snapshot(int32_t spectator_id) {
     }
 
     case SessionPhase::InterRound: {
-        const int votes  = static_cast<int>(
-            std::count(vote_to_end_.begin(), vote_to_end_.end(), true));
-        const int needed = majority_threshold();
         const auto& last = round_history_.back();
         emit_spectator_targeted(spectator_id,
             serialise::inter_round_payload(
                 last.round_number, last.goal_suit, last.results,
-                votes, needed, steady_to_iso(inter_round_deadline_)));
+                steady_to_iso(inter_round_deadline_)));
         break;
     }
     }

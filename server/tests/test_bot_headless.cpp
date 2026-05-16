@@ -182,8 +182,7 @@ TEST_CASE("headless sim: 5 bots play a full game to completion", "[bots][headles
                     try {
                         auto j = nlohmann::json::parse(arg.json);
                         if (j.value("type", "") == "inter_round") {
-                            for (int s = 0; s < N; ++s)
-                                inbound.enqueue(NetVoteToEnd{s});
+                            inbound.enqueue(NetOwnerEndGame{});
                         }
                     } catch (...) {}
                 } else if constexpr (std::is_same_v<T, GameTargeted>) {

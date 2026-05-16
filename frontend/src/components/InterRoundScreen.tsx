@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import type { InterRoundMessage } from '../types/messages'
-import { VoteTally } from './VoteTally'
 import './InterRoundScreen.css'
 
 // AGENT-CTX: Suit glyphs duplicated from RoundEndModal to keep each component
@@ -12,18 +11,13 @@ const SUIT_ICON: Record<string, string> = {
 
 interface InterRoundScreenProps {
   interRound: InterRoundMessage
-  // AGENT-CTX: liveVotes/liveVotesRequired are derived by Game.tsx from subsequent
-  // vote_tally messages, which supersede the initial vote_count/votes_required
-  // snapshot in interRound. Passed as separate props so this component is a
-  // pure renderer — it never subscribes to the WS directly.
-  liveVotes: number
-  liveVotesRequired: number
   playerSlot: number | null
-  // AGENT-CTX: hasVoted prevents the player from casting more than one
-  // vote_to_end per inter-round window. Reset by Game.tsx on each new interRound.
-  // Optional when isSpectator is true — vote section is hidden entirely.
-  hasVoted?: boolean
-  onVoteToEnd?: () => void
+  // AGENT-CTX: isOwner controls which buttons are visible. The owner sees
+  // "Start Next Round" and "End Game"; non-owners see a waiting message.
+  isOwner: boolean
+  ownerUsername: string
+  onStartNextRound: () => void
+  onEndGame: () => void
   isSpectator?: boolean
   // AGENT-CTX: Called once when the countdown reaches 0. Game.tsx sets
   // interRoundDismissed=true so the overlay closes locally without waiting for
@@ -33,11 +27,11 @@ interface InterRoundScreenProps {
 
 export function InterRoundScreen({
   interRound,
-  liveVotes,
-  liveVotesRequired,
   playerSlot,
-  hasVoted = false,
-  onVoteToEnd,
+  isOwner,
+  ownerUsername,
+  onStartNextRound,
+  onEndGame,
   isSpectator = false,
   onCountdownExpired,
 }: InterRoundScreenProps) {
@@ -84,9 +78,6 @@ export function InterRoundScreen({
 
   const goalSuitDisplay =
     interRound.goal_suit.charAt(0).toUpperCase() + interRound.goal_suit.slice(1)
-
-  // next_round_at is null when the vote majority was reached before/at round-end.
-  const voteThresholdMet = interRound.next_round_at === null
 
   return (
     <div
@@ -140,31 +131,31 @@ export function InterRoundScreen({
           </tbody>
         </table>
 
-        {/* ── Vote section (hidden for spectators) ── */}
+        {/* ── Owner controls / waiting message (hidden for spectators) ── */}
         {!isSpectator && (
           <div className="irs__vote-section">
-            <VoteTally votes={liveVotes} required={liveVotesRequired} />
-            {!voteThresholdMet && (
-              <button
-                className="irs__vote-btn"
-                onClick={onVoteToEnd}
-                disabled={hasVoted}
-              >
-                {hasVoted ? 'Vote Cast' : 'Vote to End Game'}
-              </button>
+            {isOwner ? (
+              <div className="irs__owner-controls">
+                <button className="irs__vote-btn irs__vote-btn--start" onClick={onStartNextRound}>
+                  Start Next Round
+                </button>
+                <button className="irs__vote-btn irs__vote-btn--end" onClick={onEndGame}>
+                  End Game
+                </button>
+              </div>
+            ) : (
+              <p className="irs__waiting">
+                Waiting for <strong>{ownerUsername || 'the owner'}</strong> to start the next round…
+              </p>
             )}
           </div>
         )}
 
         {/* ── Countdown / status line ── */}
         <div className="irs__status">
-          {voteThresholdMet ? (
-            <span className="irs__status--ending">
-              Vote threshold reached — game ending…
-            </span>
-          ) : secondsLeft !== null && secondsLeft > 0 ? (
+          {secondsLeft !== null && secondsLeft > 0 ? (
             <span>
-              Next round in <strong>{secondsLeft}s</strong>
+              Auto-start in <strong>{secondsLeft}s</strong>
             </span>
           ) : secondsLeft === 0 ? (
             <span className="irs__status--starting">Starting next round…</span>

@@ -16,7 +16,12 @@ struct NetSubmit     { int32_t slot; std::string suit; engine::Side side; int32_
 struct NetNudge      { int32_t slot; std::string suit; engine::Side side; };
 struct NetCancel     { int32_t slot; int64_t order_id; };
 struct NetStartGame     {};
-struct NetVoteToEnd     { int32_t slot; };
+// Owner explicitly starts the next round during the inter-round window, bypassing
+// the auto-start countdown. Only WsServer enqueues this after verifying the sender
+// is the current owner (current_owner_player_id_ in ActiveSession).
+struct NetOwnerStartRound {};
+// Owner force-ends the game during the inter-round window.
+struct NetOwnerEndGame {};
 // Permanent leave: player sent leave_lobby during an active session. Unlike
 // NetDisconnect (temporary drop), this marks the slot inactive and decrements
 // active_player_count_ so check_end_condition can fire.
@@ -43,7 +48,7 @@ struct NetReconnectReattach {
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
-    NetStartGame, NetVoteToEnd, NetPermanentLeave,
+    NetStartGame, NetOwnerStartRound, NetOwnerEndGame, NetPermanentLeave,
     NetSpectatorJoin, NetSpectatorLeave,
     NetReconnectDisconnect, NetReconnectReattach>;
 

@@ -71,6 +71,8 @@ private:
         std::unordered_set<int32_t>                                available_slots_;
         // Queue of players waiting to enter when a slot opens at round boundary.
         std::unique_ptr<LobbyQueue>                                queue_;
+        // Mutable owner: initialized from creator_id, transferred on owner leave/expiry.
+        int64_t                                                    current_owner_player_id_ = -1;
     };
 
     void create_session      (const std::string& lobby_id);
@@ -88,6 +90,10 @@ private:
                                uWS::Loop* loop);
     void handle_reconnect_game(WsHandle ws, const std::string& lobby_id,
                                 const std::string& token);
+
+    // Transfers lobby ownership to the next real player. If no real players remain,
+    // calls teardown_session. Always called on the uWS event-loop thread.
+    void transfer_ownership(ActiveSession& as, const std::string& lobby_id);
 
     // Shared slot-connect logic: validates token (if present), creates a fresh
     // reconnect token, updates WsServer maps, and calls handle_player_reattach.

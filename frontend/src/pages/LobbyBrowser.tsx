@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
 import { useQueueSocket } from '../hooks/useQueueSocket'
@@ -11,6 +11,7 @@ type Tab = 'starting' | 'active'
 
 export function LobbyBrowser() {
   const navigate              = useNavigate()
+  const [searchParams]        = useSearchParams()
   const { user, logout }      = useAuth()
   const [tab, setTab]         = useState<Tab>('starting')
   const [lobbies, setLobbies]   = useState<LobbyView[]>([])
@@ -28,6 +29,16 @@ export function LobbyBrowser() {
   // overflow signals per lobby so the Join button stays disabled after a full-queue attempt.
   const queueSocket       = useQueueSocket()
   const [overflowLobbyIds, setOverflowLobbyIds] = useState<Set<string>>(new Set())
+
+  // Auto-queue when redirected from an expired reconnect window.
+  // AGENT-CTX: ReconnectOverlay and Game.tsx grace-period both navigate to
+  // /lobby?queue_for=<lobbyId>. Switch to Active tab and enqueue immediately.
+  useEffect(() => {
+    const queueFor = searchParams.get('queue_for')
+    if (!queueFor) return
+    setTab('active')
+    queueSocket.joinQueue(queueFor)
+  }, []) // intentional: mount-only, treat URL param as a one-shot instruction
 
   useEffect(() => {
     if (!menuOpen) return

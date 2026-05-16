@@ -11,11 +11,11 @@ import type {
   LobbyStateMessage,
   LobbyStartedMessage,
   InterRoundMessage,
-  VoteTallyMessage,
   GameEndedMessage,
   SessionErrorMessage,
   AllBalancesMessage,
   GameStateSnapshotMessage,
+  LobbyOwnerChangedMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -127,8 +127,6 @@ export interface WsState {
    * AGENT-CTX: Task 10 renders InterRoundScreen while this is non-null.
    */
   interRound: InterRoundMessage | null
-  /** Updated on every vote_tally message. Superceded by interRound.vote_count on round end. */
-  voteTally: VoteTallyMessage | null
   /** Set on game_ended; never cleared — the session is over at that point. */
   gameEnded: GameEndedMessage | null
   /** Set on session_error; never cleared — the session is over at that point. */
@@ -171,6 +169,14 @@ export interface WsState {
   reconnectWindowExpired: boolean
   /** True when server rejects join_queue because the lobby and queue are both full. */
   queueOverflow: boolean
+  /**
+   * player_id of the current session owner. Set on lobby_owner_changed (unicast
+   * on attach, broadcast on transfer). null until first message received.
+   * AGENT-CTX: Owner controls inter-round start; non-owners see a waiting message.
+   */
+  currentOwnerPlayerId: number | null
+  /** Username of the current session owner. Set alongside currentOwnerPlayerId. */
+  currentOwnerUsername: string
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -215,7 +221,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     lobbyState: null,
     lobbyStarted: null,
     interRound: null,
-    voteTally: null,
     gameEnded: null,
     sessionError: null,
     departedSlots: [],
@@ -229,6 +234,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     gameStateSnapshot: null,
     reconnectWindowExpired: false,
     queueOverflow: false,
+    currentOwnerPlayerId: null,
+    currentOwnerUsername: '',
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -406,7 +413,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             balance: msg.balance,
             // AGENT-CTX: Clear inter-round screen when the next round begins.
             interRound: null,
-            voteTally: null,
             roster: msg.roster,
             deltas: [],
             allHandTotals: msg.all_hand_totals ?? [],
@@ -484,15 +490,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
 
         case 'inter_round':
-          logger.info('ws/recv', `inter_round round=${msg.round_number} goal=${msg.goal_suit} votes=${msg.vote_count}/${msg.votes_required}`)
+          logger.info('ws/recv', `inter_round round=${msg.round_number} goal=${msg.goal_suit}`)
           // AGENT-CTX: Clears roundEnd and roundEndAt so the game board does not
           // show the previous round_end modal while the inter-round screen is up.
           setState(s => ({ ...s, interRound: msg, roundEnd: null, roundEndAt: null }))
-          break
-
-        case 'vote_tally':
-          logger.info('ws/recv', `vote_tally votes=${msg.votes}/${msg.required}`)
-          setState(s => ({ ...s, voteTally: msg }))
           break
 
         case 'game_ended':
@@ -646,6 +647,17 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         case 'queue_admitted':
           logger.info('ws/recv', `${msg.type} — handled by QueuePopup (T12)`)
           break
+
+        case 'lobby_owner_changed': {
+          const ownerMsg = msg as LobbyOwnerChangedMessage
+          logger.info('ws/recv', `lobby_owner_changed — new owner player_id=${ownerMsg.new_owner_player_id} (${ownerMsg.new_owner_username})`)
+          setState(s => ({
+            ...s,
+            currentOwnerPlayerId: ownerMsg.new_owner_player_id,
+            currentOwnerUsername: ownerMsg.new_owner_username,
+          }))
+          break
+        }
 
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new

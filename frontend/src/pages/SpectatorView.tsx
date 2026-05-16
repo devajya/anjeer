@@ -19,7 +19,7 @@ const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 // AGENT-CTX: SpectatorView is a read-only game view. It uses useSpectator
 // (not useWebSocket) so no sendMessage is available and no game commands can
 // be sent. SuitPanel and InterRoundScreen receive isSpectator={true} to hide
-// order forms and the vote button respectively.
+// order forms and owner controls respectively.
 export function SpectatorView() {
   const { lobbyCode } = useParams<{ lobbyCode: string }>()
   const {
@@ -30,7 +30,6 @@ export function SpectatorView() {
     roundEndAt,
     playerSlot,
     interRound,
-    voteTally,
     gameEnded,
     sessionError,
     roster,
@@ -45,9 +44,6 @@ export function SpectatorView() {
   useEffect(() => {
     if (interRound) setInterRoundDismissed(false)
   }, [interRound])
-
-  const liveVotes         = voteTally?.votes    ?? interRound?.vote_count     ?? 0
-  const liveVotesRequired = voteTally?.required ?? interRound?.votes_required ?? 0
 
   if (sessionError) return <SessionError sessionError={sessionError} />
   if (gameEnded)    return <GameEndScreen gameEnded={gameEnded} playerSlot={null} />
@@ -67,9 +63,11 @@ export function SpectatorView() {
       {showInterRound && (
         <InterRoundScreen
           interRound={interRound!}
-          liveVotes={liveVotes}
-          liveVotesRequired={liveVotesRequired}
           playerSlot={playerSlot}
+          isOwner={false}
+          ownerUsername=""
+          onStartNextRound={noop}
+          onEndGame={noop}
           isSpectator
           onCountdownExpired={() => setInterRoundDismissed(true)}
         />

@@ -28,7 +28,6 @@ const INITIAL_STATE: WsState = {
   lobbyState: null,
   lobbyStarted: null,
   interRound: null,
-  voteTally: null,
   gameEnded: null,
   sessionError: null,
   departedSlots: [],
@@ -38,10 +37,13 @@ const INITIAL_STATE: WsState = {
   allBalances: [],
   spectatorCount: 0,
   scriptLogs: [],
-  // Reconnect fields: spectators never receive these; fixed null/false.
+  // Reconnect/owner fields: spectators never receive these; fixed null/false.
   reconnectTokenMsg:    null,
   gameStateSnapshot:    null,
   reconnectWindowExpired: false,
+  queueOverflow:        false,
+  currentOwnerPlayerId: null,
+  currentOwnerUsername: '',
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and
@@ -148,7 +150,6 @@ export function useSpectator(lobbyId: string): WsState {
             roundEndAt:    msg.round_end_at,
             roundEnd:      null,
             interRound:    null,
-            voteTally:     null,
             roster:        msg.roster,
             deltas:        [],
             allHandTotals: msg.all_hand_totals ?? [],
@@ -162,10 +163,6 @@ export function useSpectator(lobbyId: string): WsState {
 
         case 'inter_round':
           setState(s => ({ ...s, interRound: msg, roundEnd: null, roundEndAt: null }))
-          break
-
-        case 'vote_tally':
-          setState(s => ({ ...s, voteTally: msg }))
           break
 
         case 'game_ended':
@@ -238,6 +235,7 @@ export function useSpectator(lobbyId: string): WsState {
         case 'queue_overflow':
         case 'queue_admitted':
         case 'reconnect_window_expired':
+        case 'lobby_owner_changed':
           break
 
         default: {

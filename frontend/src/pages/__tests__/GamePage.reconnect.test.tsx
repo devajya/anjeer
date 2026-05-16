@@ -40,7 +40,6 @@ vi.mock('../../hooks/useWebSocket', () => ({
     ownsBestBidBySuit: {},
     ownsBestAskBySuit: {},
     interRound: null,
-    voteTally: null,
     gameEnded: null,
     sessionError: null,
     roster: [],
@@ -54,6 +53,8 @@ vi.mock('../../hooks/useWebSocket', () => ({
     reconnectTokenMsg: null,
     gameStateSnapshot: null,
     reconnectWindowExpired: false,
+    queueOverflow: false,
+    currentOwnerPlayerId: null,
     ...wsState,
   }),
 }))

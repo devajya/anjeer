@@ -339,7 +339,7 @@ export function LobbyRoom() {
   const isOwner  = user != null && lobbyState != null && user.id === lobbyState.creator_id
   // AGENT-CTX: Start requires 2+ total players (real+bots). Server enforces
   // only that ≥1 real player is present; the combined count is enforced here.
-  // Teardown uses real_player_count_==0 (server); vote majority is real-only.
+  // Teardown uses real_player_count_==0 (server).
   const canStart  = isOwner && players.length >= (lobbyState?.min_players ?? 2)
   const canAddBot = isOwner && players.length < maxSlots
 

@@ -243,20 +243,11 @@ export interface InterRoundMessage {
   round_number: number
   goal_suit: string
   results: PlayerRoundResult[]
-  vote_count: number
-  votes_required: number
-  next_round_at: string | null  // ISO timestamp; null if vote threshold already met
-}
-
-/** Sent to all connected players each time a new vote_to_end is received. */
-export interface VoteTallyMessage {
-  type: 'vote_tally'
-  votes: number
-  required: number
+  next_round_at: string | null  // ISO timestamp; null when countdown already elapsed
 }
 
 /**
- * Sent to all connected players when the game ends (majority vote or all leave).
+ * Sent to all connected players when the game ends.
  * AGENT-CTX: net_change = final_balance − starting_balance; pre-computed
  * server-side so the client never needs to know starting_balance separately.
  */
@@ -452,6 +443,18 @@ export interface ReconnectWindowExpiredMessage {
 }
 
 /**
+ * Broadcast when lobby ownership transfers (owner leaves/expires) or unicast
+ * to a player on slot attach so they always know the current owner.
+ * AGENT-CTX: The owner controls inter-round progression (start_next_round).
+ * Non-owners see a "Waiting for owner" message instead of the Start button.
+ */
+export interface LobbyOwnerChangedMessage {
+  type: 'lobby_owner_changed'
+  new_owner_player_id: number
+  new_owner_username: string
+}
+
+/**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
  * useWebSocket.ts is exhaustive — TypeScript will error on unhandled variants
@@ -473,7 +476,6 @@ export type ServerMessage =
   | PlayerLeftMessage
   | LobbyStartedMessage
   | InterRoundMessage
-  | VoteTallyMessage
   | GameEndedMessage
   | GamePlayerLeftMessage
   | GameBotJoinedMessage
@@ -493,6 +495,7 @@ export type ServerMessage =
   | QueueOverflowMessage
   | QueueAdmittedMessage
   | ReconnectWindowExpiredMessage
+  | LobbyOwnerChangedMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
@@ -541,15 +544,6 @@ export interface UnsubscribeLobbyCommand {
 }
 
 /**
- * Votes to end the game early. No payload — server identifies voter by slot.
- * AGENT-CTX: Majority threshold = floor(active_players / 2) + 1.
- * Duplicate votes from the same player are ignored by the server.
- */
-export interface VoteToEndCommand {
-  type: 'vote_to_end'
-}
-
-/**
  * Sent by the client before back-navigating out of a lobby room.
  * AGENT-CTX: Required so WsServer can call LobbyRepo::remove_player and
  * delete_if_empty atomically. Without this the player row lingers until
@@ -575,6 +569,20 @@ export interface ScriptLogCommand {
 }
 
 // Slice 10.5 client commands
+
+/**
+ * Sent by the session owner during the inter-round window to start the next
+ * round immediately, bypassing the countdown. Server silently drops this if
+ * the sender is not the current owner.
+ */
+export interface StartNextRoundCommand {
+  type: 'start_next_round'
+}
+
+/** Sent by the session owner during inter-round to end the game immediately. */
+export interface EndGameCommand {
+  type: 'end_game'
+}
 
 /** Enqueue for an active lobby that has no open slots. */
 export interface JoinQueueCommand {
@@ -605,7 +613,6 @@ export type ClientCommand =
   | StartGameCommand
   | SubscribeLobbyCommand
   | UnsubscribeLobbyCommand
-  | VoteToEndCommand
   | LeaveLobbyCommand
   | SpectateLobbyCommand
   | ScriptLogCommand
@@ -615,6 +622,8 @@ export type ClientCommand =
   | JoinQueueCommand
   | LeaveQueueCommand
   | ReconnectGameCommand
+  | StartNextRoundCommand
+  | EndGameCommand
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HTTP REST types (not WebSocket)

@@ -177,18 +177,13 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <pre><code>{`{ type: 'hand_totals', totals: number[] }  // indexed by slot`}</code></pre>
 
           <h3><code>inter_round</code></h3>
-          <p>Broadcast at round end. Includes standings and vote-to-end state.</p>
+          <p>Broadcast at round end. Includes standings and the auto-start countdown.</p>
           <pre><code>{`{ type: 'inter_round', round_number: number, goal_suit: string,
   results: PlayerRoundResult[],
-  vote_count: number, votes_required: number,
-  next_round_at: string | null  // null if vote threshold already met }`}</code></pre>
-
-          <h3><code>vote_tally</code></h3>
-          <p>Broadcast each time a new vote is received during inter-round.</p>
-          <pre><code>{`{ type: 'vote_tally', votes: number, required: number }`}</code></pre>
+  next_round_at: string | null }`}</code></pre>
 
           <h3><code>game_ended</code></h3>
-          <p>Broadcast when the game ends (majority vote or all players leave).</p>
+          <p>Broadcast when the game ends (owner ends it or all players leave).</p>
           <pre><code>{`{ type: 'game_ended',
   rounds: Array<{ round_number, goal_suit, results }>,
   final_standings: Array<{ player_slot, username, final_balance, net_change }> }`}</code></pre>
@@ -232,9 +227,13 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <h3><code>cancel_order</code></h3>
           <pre><code>{`{ type: 'cancel_order', order_id: number }`}</code></pre>
 
-          <h3><code>vote_to_end</code></h3>
-          <p>Vote to end the game early. Duplicate votes are ignored. Majority threshold = ⌊active_players / 2⌋ + 1.</p>
-          <pre><code>{`{ type: 'vote_to_end' }`}</code></pre>
+          <h3><code>end_game</code></h3>
+          <p>Owner only. Ends the game immediately during the inter-round window.</p>
+          <pre><code>{`{ type: 'end_game' }`}</code></pre>
+
+          <h3><code>start_next_round</code></h3>
+          <p>Owner only. Starts the next round early, bypassing the auto-start countdown.</p>
+          <pre><code>{`{ type: 'start_next_round' }`}</code></pre>
 
           <h3><code>script_log</code></h3>
           <p>API-lobby players only. Forwarded (sanitized, truncated) to all spectators.</p>
@@ -263,8 +262,8 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
             <li><strong>All players connect</strong> → server broadcasts <code>round_starting</code> with <code>starts_at</code> timestamp.</li>
             <li><strong>Countdown expires</strong> → server sends <code>round_start</code> privately to each player (your hand, round end time, roster).</li>
             <li><strong>Trading phase</strong> → players submit orders; each mutation emits <code>book_update</code>. Trades emit <code>trade</code> + <code>delta_update</code> + <code>all_balances</code> + <code>hand_totals</code>. All four books wipe on every trade.</li>
-            <li><strong>Round end</strong> → server sends <code>round_end</code> privately, then broadcasts <code>inter_round</code> with standings + vote state.</li>
-            <li><strong>Inter-round</strong> → players may send <code>vote_to_end</code>; server broadcasts <code>vote_tally</code> each time. When majority reached or countdown expires, next <code>round_starting</code> fires.</li>
+            <li><strong>Round end</strong> → server sends <code>round_end</code> privately, then broadcasts <code>inter_round</code> with standings and auto-start countdown.</li>
+            <li><strong>Inter-round</strong> → lobby owner may send <code>start_next_round</code> or <code>end_game</code>; countdown auto-starts the next round when it expires.</li>
             <li><strong>Game over</strong> → server broadcasts <code>game_ended</code> with full history.</li>
           </ol>
 

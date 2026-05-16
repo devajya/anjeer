@@ -67,7 +67,6 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     lobbyState:        BASE_LOBBY_STATE,
     lobbyStarted:      null,
     interRound:        null,
-    voteTally:         null,
     gameEnded:         null,
     sessionError:      null,
     departedSlots:     [],
@@ -85,6 +84,9 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     reconnectTokenMsg:      null,
     gameStateSnapshot:      null,
     reconnectWindowExpired: false,
+    queueOverflow:          false,
+    currentOwnerPlayerId:   null,
+    currentOwnerUsername:   '',
     ...overrides,
   }
 }

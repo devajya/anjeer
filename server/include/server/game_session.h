@@ -28,7 +28,7 @@ enum class SessionPhase { Lobby, Countdown, RoundActive, InterRound, Ended };
 // AGENT-CTX: SlotInfo represents one player seat for the lifetime of the session.
 // connected tracks current WS state (can flip on each NetConnect/NetDisconnect).
 // active=false means the player has permanently left — no further NetConnect will
-// re-seat them. The distinction matters for vote-to-end threshold calculation.
+// re-seat them.
 struct SlotInfo {
     int64_t     player_id = -1;
     std::string username;
@@ -142,7 +142,8 @@ private:
     void handle_nudge      (const NetNudge&);
     void handle_cancel         (const NetCancel&);
     void handle_start_game     ();
-    void handle_vote_to_end    (int32_t slot);
+    void handle_owner_start_round();
+    void handle_owner_end_game();
     void handle_permanent_leave(int32_t slot);
     void handle_spectator_join (const NetSpectatorJoin&);
     void handle_spectator_leave(const NetSpectatorLeave&);
@@ -169,9 +170,6 @@ private:
     // disconnect. It does NOT fire during RoundActive because we allow temporary
     // disconnection without ending the round — the round timer drives expiry.
     void check_end_condition();
-    // Majority is computed over real players only — bots (negative player_id) never
-    // vote and are excluded so a lobby of 1 human + 4 bots needs only 1 vote.
-    int  majority_threshold() const { return (real_player_count_ + 1) / 2; }
 
     // ── Engine event pipeline ─────────────────────────────────────────────────
     // AGENT-CTX: Returns true if a trade occurred in the batch. Callers use
@@ -225,12 +223,10 @@ private:
 
     // ── Player state ──────────────────────────────────────────────────────────
     std::vector<SlotInfo>    slots_;
-    std::vector<bool>        vote_to_end_;
     std::vector<bool>        funded_this_round_;   // set by collect_buy_ins each round
     int                      active_player_count_ = 0;
     // Counts only human slots (player_id >= 0); decremented when a real player
-    // permanently leaves. Majority threshold and min-players check use this so
-    // bot replacements never inflate the required vote count.
+    // permanently leaves. Min-player check uses this so bots never inflate the count.
     int                      real_player_count_   = 0;
     std::unordered_set<int32_t> spectator_ids_;   // IDs only — WsHandles stay in WsServer
 

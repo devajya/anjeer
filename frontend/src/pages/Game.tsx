@@ -49,9 +49,10 @@ const { user, logout } = useAuth()
     connected, playerId, books, trades, myOrders, errors, sendMessage,
     startsAt, roundEndAt, hand, initialHand, playerSlot, roundEnd, balance,
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
-    interRound, voteTally, gameEnded, sessionError,
+    interRound, gameEnded, sessionError,
     roster, deltas, allBalances, allHandTotals, spectatorCount,
     reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueOverflow,
+    currentOwnerPlayerId, currentOwnerUsername,
   } = useWebSocket('/ws')
 
   const {
@@ -102,26 +103,29 @@ const { user, logout } = useAuth()
   // (hook clears it on round_start). Reset on every new interRound so the
   // overlay reappears for each subsequent round.
   const [interRoundDismissed, setInterRoundDismissed] = useState(false)
-  // AGENT-CTX: hasVotedToEnd prevents duplicate vote_to_end commands within
-  // a single inter-round window. Reset with interRoundDismissed on each new round.
-  const [hasVotedToEnd, setHasVotedToEnd] = useState(false)
   useEffect(() => {
-    if (interRound) {
-      setInterRoundDismissed(false)
-      setHasVotedToEnd(false)
-    }
+    if (interRound) setInterRoundDismissed(false)
   }, [interRound])
 
-  // AGENT-CTX: voteTally messages supersede the initial vote_count/votes_required
-  // snapshot in interRound. Fall back to interRound values on first render
-  // (before any vote_tally arrives) so the tally is never empty.
-  const liveVotes         = voteTally?.votes          ?? interRound?.vote_count      ?? 0
-  const liveVotesRequired = voteTally?.required       ?? interRound?.votes_required  ?? 0
+  // Derive whether this player is the current session owner.
+  const isOwner = playerId !== null && currentOwnerPlayerId !== null && playerId === currentOwnerPlayerId
 
-  function handleVoteToEnd() {
-    setHasVotedToEnd(true)
-    sendMessage({ type: 'vote_to_end' })
+  function handleStartNextRound() {
+    sendMessage({ type: 'start_next_round' })
   }
+
+  function handleEndGame() {
+    sendMessage({ type: 'end_game' })
+  }
+
+  // Grace-period: if connected but no game slot assigned after 3 s the player's
+  // reconnect window has already passed. Trigger onWindowExpired so ReconnectOverlay
+  // shows with an explanation before auto-redirecting to the queue.
+  useEffect(() => {
+    if (!connected || playerSlot !== null || reconnectStatus !== 'connected') return
+    const id = setTimeout(() => onWindowExpired(), 3000)
+    return () => clearTimeout(id)
+  }, [connected, playerSlot, reconnectStatus, onWindowExpired])
 
   const showRoundEnd   = roundEnd !== null && !roundEndDismissed
   const showInterRound = interRound !== null && !interRoundDismissed
@@ -230,7 +234,7 @@ const { user, logout } = useAuth()
 
   return (
     <>
-      <ReconnectOverlay status={reconnectStatus} />
+      <ReconnectOverlay status={reconnectStatus} lobbyId={lobbyId} />
       {showShortcuts && (
         <ShortcutHelp binds={binds} onClose={() => setShowShortcuts(false)} />
       )}
@@ -244,11 +248,11 @@ const { user, logout } = useAuth()
       {showInterRound && (
         <InterRoundScreen
           interRound={interRound!}
-          liveVotes={liveVotes}
-          liveVotesRequired={liveVotesRequired}
           playerSlot={playerSlot}
-          hasVoted={hasVotedToEnd}
-          onVoteToEnd={handleVoteToEnd}
+          isOwner={isOwner}
+          ownerUsername={currentOwnerUsername}
+          onStartNextRound={handleStartNextRound}
+          onEndGame={handleEndGame}
           onCountdownExpired={() => setInterRoundDismissed(true)}
         />
       )}

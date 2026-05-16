@@ -366,9 +366,9 @@ TEST_CASE("G7: round timer expiry produces inter_round broadcast",
     CHECK(ir->contains("next_round_at"));
 }
 
-// ─── G8: vote_to_end majority → game_ended ────────────────────────────────────
+// ─── G8: owner end game → game_ended ─────────────────────────────────────────
 
-TEST_CASE("G8: majority vote_to_end produces game_ended",
+TEST_CASE("G8: owner NetOwnerEndGame produces game_ended",
           "[game_session]") {
     run_migrations();
     ServerConfig cfg = make_cfg();
@@ -378,11 +378,9 @@ TEST_CASE("G8: majority vote_to_end produces game_ended",
     Harness h(cfg);
     h.advance_to_round_active();
 
-    h.recv_type("inter_round", 3000ms);  // wait for inter_round
+    h.recv_type("inter_round", 3000ms);
 
-    // (2+1)/2 = 1 — one vote is majority with 2 active players
-    h.push(NetVoteToEnd{0});
-    h.recv_type("vote_tally");
+    h.push(NetOwnerEndGame{});
 
     const auto ended = h.recv_type("game_ended", 3000ms);
     REQUIRE(ended.has_value());

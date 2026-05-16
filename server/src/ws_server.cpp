@@ -233,27 +233,39 @@ void WsServer::run() {
                         if (as.slots_[i].player_id == player_id) { slot = i; break; }
                     }
                     if (slot >= 0) {
-                        switch (resolve_open_role(data->auth_type, as.lobby_mode_)) {
-                        case OpenRole::Reject:
+                        // Defense-in-depth: if expiry already fired, don't attach.
+                        // Primary guard is player_to_lobby_.erase on expiry; this catches
+                        // any race where the map entry survived (e.g. mid-drain ordering).
+                        if (as.available_slots_.count(slot) > 0) {
                             ws->send(nlohmann::json{
-                                {"type",    "error"},
-                                {"code",    serialise::error_code_str(WsErrorCode::LobbyModeMismatch)},
-                                {"message", "auth type does not match lobby mode"}
-                            }.dump(), uWS::OpCode::TEXT);
+                                {"type","reconnect_window_expired"}}.dump(), uWS::OpCode::TEXT);
                             server_log_.warn("open",
-                                "mode mismatch for player " + std::to_string(player_id) +
-                                " in lobby " + lobby_id);
-                            loop->defer([ws]() { ws->end(1008, "lobby mode mismatch"); });
-                            return;
-                        case OpenRole::SpectatorFallthrough:
-                            break;
-                        case OpenRole::Player: {
-                            if (!attach_slot(ws, as, slot, lobby_id, loop)) {
-                                loop->defer([ws]() { ws->end(1008, "invalid reconnect token"); });
+                                "slot " + std::to_string(slot) + " expired — blocked auto-reattach");
+                            // Fall through to lobby-socket path so useReconnect can send
+                            // reconnect_game, which handle_reconnect_game will formally reject.
+                        } else {
+                            switch (resolve_open_role(data->auth_type, as.lobby_mode_)) {
+                            case OpenRole::Reject:
+                                ws->send(nlohmann::json{
+                                    {"type",    "error"},
+                                    {"code",    serialise::error_code_str(WsErrorCode::LobbyModeMismatch)},
+                                    {"message", "auth type does not match lobby mode"}
+                                }.dump(), uWS::OpCode::TEXT);
+                                server_log_.warn("open",
+                                    "mode mismatch for player " + std::to_string(player_id) +
+                                    " in lobby " + lobby_id);
+                                loop->defer([ws]() { ws->end(1008, "lobby mode mismatch"); });
+                                return;
+                            case OpenRole::SpectatorFallthrough:
+                                break;
+                            case OpenRole::Player: {
+                                if (!attach_slot(ws, as, slot, lobby_id, loop)) {
+                                    loop->defer([ws]() { ws->end(1008, "invalid reconnect token"); });
+                                }
+                                return;
                             }
-                            return;
+                            } // switch
                         }
-                        } // switch
                     }
                 }
             }
@@ -404,7 +416,8 @@ void WsServer::run() {
                 // every future trading message type is automatically blocked.
                 if (data->role == ConnectionRole::Spectator) {
                     if (type == "submit_order" || type == "nudge" ||
-                        type == "cancel_order" || type == "vote_to_end") {
+                        type == "cancel_order" || type == "start_next_round" ||
+                        type == "end_game") {
                         serialise::error(ws, WsErrorCode::SpectatorNotAllowed,
                                          "spectators cannot send game commands", server_log_);
                         return;
@@ -430,8 +443,14 @@ void WsServer::run() {
                     auto f = parse::cancel_order(j);
                     if (!f) { serialise::error(ws, WsErrorCode::MalformedMessage, "bad cancel_order", server_log_); return; }
                     as.inbound->enqueue(NetCancel{slot, f->order_id});
-                } else if (type == "vote_to_end") {
-                    as.inbound->enqueue(NetVoteToEnd{slot});
+                } else if (type == "start_next_round") {
+                    // Only the current session owner may advance the round.
+                    if (data->player_id == as.current_owner_player_id_)
+                        as.inbound->enqueue(NetOwnerStartRound{});
+                    // Silently drop if not the owner — client UI should hide the button.
+                } else if (type == "end_game") {
+                    if (data->player_id == as.current_owner_player_id_)
+                        as.inbound->enqueue(NetOwnerEndGame{});
                 }
                 // Unknown game-command types are silently dropped — prevents log
                 // spam when old client versions send now-unknown messages.
@@ -603,6 +622,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     LobbyMode   lobby_mode            = LobbyMode::UI;
     bool        spawn_bots_on_leave   = false;
     std::string bot_spawn_difficulty  = "easy";
+    int64_t     creator_id            = -1;
     try {
         auto handle = db_pool_.acquire();
         pqxx::work txn(handle.get());
@@ -615,6 +635,7 @@ void WsServer::create_session(const std::string& lobby_id) {
             lobby_mode           = lobby->mode;
             spawn_bots_on_leave  = lobby->spawn_bots_on_leave;
             bot_spawn_difficulty = lobby->bot_spawn_difficulty;
+            creator_id           = lobby->creator_id;
         }
         session_id = session_repo_.create_session(txn, lobby_id);
         // AGENT-CTX: Transition Starting→InGame here (not in HttpServer) because
@@ -680,10 +701,11 @@ void WsServer::create_session(const std::string& lobby_id) {
         }
     }
 
-    as.spawn_bots_on_leave_  = spawn_bots_on_leave;
-    as.bot_spawn_difficulty_ = bot_spawn_difficulty;
-    as.session_id_           = session_id;
-    as.queue_                = std::make_unique<LobbyQueue>(cfg_.reconnect.max_queue_size);
+    as.spawn_bots_on_leave_      = spawn_bots_on_leave;
+    as.bot_spawn_difficulty_     = bot_spawn_difficulty;
+    as.session_id_               = session_id;
+    as.queue_                    = std::make_unique<LobbyQueue>(cfg_.reconnect.max_queue_size);
+    as.current_owner_player_id_  = creator_id;
 
     // Record each human slot as active in game_slots so payout reconciliation
     // can detect any bots that replaced disconnected players.
@@ -827,6 +849,16 @@ void WsServer::drain_all_on_loop() {
                     game_slots_repo_.mark_expired(as.session_id_, arg.slot);
                     server_log_.info("reconnect",
                         "slot " + std::to_string(arg.slot) + " reconnect window expired");
+                    // Mark inactive before transfer_ownership so it skips this slot.
+                    as.slots_[arg.slot].active = false;
+                    // Immediately free this player's active-lobby binding so they can
+                    // join another lobby without waiting for session teardown.
+                    const int64_t expired_pid = as.slots_[arg.slot].player_id;
+                    if (expired_pid >= 0) {
+                        player_to_lobby_.erase(expired_pid);
+                        if (expired_pid == as.current_owner_player_id_)
+                            transfer_ownership(as, lobby_id);
+                    }
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Drain queue into available slots at round boundary.
                     // AGENT-CTX: admit_from_queue mutates slots_ on the event-loop thread
@@ -899,6 +931,40 @@ void WsServer::drain_all_on_loop() {
     }
 }
 
+// ─── transfer_ownership ───────────────────────────────────────────────────
+// Finds the lowest-indexed active real player and makes them the new owner.
+// If no real players remain, tears down the session instead.
+// Always called on the uWS event-loop thread.
+void WsServer::transfer_ownership(ActiveSession& as, const std::string& lobby_id) {
+    int64_t     new_owner_id   = -1;
+    std::string new_owner_name;
+    for (const auto& s : as.slots_) {
+        if (s.active && s.player_id >= 0) {
+            new_owner_id   = s.player_id;
+            new_owner_name = s.username;
+            break;
+        }
+    }
+    if (new_owner_id < 0) {
+        server_log_.info("owner", "no real players remain — tearing down lobby " + lobby_id);
+        teardown_session(lobby_id);
+        return;
+    }
+    as.current_owner_player_id_ = new_owner_id;
+    const std::string msg = nlohmann::json{
+        {"type",               "lobby_owner_changed"},
+        {"new_owner_player_id", new_owner_id},
+        {"new_owner_username",  new_owner_name}
+    }.dump();
+    for (auto& [slot, wh] : as.slot_to_ws_)
+        wh->send(msg, uWS::OpCode::TEXT);
+    for (auto& [sid, wh] : as.spectator_handles_)
+        wh->send(msg, uWS::OpCode::TEXT);
+    server_log_.info("owner",
+        "ownership transferred to " + new_owner_name +
+        " (id=" + std::to_string(new_owner_id) + ") in lobby " + lobby_id);
+}
+
 // ─── handle_leave_lobby ───────────────────────────────────────────────────
 // Called on the uWS event-loop thread from the .message handler.
 void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
@@ -931,6 +997,13 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
                 as.ws_to_slot_.erase(ws);
                 as.slot_to_ws_.erase(slot);
                 as.inbound->enqueue(NetPermanentLeave{slot});
+                // Mark inactive before transfer_ownership so it skips this slot.
+                as.slots_[slot].active = false;
+                // Immediately free the player's active-lobby binding so they can
+                // join another lobby without waiting for session teardown.
+                player_to_lobby_.erase(data->player_id);
+                if (data->player_id == as.current_owner_player_id_)
+                    transfer_ownership(as, lobby_id);
             }
         }
         data->lobby_id.clear();
@@ -1255,6 +1328,22 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     // initialises its player_id before processing the snapshot fields.
     ws->send(nlohmann::json{{"type","player_hello"}, {"player_id", data->player_id}
     }.dump(), uWS::OpCode::TEXT);
+
+    // Inform the attaching player of the current session owner so they know
+    // whether to render owner controls in the inter-round screen.
+    if (as.current_owner_player_id_ >= 0) {
+        std::string owner_username;
+        for (const auto& s : as.slots_) {
+            if (s.player_id == as.current_owner_player_id_) { owner_username = s.username; break; }
+        }
+        ws->send(nlohmann::json{
+            {"type",               "lobby_owner_changed"},
+            {"new_owner_player_id", as.current_owner_player_id_},
+            {"new_owner_username",  owner_username}
+        }.dump(), uWS::OpCode::TEXT);
+    } else {
+        server_log_.warn("attach_slot", "no owner set for session in lobby " + lobby_id);
+    }
 
     as.session->handle_player_reattach(slot, new_token, expires_at_ms);
     game_slots_repo_.upsert_active(as.session_id_, data->player_id, slot);
