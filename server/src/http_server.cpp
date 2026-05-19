@@ -524,6 +524,44 @@ void HttpServer::register_lobby_routes(App& app)
         }
     });
 
+    CROW_ROUTE(app, "/lobbies/<string>/leave").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            if (!lobby_opt)
+                return make_error(404, "LOBBY_NOT_FOUND");
+
+            // Only meaningful for waiting lobbies — active sessions use WS leave_lobby.
+            lobby_repo_.remove_player(txn, lobby_id, player.id);
+            lobby_repo_.delete_if_empty(txn, lobby_id);
+            txn.commit();
+
+            nlohmann::json ev;
+            ev["type"]      = "player_left";
+            ev["lobby_id"]  = lobby_id;
+            ev["player_id"] = player.id;
+            ev["username"]  = player.username;
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
+            http_log_.info("lobbies", "player " + std::to_string(player.id) +
+                           " left lobby " + lobby_id + " via REST");
+
+            crow::response res(204);
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("leave failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
     // transition_status is CAS; false → a concurrent start already won.
     CROW_ROUTE(app, "/lobbies/<string>/start").methods(crow::HTTPMethod::Post)
     ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {

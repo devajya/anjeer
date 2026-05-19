@@ -74,6 +74,13 @@ export function useQueueSocket(): UseQueueSocketReturn {
             setState({ status: 'admitted', lobbyId, slotIndex: msg.slot_index as number })
             disconnect()
             break
+          case 'game_state_snapshot':
+            // attach_slot was called on this WS (auto-reconnect path) — navigate to game.
+            if (lobbyIdRef.current) {
+              setState({ status: 'admitted', lobbyId: lobbyIdRef.current, slotIndex: -1 })
+              disconnect()
+            }
+            break
           case 'queue_overflow':
             setState({ status: 'overflow', lobbyId })
             disconnect()

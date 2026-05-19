@@ -122,7 +122,7 @@ const { user, logout } = useAuth()
   // reconnect window has already passed. Trigger onWindowExpired so ReconnectOverlay
   // shows with an explanation before auto-redirecting to the queue.
   useEffect(() => {
-    if (!connected || playerSlot !== null || reconnectStatus !== 'connected') return
+    if (!connected || playerSlot !== null || reconnectStatus !== 'reconnecting') return
     const id = setTimeout(() => onWindowExpired(), 3000)
     return () => clearTimeout(id)
   }, [connected, playerSlot, reconnectStatus, onWindowExpired])

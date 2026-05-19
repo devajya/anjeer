@@ -1198,4 +1198,15 @@ int GameSession::admit_from_queue(const std::vector<SlotAdmitInfo>& entries) {
     return admitted;
 }
 
+void GameSession::deactivate_bot_slot(int slot_index) {
+    if (slot_index < 0 || slot_index >= static_cast<int>(slots_.size())) return;
+    auto& s = slots_[slot_index];
+    if (!s.active || s.player_id >= 0) return; // only active bot slots
+    s.active    = false;
+    s.connected = false;
+    active_player_count_--;
+    server_log_.info("queue",
+        "bot slot " + std::to_string(slot_index) + " deactivated for queue admission");
+}
+
 } // namespace anjeer::server

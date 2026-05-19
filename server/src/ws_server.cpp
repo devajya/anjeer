@@ -860,7 +860,29 @@ void WsServer::drain_all_on_loop() {
                             transfer_ownership(as, lobby_id);
                     }
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
-                    // Drain queue into available slots at round boundary.
+                    // Phase 1: Displace bots to make room for queue players.
+                    // For each bot displaced: stop the BotAdapter, deactivate the slot in
+                    // GameSession, and mark it available. Called in the same threading window
+                    // as admit_from_queue (game-loop briefly idle) — same safety model.
+                    if (as.queue_ && as.queue_->size() > 0 && bot_manager_.has_bots(lobby_id)) {
+                        int need = static_cast<int>(as.queue_->size())
+                                 - static_cast<int>(as.available_slots_.size());
+                        while (need > 0) {
+                            const int bot_slot = bot_manager_.get_displaceable_bot_slot(
+                                lobby_id, *as.session);
+                            if (bot_slot < 0) break;
+                            bot_manager_.remove_bot_for_slot(lobby_id, bot_slot);
+                            as.session->deactivate_bot_slot(bot_slot);
+                            as.available_slots_.insert(bot_slot);
+                            as.slots_[bot_slot].active = false;
+                            server_log_.info("queue",
+                                "bot displaced from slot " + std::to_string(bot_slot) +
+                                " to admit queue player");
+                            --need;
+                        }
+                    }
+
+                    // Phase 2: Drain queue into available slots at round boundary.
                     // AGENT-CTX: admit_from_queue mutates slots_ on the event-loop thread
                     // while the game-loop thread is (briefly) idle after emitting this event.
                     // This is safe in practice for single-node but flagged for Slice 16
@@ -871,9 +893,20 @@ void WsServer::drain_all_on_loop() {
                                      static_cast<size_t>(as.queue_->size())));
                         auto entries = as.queue_->drain(count);
                         std::vector<SlotAdmitInfo> admits;
+                        // Capture bot UUIDs before slots are re-assigned so we can
+                        // broadcast game_bot_replaced after admission.
+                        std::unordered_map<int, std::string> displaced_bot_uuids;
                         auto slot_it = as.available_slots_.begin();
                         for (auto& entry : entries) {
                             const int slot = *slot_it++;
+                            const std::string bot_uuid =
+                                bot_manager_.bot_uuid_for_slot(lobby_id, slot);
+                            if (!bot_uuid.empty()) {
+                                // Safety net: remove bot if not already done in Phase 1.
+                                bot_manager_.remove_bot_for_slot(lobby_id, slot);
+                                as.session->deactivate_bot_slot(slot);
+                                displaced_bot_uuids[slot] = bot_uuid;
+                            }
                             admits.push_back(SlotAdmitInfo{
                                 slot,
                                 std::stoll(entry.player_id),
@@ -889,6 +922,7 @@ void WsServer::drain_all_on_loop() {
                             as.ws_to_slot_[entry.ws]      = slot;
                             as.slots_[slot].player_id     = info.player_id;
                             as.slots_[slot].username      = info.username;
+                            as.slots_[slot].active        = true;
                             player_to_lobby_[info.player_id] = lobby_id;
                             auto* d = entry.ws->getUserData();
                             d->lobby_id    = lobby_id;
@@ -899,9 +933,11 @@ void WsServer::drain_all_on_loop() {
                             }.dump(), uWS::OpCode::TEXT);
                             game_slots_repo_.upsert_active(
                                 as.session_id_, std::stoll(entry.player_id), slot);
-                            // Bot displacement: if a bot was in this slot, broadcast replacement.
-                            const std::string bot_uuid = bot_manager_.bot_uuid_for_slot(
-                                lobby_id, slot);
+                            // Broadcast bot replacement so clients clear the bot from
+                            // departedSlots and update the roster with the new player.
+                            auto bot_it = displaced_bot_uuids.find(slot);
+                            const std::string bot_uuid = bot_it != displaced_bot_uuids.end()
+                                ? bot_it->second : "";
                             if (!bot_uuid.empty()) {
                                 const std::string rep_payload = nlohmann::json{
                                     {"type",          "game_bot_replaced"},
@@ -1323,6 +1359,12 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     as.ws_to_slot_[ws]   = slot;
     data->lobby_id        = lobby_id;
     data->player_slot     = slot;
+
+    // queue_admitted first: any WS (useQueueSocket or useWebSocket) can use this
+    // to detect slot assignment and navigate to the game page.
+    ws->send(nlohmann::json{
+        {"type","queue_admitted"}, {"slot_index", slot}
+    }.dump(), uWS::OpCode::TEXT);
 
     // player_hello must arrive before game_state_snapshot so the client
     // initialises its player_id before processing the snapshot fields.

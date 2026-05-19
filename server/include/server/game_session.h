@@ -129,6 +129,12 @@ public:
     // Returns number of players admitted.
     int admit_from_queue(const std::vector<SlotAdmitInfo>& entries);
 
+    // Deactivates a bot slot so admit_from_queue can fill it at the next round
+    // boundary. Safe to call from the uWS event-loop thread at GameRoundStarted
+    // time — same threading model as admit_from_queue (game-loop briefly idle).
+    // No-op if the slot is not an active bot slot (player_id < 0).
+    void deactivate_bot_slot(int slot_index);
+
 private:
     // ── Game loop ─────────────────────────────────────────────────────────────
     void run();

@@ -204,25 +204,40 @@ export function LobbyRoom() {
   // already sent it synchronously before calling navigate().
   const navigatedToGameRef = useRef(false)
   const leaveSentRef       = useRef(false)
+  // Holds a pending REST-leave timer so StrictMode's synthetic remount can
+  // cancel it before it fires. Only the real unmount lets the timer run.
+  const leaveTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { lobbyIdRef.current = lobbyId }, [lobbyId])
   useEffect(() => { connectedRef.current = connected }, [connected])
 
-  // Unmount cleanup: send leave_lobby for any navigation except navigate-to-game.
-  // AGENT-CTX: Covers browser back/forward and direct URL changes where
-  // handleBack() is never called. React runs LobbyRoom effect cleanups before
-  // useWebSocket's internal cleanup closes the socket, so sendMessage is safe here.
+  // Unmount cleanup: leave lobby for any navigation except navigate-to-game.
+  // WS leave_lobby is sent immediately when connected. The REST leave is
+  // deferred 150 ms so React StrictMode's synthetic cleanup → remount cycle
+  // can cancel it (the remount clears leaveTimerRef before it fires).
   useEffect(() => {
+    // On StrictMode remount: cancel any REST leave scheduled by the synthetic cleanup.
+    if (leaveTimerRef.current !== null) {
+      clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
+      leaveSentRef.current  = false   // reset so the real unmount can still fire
+    }
+
     return () => {
-      if (
-        !navigatedToGameRef.current &&
-        !leaveSentRef.current &&
-        lobbyIdRef.current &&
-        connectedRef.current
-      ) {
-        leaveSentRef.current = true
+      if (navigatedToGameRef.current || leaveSentRef.current || !lobbyIdRef.current) return
+      leaveSentRef.current = true
+      if (connectedRef.current) {
         sendMessage({ type: 'leave_lobby', lobby_id: lobbyIdRef.current })
       }
+      const id = lobbyIdRef.current
+      leaveTimerRef.current = setTimeout(() => {
+        leaveTimerRef.current = null
+        fetch(`/lobbies/${id}/leave`, {
+          method: 'POST',
+          credentials: 'include',
+          keepalive: true,
+        }).catch(() => {})
+      }, 150)
     }
   }, [sendMessage])
 
