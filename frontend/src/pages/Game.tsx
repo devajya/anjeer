@@ -118,14 +118,26 @@ const { user, logout } = useAuth()
     sendMessage({ type: 'end_game' })
   }
 
-  // Grace-period: if connected but no game slot assigned after 3 s the player's
-  // reconnect window has already passed. Trigger onWindowExpired so ReconnectOverlay
-  // shows with an explanation before auto-redirecting to the queue.
+  // Grace-period A: reconnecting with token but no slot assigned after 3 s →
+  // server-side window has passed; trigger onWindowExpired → ReconnectOverlay.
   useEffect(() => {
     if (!connected || playerSlot !== null || reconnectStatus !== 'reconnecting') return
     const id = setTimeout(() => onWindowExpired(), 3000)
     return () => clearTimeout(id)
   }, [connected, playerSlot, reconnectStatus, onWindowExpired])
+
+  // Grace-period B: no stored token (or already cleared) and no recognized game
+  // state after 3 s → stale/unauthorized URL; show StaleLobbyModal.
+  // AGENT-CTX: "isInGame" covers every phase where the server has acknowledged
+  // this player: pre-start wait, round_starting countdown, active round, or
+  // post-deal slot assignment. Any non-null signal cancels the timer immediately.
+  const [noTokenOverflow, setNoTokenOverflow] = useState(false)
+  const isInGame = playerSlot !== null || waitingForStart !== null || startsAt !== null || hand !== null
+  useEffect(() => {
+    if (!connected || isInGame || reconnectStatus !== 'connected') return
+    const id = setTimeout(() => setNoTokenOverflow(true), 3000)
+    return () => clearTimeout(id)
+  }, [connected, isInGame, reconnectStatus])
 
   const showRoundEnd   = roundEnd !== null && !roundEndDismissed
   const showInterRound = interRound !== null && !interRoundDismissed
@@ -204,7 +216,7 @@ const { user, logout } = useAuth()
   // sessionError takes priority over gameEnded in case both arrive in one
   // render cycle (e.g. crash fires after game_ended; shouldn't happen but safe).
   // All hooks above must be called before these returns to avoid a hooks-order violation.
-  if (queueOverflow) return (
+  if (queueOverflow || noTokenOverflow) return (
     <StaleLobbyModal
       title="This lobby is full"
       message="The lobby and wait queue are both full."

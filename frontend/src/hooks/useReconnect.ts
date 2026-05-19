@@ -17,20 +17,6 @@ function storageKey(lobbyId: string): string {
   return `anjeer_reconnect_${lobbyId}`
 }
 
-function readStoredToken(lobbyId: string): StoredToken | null {
-  try {
-    const raw = localStorage.getItem(storageKey(lobbyId))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as StoredToken
-    if (parsed.expires_at < Date.now()) {
-      localStorage.removeItem(storageKey(lobbyId))
-      return null
-    }
-    return parsed
-  } catch {
-    return null
-  }
-}
 
 /**
  * Manages the client-side reconnect state machine for a game slot.
@@ -73,15 +59,27 @@ export function useReconnect(
 
   // On mount: restore token from localStorage and attempt immediate reconnect.
   // AGENT-CTX: handles "direct game URL with stored token in new tab" scenario.
+  // We bypass readStoredToken here so we can distinguish "no token" (silent) from
+  // "token exists but expired" (show ReconnectOverlay immediately).
   useEffect(() => {
-    const stored = readStoredToken(lobbyId)
-    if (!stored) return
-    storedTokenRef.current = stored.token
-    const remaining = Math.max(1, Math.floor((stored.expires_at - Date.now()) / 1000))
+    const raw = localStorage.getItem(storageKey(lobbyId))
+    if (!raw) return
+    let parsed: StoredToken
+    try { parsed = JSON.parse(raw) as StoredToken }
+    catch { localStorage.removeItem(storageKey(lobbyId)); return }
+
+    if (parsed.expires_at < Date.now()) {
+      localStorage.removeItem(storageKey(lobbyId))
+      setStatus('expired')
+      return
+    }
+
+    storedTokenRef.current = parsed.token
+    const remaining = Math.max(1, Math.floor((parsed.expires_at - Date.now()) / 1000))
     setRemaining(remaining)
     setStatus('reconnecting')
     if (connected) {
-      sendMessage({ type: 'reconnect_game', lobby_id: lobbyId, token: stored.token })
+      sendMessage({ type: 'reconnect_game', lobby_id: lobbyId, token: parsed.token })
     }
   }, []) // intentional: mount-only read of localStorage
 
