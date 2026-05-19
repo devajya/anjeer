@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { useKeyBinds } from '../hooks/useKeyBinds'
@@ -31,8 +31,30 @@ const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 export function Game() {
 const { user, logout } = useAuth()
   const { binds } = useKeyBinds()
-  const [searchParams] = useSearchParams()
-  const lobbyId = searchParams.get('lobby_id') ?? ''
+  const { code } = useParams<{ code: string }>()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // lobbyId (UUID) comes from navigation state when entering via LobbyRoom/LobbyBrowser.
+  // For direct URL navigation (/game/CODE with no state), look it up via REST.
+  // If the lobby is finished/closed/not found, redirect to /lobby.
+  const [lobbyId, setLobbyId] = useState<string>(
+    (location.state as { lobbyId?: string } | null)?.lobbyId ?? ''
+  )
+  useEffect(() => {
+    if (lobbyId || !code) return
+    fetch('/lobbies', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { lobbies?: Array<{ id: string; code: string; status: string }> } | null) => {
+        const found = data?.lobbies?.find(l => l.code === code)
+        if (!found || found.status === 'finished' || found.status === 'closed') {
+          navigate('/lobby', { replace: true })
+        } else {
+          setLobbyId(found.id)
+        }
+      })
+      .catch(() => navigate('/lobby', { replace: true }))
+  }, [code]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch reconnect window from server config; fall back to 20 s.
   const [windowSeconds, setWindowSeconds] = useState(20)
@@ -118,11 +140,12 @@ const { user, logout } = useAuth()
     sendMessage({ type: 'end_game' })
   }
 
-  // Grace-period: if connected but no game slot assigned after 3 s the player's
-  // reconnect window has already passed. Trigger onWindowExpired so ReconnectOverlay
-  // shows with an explanation before auto-redirecting to the queue.
+  // Grace-period: if a reconnecting player gets a WS connection but still has
+  // no slot after 3 s, their window already expired server-side.
+  // Only fires when status='reconnecting' (stored token present) — never for
+  // a fresh player waiting for the game countdown to finish.
   useEffect(() => {
-    if (!connected || playerSlot !== null || reconnectStatus !== 'connected') return
+    if (!connected || playerSlot !== null || reconnectStatus !== 'reconnecting') return
     const id = setTimeout(() => onWindowExpired(), 3000)
     return () => clearTimeout(id)
   }, [connected, playerSlot, reconnectStatus, onWindowExpired])

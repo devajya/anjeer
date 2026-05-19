@@ -382,6 +382,7 @@ export interface GameStateSnapshotMessage {
   deltas: number[][]
   round_timer_remaining: number
   all_balances: number[]
+  all_hand_totals: number[]
   all_scores: number[]
   roster: Array<{ player_slot: number; username: string }>
   reconnect_token: string
@@ -431,6 +432,7 @@ export interface QueueOverflowMessage {
 export interface QueueAdmittedMessage {
   type: 'queue_admitted'
   slot_index: number
+  lobby_code: string
 }
 
 /**
@@ -452,6 +454,17 @@ export interface LobbyOwnerChangedMessage {
   type: 'lobby_owner_changed'
   new_owner_player_id: number
   new_owner_username: string
+}
+
+/**
+ * Unicast to all lobby subscribers when the owner toggles bot auto-fill.
+ * AGENT-CTX: Sent from HttpServer after PATCH /lobbies/{id}/bot-settings so
+ * non-owner lobby members see the change without a full lobby_state re-query.
+ */
+export interface BotSettingsChangedMessage {
+  type: 'bot_settings_changed'
+  lobby_id: string
+  spawn_bots_on_leave: boolean
 }
 
 /**
@@ -496,6 +509,7 @@ export type ServerMessage =
   | QueueAdmittedMessage
   | ReconnectWindowExpiredMessage
   | LobbyOwnerChangedMessage
+  | BotSettingsChangedMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)

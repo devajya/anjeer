@@ -597,16 +597,19 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
           setState(s => ({
             ...s,
-            hand:         snap.hand,
-            playerSlot:   snap.player_slot,
-            startsAt:     null,
+            hand:             snap.hand,
+            initialHand:      snap.hand,
+            playerSlot:       snap.player_slot,
+            startsAt:         null,
             roundEndAt,
-            balance:      snap.all_balances[snap.player_slot] ?? s.balance,
-            allBalances:  snap.all_balances,
-            deltas:       snap.deltas,
-            roster:       snap.roster,
+            balance:          snap.all_balances[snap.player_slot] ?? s.balance,
+            allBalances:      snap.all_balances,
+            allHandTotals:    snap.all_hand_totals,
+            deltas:           snap.deltas,
+            roster:           snap.roster,
             books,
             myOrders,
+            reconnectTokenMsg: { token: snap.reconnect_token, expires_at: snap.reconnect_expires_at },
             gameStateSnapshot: snap,
           }))
           break
@@ -619,7 +622,14 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({
             ...s,
             roster: s.roster.map(r =>
-              r.player_slot === msg.slot_index ? { ...r, username: msg.username } : r
+              r.player_slot === msg.slot_index
+                ? { ...r,
+                    player_id:      msg.new_player_id,
+                    username:       msg.username,
+                    is_bot:         false,
+                    bot_uuid:       undefined,
+                    bot_difficulty: undefined }
+                : r
             ),
             departedSlots: s.departedSlots.filter(slot => slot !== msg.slot_index),
           }))
@@ -658,6 +668,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           }))
           break
         }
+
+        case 'bot_settings_changed':
+          logger.info('ws/recv', `bot_settings_changed spawn_bots_on_leave=${msg.spawn_bots_on_leave}`)
+          setState(s => s.lobbyState
+            ? { ...s, lobbyState: { ...s.lobbyState, spawn_bots_on_leave: msg.spawn_bots_on_leave } }
+            : s)
+          break
 
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new

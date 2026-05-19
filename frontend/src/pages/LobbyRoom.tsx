@@ -189,7 +189,6 @@ export function LobbyRoom() {
   const [startError, setStartError]         = useState<string | null>(null)
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null)
   const [botAutofill, setBotAutofill]       = useState(false)
-  const autofillSyncedRef                   = useRef(false)
 
   // AGENT-CTX: Refs let the unmount cleanup read current lobbyId / connected
   // without adding them as deps (which would re-run the cleanup on every
@@ -204,16 +203,37 @@ export function LobbyRoom() {
   // already sent it synchronously before calling navigate().
   const navigatedToGameRef = useRef(false)
   const leaveSentRef       = useRef(false)
+  // AGENT-CTX: leaveTimerRef holds the pending REST-leave setTimeout id.
+  // The effect body cancels it on each re-run so React 18 strict-mode's
+  // cleanup→remount cycle doesn't fire a real leave. Only a true unmount
+  // (no subsequent effect re-run) lets the timer fire.
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { lobbyIdRef.current = lobbyId }, [lobbyId])
   useEffect(() => { connectedRef.current = connected }, [connected])
 
-  // Unmount cleanup: send leave_lobby for any navigation except navigate-to-game.
-  // AGENT-CTX: Covers browser back/forward and direct URL changes where
-  // handleBack() is never called. React runs LobbyRoom effect cleanups before
-  // useWebSocket's internal cleanup closes the socket, so sendMessage is safe here.
+  // Unmount cleanup: leave the lobby for any navigation except navigate-to-game.
+  // AGENT-CTX: Two paths run in parallel:
+  // 1. REST POST /lobbies/:id/leave (debounced 100 ms) — fires on true unmount
+  //    even if the WS never connected (fast browser-back after lobby creation).
+  //    The debounce prevents spurious calls from React 18 strict-mode remounts.
+  // 2. WS leave_lobby — fires only when connected, handles active-session teardown.
+  // The REST endpoint is idempotent so a rare double-leave is safe.
   useEffect(() => {
+    if (leaveTimerRef.current !== null) {
+      clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
+    }
     return () => {
+      if (!navigatedToGameRef.current && lobbyIdRef.current) {
+        const id = lobbyIdRef.current
+        leaveTimerRef.current = setTimeout(() => {
+          leaveTimerRef.current = null
+          fetch(`/lobbies/${id}/leave`, {
+            method: 'POST', credentials: 'include', keepalive: true,
+          }).catch(() => {})
+        }, 100)
+      }
       if (
         !navigatedToGameRef.current &&
         !leaveSentRef.current &&
@@ -252,13 +272,10 @@ export function LobbyRoom() {
     return () => { unsubscribeLobby(lobbyId) }
   }, [lobbyId, connected, subscribeLobby, unsubscribeLobby])
 
-  // Sync botAutofill from the first lobby_state snapshot we receive.
-  // After that, local state is authoritative (toggle calls PATCH).
+  // Always sync botAutofill from the latest lobbyState so that bot_settings_changed
+  // broadcasts from the server propagate to all players' UIs.
   useEffect(() => {
-    if (!autofillSyncedRef.current && lobbyState) {
-      setBotAutofill(lobbyState.spawn_bots_on_leave)
-      autofillSyncedRef.current = true
-    }
+    if (lobbyState) setBotAutofill(lobbyState.spawn_bots_on_leave)
   }, [lobbyState])
 
   useEffect(() => {
@@ -267,7 +284,7 @@ export function LobbyRoom() {
       if (lobbyState?.mode === 'api') {
         navigate(`/spectate/${lobbyStarted.code}`)
       } else {
-        navigate(`/game?lobby_id=${lobbyStarted.lobby_id}`)
+        navigate(`/game/${lobbyStarted.code}`, { state: { lobbyId: lobbyStarted.lobby_id } })
       }
     }
   }, [lobbyStarted, lobbyId, lobbyState, navigate])

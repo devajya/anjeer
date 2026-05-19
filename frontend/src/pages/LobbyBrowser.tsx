@@ -70,7 +70,7 @@ export function LobbyBrowser() {
       setOverflowLobbyIds(prev => new Set([...prev, state.lobbyId]))
     }
     if (state.status === 'admitted') {
-      navigate(`/game?lobby_id=${state.lobbyId}`)
+      navigate(`/game/${state.lobbyCode}`, { state: { lobbyId: state.lobbyId } })
       queueSocket.reset()
     }
   }, [queueSocket.state.status])
@@ -342,7 +342,9 @@ export function LobbyBrowser() {
                           <button
                             className="lp__btn lp__btn--join"
                             disabled={isFull}
-                            onClick={() => queueSocket.joinQueue(lobby.id)}
+                            onClick={() => {
+                              queueSocket.joinQueue(lobby.id)
+                            }}
                             aria-label={isFull ? 'Queue full' : `Join lobby ${lobby.code}`}
                           >
                             {isFull ? 'Queue Full' : 'Join'}

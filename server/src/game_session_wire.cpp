@@ -153,6 +153,7 @@ std::string round_start_payload(
         const std::vector<int>&         all_balances) {
     auto roster_arr = nlohmann::json::array();
     for (int i = 0; i < static_cast<int>(usernames.size()); ++i) {
+        if (usernames[i].empty()) continue;
         roster_arr.push_back({
             {"player_slot", i},
             {"username",    usernames[i]},

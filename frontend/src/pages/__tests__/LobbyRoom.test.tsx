@@ -1,5 +1,5 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { LobbyRoom } from '../LobbyRoom'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -91,22 +91,27 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
   }
 }
 
-// Fetch mock: GET /lobbies returns the ABC123 lobby so lobbyId resolution succeeds.
+// Fetch mock: GET /lobbies returns the ABC123 lobby; POST /leave returns 204.
 function setupFetch() {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-    ok:   true,
-    json: () => Promise.resolve({
-      lobbies: [{
-        id:           'lobby-uuid-1',
-        code:         'ABC123',
-        creator_id:     1,
-        status:       'waiting',
-        min_players:  2,
-        max_players:  8,
-        player_count: 2,
-        created_at:   '2026-04-23T00:00:00Z',
-      }],
-    }),
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+    if (opts?.method === 'POST' && String(url).includes('/leave')) {
+      return Promise.resolve({ ok: true, status: 204 })
+    }
+    return Promise.resolve({
+      ok:   true,
+      json: () => Promise.resolve({
+        lobbies: [{
+          id:           'lobby-uuid-1',
+          code:         'ABC123',
+          creator_id:     1,
+          status:       'waiting',
+          min_players:  2,
+          max_players:  8,
+          player_count: 2,
+          created_at:   '2026-04-23T00:00:00Z',
+        }],
+      }),
+    })
   }))
 }
 
@@ -154,13 +159,85 @@ describe('LobbyRoom — leave_lobby on back-nav', () => {
     const { unmount } = renderRoom()
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/game?lobby_id=lobby-uuid-1')
+      expect(mockNavigate).toHaveBeenCalledWith('/game/ABC123', { state: { lobbyId: 'lobby-uuid-1' } })
     })
 
     unmount()
 
     expect(mockSendMsg).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'leave_lobby' })
+    )
+  })
+})
+
+// ─── REST leave endpoint (Bug 1 fix) ─────────────────────────────────────────
+// The POST is debounced 100ms (React 18 strict-mode guard), so these tests use
+// fake timers scoped to this describe block.
+
+describe('LobbyRoom — REST leave on unmount', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  test('calls POST /lobbies/:id/leave on unmount even when WS never connected', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({ connected: false }))
+
+    const { unmount } = renderRoom()
+
+    // Flush the async findLobbyByCode resolution + React effects so lobbyIdRef is set.
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    unmount()
+
+    // Advance past the 100ms debounce so the fetch fires.
+    await act(async () => { vi.advanceTimersByTime(150) })
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/lobbies/lobby-uuid-1/leave',
+      expect.objectContaining({ method: 'POST', keepalive: true }),
+    )
+    // WS leave_lobby must NOT fire when not connected.
+    expect(mockSendMsg).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave_lobby' }),
+    )
+  })
+
+  test('calls REST leave AND WS leave_lobby when WS is connected', async () => {
+    const { unmount } = renderRoom()
+
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    unmount()
+
+    await act(async () => { vi.advanceTimersByTime(150) })
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      '/lobbies/lobby-uuid-1/leave',
+      expect.objectContaining({ method: 'POST', keepalive: true }),
+    )
+    expect(mockSendMsg).toHaveBeenCalledWith({
+      type: 'leave_lobby',
+      lobby_id: 'lobby-uuid-1',
+    })
+  })
+
+  test('does NOT call REST leave when navigating to game', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyStarted: { type: 'lobby_started', lobby_id: 'lobby-uuid-1', code: 'ABC123' },
+    }))
+
+    const { unmount } = renderRoom()
+
+    // Flush async fetch + navigation effect so navigatedToGameRef is set to true.
+    await act(async () => { await vi.runAllTimersAsync() })
+
+    vi.mocked(fetch).mockClear()
+    unmount()
+
+    await act(async () => { vi.advanceTimersByTime(150) })
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalledWith(
+      '/lobbies/lobby-uuid-1/leave',
+      expect.anything(),
     )
   })
 })
@@ -265,7 +342,7 @@ describe('LobbyRoom — membership events', () => {
     renderRoom()
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/game?lobby_id=lobby-uuid-1')
+      expect(mockNavigate).toHaveBeenCalledWith('/game/ABC123', { state: { lobbyId: 'lobby-uuid-1' } })
     })
   })
 })

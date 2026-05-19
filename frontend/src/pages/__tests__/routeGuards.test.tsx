@@ -51,6 +51,7 @@ vi.mock('../../hooks/useWebSocket', () => ({
     reconnectWindowExpired: false,
     queueOverflow: false,
     currentOwnerPlayerId: null,
+    currentOwnerUsername: '',
     subscribeLobby: vi.fn(),
     unsubscribeLobby: vi.fn(),
     ...wsState,
@@ -178,7 +179,7 @@ describe('Game page — direct URL checks', () => {
     })
     wsState = { reconnectWindowExpired: true }
     render(
-      <MemoryRouter initialEntries={['/game?lobby_id=ABCDEF']}>
+      <MemoryRouter initialEntries={[{ pathname: '/game/ABCDEF', state: { lobbyId: 'ABCDEF' } }]}>
         <Game />
       </MemoryRouter>,
     )
@@ -192,7 +193,7 @@ describe('Game page — direct URL checks', () => {
     // Simulate server sending queue_overflow (lobby and queue both full).
     wsState = { queueOverflow: true }
     render(
-      <MemoryRouter initialEntries={['/game?lobby_id=ABCDEF']}>
+      <MemoryRouter initialEntries={[{ pathname: '/game/ABCDEF', state: { lobbyId: 'ABCDEF' } }]}>
         <Game />
       </MemoryRouter>,
     )

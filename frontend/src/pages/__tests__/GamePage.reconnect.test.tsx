@@ -70,9 +70,9 @@ vi.stubGlobal('localStorage', {
   clear:      () => { Object.keys(lsStore).forEach(k => delete lsStore[k]) },
 })
 
-function renderGame(search = '?lobby_id=ABCDEF') {
+function renderGame(code = 'ABCDEF', lobbyId = 'ABCDEF') {
   return render(
-    <MemoryRouter initialEntries={[`/game${search}`]}>
+    <MemoryRouter initialEntries={[{ pathname: `/game/${code}`, state: { lobbyId } }]}>
       <Game />
     </MemoryRouter>,
   )

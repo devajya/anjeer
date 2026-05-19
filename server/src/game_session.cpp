@@ -84,7 +84,9 @@ GameSession::GameSession(
     funded_this_round_.assign(slots_.size(), false);
     delta_table_.assign(slots_.size(), {0, 0, 0, 0});
     reconnect_deadlines_.assign(slots_.size(), std::nullopt);
-    active_player_count_ = static_cast<int>(slots_.size());
+    active_player_count_ = static_cast<int>(std::count_if(
+        slots_.begin(), slots_.end(),
+        [](const SlotInfo& s) { return s.active; }));
     real_player_count_   = static_cast<int>(std::count_if(
         slots_.begin(), slots_.end(),
         [](const SlotInfo& s) { return s.player_id >= 0; }));
@@ -199,6 +201,8 @@ void GameSession::process_inbound() {
                 handle_reconnect_disconnect(e.slot);
             else if constexpr (std::is_same_v<T, NetReconnectReattach>)
                 handle_reconnect_reattach(e.slot, e.reconnect_token, e.reconnect_expires_at_ms);
+            else if constexpr (std::is_same_v<T, NetQueueAdmitted>)
+                handle_queue_admitted(e);
         }, ev);
     }
 }
@@ -1020,6 +1024,12 @@ void GameSession::handle_reconnect_reattach(int32_t slot,
 
     if (phase_ == SessionPhase::RoundActive && game_state_) {
         emit_targeted(slot, build_state_snapshot(slot, token, expires_at_ms));
+    } else if (phase_ == SessionPhase::Countdown) {
+        emit_targeted(slot, nlohmann::json{
+            {"type",         "round_starting"},
+            {"starts_at",    steady_to_iso(countdown_deadline_)},
+            {"player_count", static_cast<int>(slots_.size())},
+        }.dump());
     }
 }
 
@@ -1139,7 +1149,15 @@ std::string GameSession::build_state_snapshot(int slot_index,
 
     nlohmann::json roster_json = nlohmann::json::array();
     for (int i = 0; i < static_cast<int>(slots_.size()); ++i)
-        roster_json.push_back({{"player_slot", i}, {"username", slots_[i].username}});
+        if (!slots_[i].username.empty())
+            roster_json.push_back({{"player_slot", i}, {"username", slots_[i].username}});
+
+    nlohmann::json hand_totals_json = nlohmann::json::array();
+    for (int i = 0; i < game_state_->player_count(); ++i) {
+        const auto& h = game_state_->hand(i);
+        hand_totals_json.push_back(h.suit_counts[0] + h.suit_counts[1]
+                                   + h.suit_counts[2] + h.suit_counts[3]);
+    }
 
     return nlohmann::json{
         {"type",                  "game_state_snapshot"},
@@ -1149,6 +1167,7 @@ std::string GameSession::build_state_snapshot(int slot_index,
         {"deltas",                deltas_json},
         {"round_timer_remaining", remaining},
         {"all_balances",          balances_json},
+        {"all_hand_totals",       hand_totals_json},
         {"all_scores",            scores_json},
         {"roster",                roster_json},
         {"reconnect_token",       reconnect_token},
@@ -1181,21 +1200,45 @@ int GameSession::admit_from_queue(const std::vector<SlotAdmitInfo>& entries) {
         const int idx = entry.slot_index;
         if (idx < 0 || idx >= static_cast<int>(slots_.size())) continue;
         auto& s = slots_[idx];
-        if (s.active) continue;  // slot is still occupied — caller misidentified it
+        // Allow bot slot takeover (player_id < 0); skip real-player-occupied slots.
+        if (s.active && s.player_id >= 0) continue;
 
+        const bool was_bot = (s.active && s.player_id < 0);
         s.player_id = entry.player_id;
         s.username  = entry.username;
-        s.connected = false;  // WsServer wires the socket after this call returns
+        s.connected = false;  // WsServer wires the socket; handle_queue_admitted sets true
         s.active    = true;
         reconnect_deadlines_[idx].reset();
-        active_player_count_++;
-        real_player_count_++;
+        if (!was_bot) active_player_count_++;  // bot slot stays at same active count
+        real_player_count_++;                  // bot→real or empty→real
         ++admitted;
 
         server_log_.info("queue",
-            "slot " + std::to_string(idx) + " admitted player=" + entry.username);
+            "slot " + std::to_string(idx) + " admitted player=" + entry.username
+            + (was_bot ? " (displaced bot)" : ""));
     }
     return admitted;
+}
+
+void GameSession::handle_queue_admitted(const NetQueueAdmitted& ev) {
+    const int slot = ev.slot;
+    if (slot < 0 || slot >= static_cast<int>(slots_.size())) return;
+    if (phase_ != SessionPhase::RoundActive) return;
+
+    // Always reset balance to starting_balance minus this round's buy-in.
+    // For bot-slot takeovers: bot's accumulated balance is discarded.
+    // For empty-slot fills: slot was never charged buy-in (active=false in
+    //   collect_buy_ins), so we charge it now to keep payout math consistent.
+    slots_[slot].balance = cfg_.scoring.starting_balance - current_buy_in_;
+
+    // Do NOT set connected=true or send round_start here. The player navigates
+    // to /game and opens a fresh WS which attaches via attach_slot (onOpen
+    // reconnect path). handle_reconnect_reattach will set connected=true and
+    // send game_state_snapshot, which gives the player all current game state.
+
+    server_log_.info("queue",
+        "slot " + std::to_string(slot) + " balance reset for queue admission (was_bot="
+        + std::string(ev.was_bot ? "true" : "false") + ")");
 }
 
 } // namespace anjeer::server
