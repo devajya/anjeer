@@ -396,8 +396,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         case 'round_starting':
           logger.info('ws/recv',
             `round_starting starts_at=${msg.starts_at} player_count=${msg.player_count}`)
-          // Clear waiting state — countdown has begun.
-          setState(s => ({ ...s, startsAt: msg.starts_at ?? null, waitingForStart: null }))
+          // Clear waiting + inter-round state — the pre-deal countdown has begun.
+          // Clearing interRound here dismisses InterRoundScreen so RoundCountdown
+          // in the game header becomes visible (otherwise the overlay covers it).
+          setState(s => ({ ...s, startsAt: msg.starts_at ?? null, waitingForStart: null, interRound: null }))
           break
 
         case 'round_start':

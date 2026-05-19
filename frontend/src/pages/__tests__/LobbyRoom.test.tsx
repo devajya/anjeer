@@ -1,5 +1,5 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { describe, test, expect, vi, beforeEach, afterAll } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { LobbyRoom } from '../LobbyRoom'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -361,6 +361,72 @@ describe('LobbyRoom — bot controls', () => {
       bot_uuid: 'bot-uuid-1',
     })
   })
+})
+
+// ─── REST leave on disconnected unmount (commit 18ad5b7) ─────────────────────
+
+describe('LobbyRoom — REST leave when WS disconnected', () => {
+  test('fetch /lobbies/:id/leave is called on direct unmount even when WS is disconnected', async () => {
+    // Before commit 18ad5b7 the cleanup only sent leave_lobby when connected.
+    // After the fix it always defers a REST leave regardless of connection state.
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({ connected: false }))
+
+    const { unmount } = renderRoom()
+    // Wait for findLobbyByCode to resolve and set lobbyId in state.
+    await waitFor(() => expect(screen.getByText('← Lobbies')).toBeInTheDocument())
+    await act(async () => {})   // flush findLobbyByCode promise
+
+    vi.useFakeTimers()
+    try {
+      unmount()
+      act(() => { vi.advanceTimersByTime(200) })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // WS leave should NOT have been sent (not connected)
+    expect(mockSendMsg).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave_lobby' })
+    )
+    // REST leave SHOULD have been called
+    const leaveCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('/leave')
+    )
+    expect(leaveCall).toBeDefined()
+    expect(leaveCall?.[1]).toMatchObject({ method: 'POST' })
+  })
+
+  test('REST leave is NOT sent when back-nav button was used (leaveSentRef guard)', async () => {
+    // handleBack sends WS leave and sets leaveSentRef so the unmount cleanup
+    // skips the REST leave — no double-leave. This is intentional design.
+    renderRoom()
+    await waitFor(() => screen.getByText('← Lobbies'))
+    await act(async () => {})
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByText('← Lobbies'))
+      act(() => { vi.advanceTimersByTime(200) })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // WS leave was sent synchronously by handleBack
+    expect(mockSendMsg).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave_lobby' })
+    )
+    // REST leave should NOT be sent (leaveSentRef prevents it)
+    const leaveCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('/leave')
+    )
+    expect(leaveCall).toBeUndefined()
+  })
+})
+
+// afterAll: flush any lingering 150ms REST-leave timers scheduled during the
+// last test's unmount so they fire before Vitest restores global stubs.
+afterAll(async () => {
+  await new Promise<void>(r => setTimeout(r, 250))
 })
 
 // ─── CSS regression guards ────────────────────────────────────────────────────

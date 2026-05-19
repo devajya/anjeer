@@ -189,7 +189,6 @@ export function LobbyRoom() {
   const [startError, setStartError]         = useState<string | null>(null)
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null)
   const [botAutofill, setBotAutofill]       = useState(false)
-  const autofillSyncedRef                   = useRef(false)
 
   // AGENT-CTX: Refs let the unmount cleanup read current lobbyId / connected
   // without adding them as deps (which would re-run the cleanup on every
@@ -267,13 +266,10 @@ export function LobbyRoom() {
     return () => { unsubscribeLobby(lobbyId) }
   }, [lobbyId, connected, subscribeLobby, unsubscribeLobby])
 
-  // Sync botAutofill from the first lobby_state snapshot we receive.
-  // After that, local state is authoritative (toggle calls PATCH).
+  // Sync botAutofill from every lobby_state update so all players (including
+  // non-owners) see the current value after the owner toggles it via PATCH.
   useEffect(() => {
-    if (!autofillSyncedRef.current && lobbyState) {
-      setBotAutofill(lobbyState.spawn_bots_on_leave)
-      autofillSyncedRef.current = true
-    }
+    if (lobbyState) setBotAutofill(lobbyState.spawn_bots_on_leave)
   }, [lobbyState])
 
   useEffect(() => {

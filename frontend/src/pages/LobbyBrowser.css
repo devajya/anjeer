@@ -413,6 +413,15 @@
   color: #fff;
 }
 
+/* ── Active-tab card action area (Spectate + Join side-by-side) ──────────── */
+
+.lp__card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
 /* ── Spectate button ──────────────────────────────────────────────────────── */
 
 .lp__btn--spectate {
