@@ -884,10 +884,9 @@ void WsServer::drain_all_on_loop() {
                     }
 
                     // Phase 2: Drain queue into available slots at round boundary.
-                    // AGENT-CTX: admit_from_queue mutates slots_ on the event-loop thread
-                    // while the game-loop thread is (briefly) idle after emitting this event.
-                    // This is safe in practice for single-node but flagged for Slice 16
-                    // where a proper NetAdmitQueue message should replace the direct call.
+                    // WsServer wires its own handle maps here (event-loop thread safe).
+                    // GameSession slot state is updated via NetAdmitQueue on the game-loop
+                    // thread, eliminating the cross-thread mutation of slots_.
                     if (!as.available_slots_.empty() && as.queue_ && as.queue_->size() > 0) {
                         const int count = static_cast<int>(
                             std::min(as.available_slots_.size(),
@@ -913,7 +912,7 @@ void WsServer::drain_all_on_loop() {
                                 entry.player_id,
                                 entry.username});
                         }
-                        as.session->admit_from_queue(admits);
+                        as.inbound->enqueue(NetAdmitQueue{admits});
                         // Wire sockets and update WsServer maps for admitted players.
                         for (int i = 0; i < static_cast<int>(admits.size()); ++i) {
                             const auto& info  = admits[i];

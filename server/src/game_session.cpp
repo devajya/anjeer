@@ -199,6 +199,8 @@ void GameSession::process_inbound() {
                 handle_reconnect_disconnect(e.slot);
             else if constexpr (std::is_same_v<T, NetReconnectReattach>)
                 handle_reconnect_reattach(e.slot, e.reconnect_token, e.reconnect_expires_at_ms);
+            else if constexpr (std::is_same_v<T, NetAdmitQueue>)
+                handle_admit_queue(e);
         }, ev);
     }
 }
@@ -1168,7 +1170,7 @@ std::string GameSession::build_state_snapshot(int slot_index,
     }.dump();
 }
 
-// ─── T9: hand_for_slot / compute_all_scores / admit_from_queue ───────────────
+// ─── T9: hand_for_slot / compute_all_scores / handle_admit_queue ─────────────
 
 engine::PlayerHand GameSession::hand_for_slot(int slot_index) const {
     if (!game_state_ || slot_index < 0 || slot_index >= game_state_->player_count())
@@ -1187,27 +1189,24 @@ std::vector<int> GameSession::compute_all_scores() const {
     return scores;
 }
 
-int GameSession::admit_from_queue(const std::vector<SlotAdmitInfo>& entries) {
-    int admitted = 0;
-    for (const auto& entry : entries) {
+void GameSession::handle_admit_queue(const NetAdmitQueue& ev) {
+    for (const auto& entry : ev.entries) {
         const int idx = entry.slot_index;
         if (idx < 0 || idx >= static_cast<int>(slots_.size())) continue;
         auto& s = slots_[idx];
-        if (s.active) continue;  // slot is still occupied — caller misidentified it
+        if (s.active) continue;  // slot still occupied — caller misidentified it
 
         s.player_id = entry.player_id;
         s.username  = entry.username;
-        s.connected = false;  // WsServer wires the socket after this call returns
+        s.connected = false;  // WsServer wires the socket independently
         s.active    = true;
         reconnect_deadlines_[idx].reset();
         active_player_count_++;
         real_player_count_++;
-        ++admitted;
 
         server_log_.info("queue",
             "slot " + std::to_string(idx) + " admitted player=" + entry.username);
     }
-    return admitted;
 }
 
 void GameSession::deactivate_bot_slot(int slot_index) {

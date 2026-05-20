@@ -531,10 +531,10 @@ TEST_CASE("G-T5: admit_from_queue activates a previously inactive slot",
     REQUIRE(h.recv_reconnect_expired(1, 3000ms));
     h.recv_spawn_bot(1, 500ms);  // drain
 
-    // Admit a new player into the now-inactive slot.
-    std::vector<SlotAdmitInfo> entries{{1, 99, "newcomer"}};
-    const int admitted = h.session->admit_from_queue(entries);
-    CHECK(admitted == 1);
+    // Admit a new player via NetAdmitQueue — game-loop processes it on its thread.
+    h.push(NetAdmitQueue{{{1, 99, "newcomer"}}});
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    CHECK_FALSE(h.session->is_done());
 }
 
 // ─── G-T6: hand_for_slot returns zero hand when no round active ───────────────

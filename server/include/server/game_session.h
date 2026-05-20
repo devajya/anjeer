@@ -44,17 +44,6 @@ struct CancelledOrder {
     int64_t order_id;
 };
 
-// Minimal admission info passed to admit_from_queue. WsHandle is omitted:
-// GameSession does not own sockets. WsServer updates its own handle map
-// independently after calling admit_from_queue.
-// AGENT-CTX: Spec used QueueEntry (which carries WsHandle) but that would
-// pull uWS into game_session.h. SlotAdmitInfo holds only what GameSession
-// needs to reconstitute a slot.
-struct SlotAdmitInfo {
-    int         slot_index;   // target slot (caller picks, avoids game-state reads)
-    int64_t     player_id;    // numeric ID (WsServer resolves from DB)
-    std::string username;
-};
 
 class SessionRepo;  // forward declaration — used in persist helpers
 
@@ -125,14 +114,10 @@ public:
     // engine::PlayerHand (suit_counts array) is the correct type.
     engine::PlayerHand hand_for_slot(int slot_index) const;
 
-    // Called at round start to admit queued players into available (inactive) slots.
-    // Returns number of players admitted.
-    int admit_from_queue(const std::vector<SlotAdmitInfo>& entries);
-
-    // Deactivates a bot slot so admit_from_queue can fill it at the next round
-    // boundary. Safe to call from the uWS event-loop thread at GameRoundStarted
-    // time — same threading model as admit_from_queue (game-loop briefly idle).
-    // No-op if the slot is not an active bot slot (player_id < 0).
+    // Deactivates a bot slot so the game-loop can fill it at the next round
+    // boundary via NetAdmitQueue. No-op if the slot is not an active bot slot
+    // (player_id < 0). Called from the uWS event-loop thread — only safe
+    // during the GameRoundStarted window before begin_round() proceeds.
     void deactivate_bot_slot(int slot_index);
 
 private:
@@ -154,6 +139,8 @@ private:
     void handle_spectator_join (const NetSpectatorJoin&);
     void handle_spectator_leave(const NetSpectatorLeave&);
     void send_spectator_snapshot(int32_t spectator_id);
+
+    void handle_admit_queue(const NetAdmitQueue&);
 
     // ── Reconnect internal handlers (called on game-loop thread) ──────────────
     void handle_reconnect_disconnect(int32_t slot);

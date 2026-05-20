@@ -3,12 +3,22 @@
 #include "engine/engine.h"
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace anjeer::server {
 
 // ── Inbound: network thread → game-loop thread ────────────────────────────────
+
+// Minimal admission info for NetAdmitQueue. WsHandle is omitted: GameSession
+// does not own sockets. WsServer updates its own handle maps independently.
+struct SlotAdmitInfo {
+    int         slot_index;
+    int64_t     player_id;
+    std::string username;
+};
 
 struct NetConnect    { int32_t slot; int64_t player_id; std::string username; };
 struct NetDisconnect { int32_t slot; };
@@ -45,12 +55,18 @@ struct NetReconnectReattach {
     int64_t     reconnect_expires_at_ms;
 };
 
+// Routes queue admission through the SPSC inbound queue so GameSession's
+// slots_ is mutated on the game-loop thread only. WsServer enqueues this when
+// it handles GameRoundStarted; GameSession processes it before the next tick.
+struct NetAdmitQueue { std::vector<SlotAdmitInfo> entries; };
+
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
     NetStartGame, NetOwnerStartRound, NetOwnerEndGame, NetPermanentLeave,
     NetSpectatorJoin, NetSpectatorLeave,
-    NetReconnectDisconnect, NetReconnectReattach>;
+    NetReconnectDisconnect, NetReconnectReattach,
+    NetAdmitQueue>;
 
 // ── Outbound: game-loop thread → network thread ───────────────────────────────
 // AGENT-CTX: GameSession never touches WsHandle or uWS directly — it writes
