@@ -908,7 +908,7 @@ void WsServer::drain_all_on_loop() {
                             }
                             admits.push_back(SlotAdmitInfo{
                                 slot,
-                                std::stoll(entry.player_id),
+                                entry.player_id,
                                 entry.username});
                         }
                         as.session->admit_from_queue(admits);
@@ -944,7 +944,7 @@ void WsServer::drain_all_on_loop() {
                                 {"expires_at", q_exp_ms},
                             }.dump(), uWS::OpCode::TEXT);
                             game_slots_repo_.upsert_active(
-                                as.session_id_, std::stoll(entry.player_id), slot);
+                                as.session_id_, entry.player_id, slot);
                             // Broadcast bot replacement so clients clear the bot from
                             // departedSlots and update the roster with the new player.
                             auto bot_it = displaced_bot_uuids.find(slot);
@@ -1475,24 +1475,22 @@ void WsServer::handle_join_queue(WsHandle ws, const std::string& lobby_id,
     }
     auto& as = it->second;
 
-    const std::string pid_str = std::to_string(data->player_id);
-
-    if (as.queue_->has(pid_str)) {
+    if (as.queue_->has(data->player_id)) {
         // Already in queue — send a refreshed position rather than an error.
-        const int pos = as.queue_->position_of(pid_str);
+        const int pos = as.queue_->position_of(data->player_id);
         ws->send(nlohmann::json{
             {"type","queue_joined"}, {"position", pos}, {"queue_size", as.queue_->size()}
         }.dump(), uWS::OpCode::TEXT);
         return;
     }
 
-    const int pos = as.queue_->enqueue(pid_str, data->username, ws);
+    const int pos = as.queue_->enqueue(data->player_id, data->username, ws);
     if (pos < 0) {
         ws->send(nlohmann::json{
             {"type","queue_overflow"}, {"lobby_id", lobby_id}
         }.dump(), uWS::OpCode::TEXT);
         server_log_.info("queue", "queue full for lobby " + lobby_id +
-                         " — sent overflow to player " + pid_str);
+                         " — sent overflow to player " + std::to_string(data->player_id));
         return;
     }
 
@@ -1501,7 +1499,7 @@ void WsServer::handle_join_queue(WsHandle ws, const std::string& lobby_id,
     }.dump(), uWS::OpCode::TEXT);
     as.queue_->broadcast_positions(loop);
 
-    server_log_.info("queue", "player " + pid_str + " enqueued pos=" +
+    server_log_.info("queue", "player " + std::to_string(data->player_id) + " enqueued pos=" +
                      std::to_string(pos) + " lobby=" + lobby_id);
 }
 
@@ -1520,12 +1518,11 @@ void WsServer::handle_leave_queue(WsHandle ws, const std::string& lobby_id,
     if (it == active_sessions_.end()) return;  // session gone — silently OK
     auto& as = it->second;
 
-    const std::string pid_str = std::to_string(data->player_id);
-    as.queue_->dequeue(pid_str);
+    as.queue_->dequeue(data->player_id);
     as.queue_->broadcast_positions(loop);
 
     ws->send(nlohmann::json{{"type","queue_left"}}.dump(), uWS::OpCode::TEXT);
-    server_log_.info("queue", "player " + pid_str + " left queue lobby=" + lobby_id);
+    server_log_.info("queue", "player " + std::to_string(data->player_id) + " left queue lobby=" + lobby_id);
 }
 
 } // namespace anjeer::server

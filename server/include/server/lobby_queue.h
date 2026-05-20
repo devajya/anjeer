@@ -13,6 +13,7 @@
 // thread even if called from a timer or background path.
 
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <string>
 #include <unordered_set>
@@ -23,7 +24,7 @@
 namespace anjeer::server {
 
 struct QueueEntry {
-    std::string  player_id;
+    int64_t      player_id;
     std::string  username;
     WsHandle     ws;
     std::chrono::system_clock::time_point enqueued_at;
@@ -34,25 +35,25 @@ public:
     explicit LobbyQueue(int max_size);
 
     // Returns 1-based position on success, -1 if full or already enqueued.
-    int  enqueue(const std::string& player_id, const std::string& username, WsHandle ws);
-    void dequeue(const std::string& player_id);
+    int  enqueue(int64_t player_id, const std::string& username, WsHandle ws);
+    void dequeue(int64_t player_id);
 
     // Removes and returns up to count entries from the front.
     std::vector<QueueEntry> drain(int count);
 
     // Returns 1-based position, or 0 if the player is not in the queue.
-    int  position_of(const std::string& player_id) const;
+    int  position_of(int64_t player_id) const;
 
     int  size() const;
-    bool has(const std::string& player_id) const;
+    bool has(int64_t player_id) const;
 
     // Sends queue_position_update to every waiting entry via loop->defer().
     void broadcast_positions(uWS::Loop* loop) const;
 
 private:
     int max_size_;
-    std::deque<QueueEntry>          entries_;
-    std::unordered_set<std::string> id_set_;  // O(1) membership check
+    std::deque<QueueEntry>           entries_;
+    std::unordered_set<int64_t>      id_set_;  // O(1) membership check
 };
 
 } // namespace anjeer::server
