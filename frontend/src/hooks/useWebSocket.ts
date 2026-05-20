@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type {
   ServerMessage,
-  BookUpdateMessage,
-  TradeMessage,
   ErrorMessage,
   RoundEndMessage,
   ClientCommand,
@@ -13,12 +11,12 @@ import type {
   InterRoundMessage,
   GameEndedMessage,
   SessionErrorMessage,
-  AllBalancesMessage,
   GameStateSnapshotMessage,
   LobbyOwnerChangedMessage,
   LobbySettingsChangedMessage,
 } from '../types/messages'
 import { logger } from '../logger'
+import { applyMessage } from './useWsReducer'
 
 // ─── Domain types exposed by the hook ────────────────────────────────────────
 
@@ -182,8 +180,6 @@ export interface WsState {
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-const MAX_TRADE_HISTORY = 20
-
 // AGENT-CTX: url must be a relative path starting with '/' (e.g. '/ws').
 // The hook constructs an absolute ws:// or wss:// URL from window.location so
 // the same code works in dev (Vite proxy) and production (nginx proxy).
@@ -311,61 +307,14 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
 
         case 'book_update': {
-          // AGENT-CTX: Immutable update — spread the outer state and the inner
-          // books map so React sees a new reference and re-renders only affected
-          // components. A mutation of s.books would be invisible to React.
-          const update: BookUpdateMessage = msg
-          logger.info('ws/recv', `book_update suit=${update.suit} best_bid=${update.best_bid} best_ask=${update.best_ask}`)
-          setState(s => ({
-            ...s,
-            books: {
-              ...s.books,
-              [update.suit]: {
-                best_bid:      update.best_bid,
-                best_ask:      update.best_ask,
-                best_bid_slot: update.best_bid_slot,
-                best_ask_slot: update.best_ask_slot,
-              },
-            },
-          }))
+          logger.info('ws/recv', `book_update suit=${msg.suit} best_bid=${msg.best_bid} best_ask=${msg.best_ask}`)
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
         }
 
         case 'trade': {
-          const trade: TradeMessage = msg
-          logger.info('ws/recv', `trade suit=${trade.suit} price=${trade.price} aggressor=${trade.aggressor_side} your_side=${trade.your_side}`)
-          const entry: TradeEntry = {
-            id: tradeSeqRef.current++,
-            suit: trade.suit,
-            price: trade.price,
-            aggressor_side: trade.aggressor_side,
-            your_side: trade.your_side,
-            buyer_slot: trade.buyer_slot,
-            seller_slot: trade.seller_slot,
-            ts: Date.now(),
-          }
-          setState(s => {
-            // Update hand counts when this player was a party to the trade.
-            // Buyer gains one card; seller loses one. Observers unchanged.
-            // AGENT-CTX: Inferred client-side from your_side to avoid a separate
-            // hand_update wire message. Mirrors the server's transfer_card() call.
-            let hand = s.hand
-            if (trade.your_side !== null && hand !== null) {
-              const key = trade.suit as keyof HandCounts
-              if (key in hand) {
-                const delta = trade.your_side === 'buy' ? 1 : -1
-                hand = { ...hand, [key]: hand[key] + delta }
-              }
-            }
-            return {
-              ...s,
-              hand,
-              trades: [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
-              // AGENT-CTX: Global wipe — any trade clears all resting orders server-side.
-              // Mirror that here so the MyOrders list stays consistent.
-              myOrders: [],
-            }
-          })
+          logger.info('ws/recv', `trade suit=${msg.suit} price=${msg.price} aggressor=${msg.aggressor_side} your_side=${msg.your_side}`)
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
         }
 
@@ -494,69 +443,47 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
         case 'inter_round':
           logger.info('ws/recv', `inter_round round=${msg.round_number} goal=${msg.goal_suit}`)
-          // AGENT-CTX: Clears roundEnd and roundEndAt so the game board does not
-          // show the previous round_end modal while the inter-round screen is up.
-          setState(s => ({ ...s, interRound: msg, roundEnd: null, roundEndAt: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_ended':
           logger.info('ws/recv', `game_ended rounds=${msg.rounds.length} standings=${msg.final_standings.length}`)
-          setState(s => ({ ...s, gameEnded: msg, interRound: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_player_left':
           logger.info('ws/recv', `game_player_left slot=${msg.player_slot} username=${msg.username}`)
-          setState(s => ({
-            ...s,
-            departedSlots: s.departedSlots.includes(msg.player_slot)
-              ? s.departedSlots
-              : [...s.departedSlots, msg.player_slot],
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_bot_joined':
           logger.info('ws/recv', `game_bot_joined slot=${msg.player_slot} username=${msg.username} difficulty=${msg.bot_difficulty}`)
-          setState(s => ({
-            ...s,
-            departedSlots: s.departedSlots.filter(slot => slot !== msg.player_slot),
-            roster: s.roster.map(r =>
-              r.player_slot === msg.player_slot ? { ...r, username: msg.username } : r
-            ),
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'session_error':
           logger.warn('ws/recv', `session_error message=${msg.message}`)
-          setState(s => ({ ...s, sessionError: msg, interRound: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'delta_update':
-          setState(s => ({ ...s, deltas: msg.deltas }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
-        case 'all_balances': {
-          const ab: AllBalancesMessage = msg
-          setState(s => ({
-            ...s,
-            allBalances: ab.balances,
-            balance: s.playerSlot !== null ? (ab.balances[s.playerSlot] ?? s.balance) : s.balance,
-          }))
+        case 'all_balances':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
         case 'hand_totals':
-          setState(s => ({ ...s, allHandTotals: msg.totals }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'spectator_count':
-          setState(s => ({ ...s, spectatorCount: msg.count }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'script_log':
-          setState(s => ({
-            ...s,
-            scriptLogs: [...(s.scriptLogs ?? []), msg],
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'reconnect_token': {

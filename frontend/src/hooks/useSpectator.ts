@@ -1,14 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import type {
-  ServerMessage,
-  BookUpdateMessage,
-  TradeMessage,
-  AllBalancesMessage,
-} from '../types/messages'
+import type { ServerMessage } from '../types/messages'
 import type { WsState } from './useWebSocket'
 import { logger } from '../logger'
-
-const MAX_TRADE_HISTORY = 20
+import { applyMessage } from './useWsReducer'
 
 const INITIAL_STATE: WsState = {
   connected: false,
@@ -92,41 +86,13 @@ export function useSpectator(lobbyId: string): WsState {
           setState(s => ({ ...s, playerId: msg.player_id }))
           break
 
-        case 'book_update': {
-          const u: BookUpdateMessage = msg
-          setState(s => ({
-            ...s,
-            books: {
-              ...s.books,
-              [u.suit]: {
-                best_bid:      u.best_bid,
-                best_ask:      u.best_ask,
-                best_bid_slot: u.best_bid_slot,
-                best_ask_slot: u.best_ask_slot,
-              },
-            },
-          }))
+        case 'book_update':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
-        case 'trade': {
-          const trade: TradeMessage = msg
-          const entry = {
-            id:             tradeSeqRef.current++,
-            suit:           trade.suit,
-            price:          trade.price,
-            aggressor_side: trade.aggressor_side,
-            your_side:      null as 'buy' | 'sell' | null,
-            buyer_slot:     trade.buyer_slot,
-            seller_slot:    trade.seller_slot,
-            ts:             Date.now(),
-          }
-          setState(s => ({
-            ...s,
-            trades: [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
-          }))
+        case 'trade':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
         case 'round_starting': {
           const roster = msg.usernames
@@ -162,56 +128,43 @@ export function useSpectator(lobbyId: string): WsState {
           break
 
         case 'inter_round':
-          setState(s => ({ ...s, interRound: msg, roundEnd: null, roundEndAt: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_ended':
-          setState(s => ({ ...s, gameEnded: msg, interRound: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_player_left':
-          setState(s => ({
-            ...s,
-            departedSlots: s.departedSlots.includes(msg.player_slot)
-              ? s.departedSlots
-              : [...s.departedSlots, msg.player_slot],
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_bot_joined':
-          setState(s => ({
-            ...s,
-            departedSlots: s.departedSlots.filter(slot => slot !== msg.player_slot),
-            roster: s.roster.map(r =>
-              r.player_slot === msg.player_slot ? { ...r, username: msg.username } : r
-            ),
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'session_error':
-          setState(s => ({ ...s, sessionError: msg, interRound: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'delta_update':
-          setState(s => ({ ...s, deltas: msg.deltas }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
-        case 'all_balances': {
-          const ab: AllBalancesMessage = msg
-          setState(s => ({ ...s, allBalances: ab.balances }))
+        case 'all_balances':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
         case 'hand_totals':
-          setState(s => ({ ...s, allHandTotals: msg.totals }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'spectator_count':
-          setState(s => ({ ...s, spectatorCount: msg.count }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'script_log':
-          setState(s => ({ ...s, scriptLogs: [...(s.scriptLogs ?? []), msg] }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         // Spectators never receive these; listed for type exhaustiveness.
