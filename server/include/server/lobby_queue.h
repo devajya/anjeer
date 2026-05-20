@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <deque>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -47,13 +48,17 @@ public:
     int  size() const;
     bool has(int64_t player_id) const;
 
+    // Removes the entry whose WsHandle matches ws. Returns true if found.
+    bool dequeue_by_ws(WsHandle ws);
+
     // Sends queue_position_update to every waiting entry via loop->defer().
     void broadcast_positions(uWS::Loop* loop) const;
 
 private:
     int max_size_;
-    std::deque<QueueEntry>           entries_;
-    std::unordered_set<int64_t>      id_set_;  // O(1) membership check
+    std::deque<QueueEntry>                   entries_;
+    std::unordered_set<int64_t>              id_set_;      // O(1) membership check
+    std::unordered_map<WsHandle, int64_t>    ws_to_player_; // O(1) close-handler dequeue
 };
 
 } // namespace anjeer::server

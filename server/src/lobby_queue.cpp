@@ -16,6 +16,7 @@ int LobbyQueue::enqueue(int64_t player_id,
     entries_.push_back({ player_id, username, ws,
                          std::chrono::system_clock::now() });
     id_set_.insert(player_id);
+    if (ws) ws_to_player_[ws] = player_id;
     return static_cast<int>(entries_.size());  // 1-based position
 }
 
@@ -23,6 +24,7 @@ void LobbyQueue::dequeue(int64_t player_id) {
     auto it = std::find_if(entries_.begin(), entries_.end(),
         [&](const QueueEntry& e) { return e.player_id == player_id; });
     if (it == entries_.end()) return;
+    if (it->ws) ws_to_player_.erase(it->ws);
     entries_.erase(it);
     id_set_.erase(player_id);
 }
@@ -34,7 +36,10 @@ std::vector<QueueEntry> LobbyQueue::drain(int count) {
         std::make_move_iterator(entries_.begin() + n)
     );
     entries_.erase(entries_.begin(), entries_.begin() + n);
-    for (const auto& e : out) id_set_.erase(e.player_id);
+    for (const auto& e : out) {
+        id_set_.erase(e.player_id);
+        if (e.ws) ws_to_player_.erase(e.ws);
+    }
     return out;
 }
 
@@ -50,6 +55,13 @@ int LobbyQueue::size() const {
 
 bool LobbyQueue::has(int64_t player_id) const {
     return id_set_.count(player_id) > 0;
+}
+
+bool LobbyQueue::dequeue_by_ws(WsHandle ws) {
+    auto it = ws_to_player_.find(ws);
+    if (it == ws_to_player_.end()) return false;
+    dequeue(it->second);
+    return true;
 }
 
 void LobbyQueue::broadcast_positions(uWS::Loop* loop) const {

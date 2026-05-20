@@ -492,6 +492,8 @@ void WsServer::run() {
                             game_slots_repo_.mark_disconnected(as.session_id_, slot);
                             server_log_.info("close",
                                 "slot " + std::to_string(slot) + " disconnected — reconnect window started");
+                        } else if (as.queue_ && as.queue_->dequeue_by_ws(ws)) {
+                            as.queue_->broadcast_positions(uWS::Loop::get());
                         }
                     }
                 }
@@ -1494,6 +1496,7 @@ void WsServer::handle_join_queue(WsHandle ws, const std::string& lobby_id,
         return;
     }
 
+    data->lobby_id = lobby_id;  // allows .close to find the right session queue
     ws->send(nlohmann::json{
         {"type","queue_joined"}, {"position", pos}, {"queue_size", as.queue_->size()}
     }.dump(), uWS::OpCode::TEXT);
@@ -1519,6 +1522,7 @@ void WsServer::handle_leave_queue(WsHandle ws, const std::string& lobby_id,
     auto& as = it->second;
 
     as.queue_->dequeue(data->player_id);
+    data->lobby_id.clear();
     as.queue_->broadcast_positions(loop);
 
     ws->send(nlohmann::json{{"type","queue_left"}}.dump(), uWS::OpCode::TEXT);
