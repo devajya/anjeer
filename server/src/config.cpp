@@ -145,6 +145,7 @@ ServerConfig load_config(const std::string& path) {
         const auto& rc = j.at("reconnect");
         cfg.reconnect.reconnect_window_seconds = rc.at("reconnect_window_seconds").get<int>();
         cfg.reconnect.max_queue_size           = rc.at("max_queue_size").get<int>();
+        cfg.reconnect.token_ttl_seconds        = rc.at("token_ttl_seconds").get<int>();
 
         return cfg;
     } catch (const nlohmann::json::exception& e) {

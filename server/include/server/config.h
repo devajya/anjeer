@@ -148,6 +148,7 @@ struct ServerConfig {
     struct ReconnectConfig {
         int reconnect_window_seconds = 20;
         int max_queue_size           = 8;
+        int token_ttl_seconds        = 7200;
     } reconnect;
 };
 

@@ -13,7 +13,6 @@
 #include "server/lobby_repo.h"
 #include "server/logger.h"
 #include "server/rate_limiter.h"
-#include "server/reconnect_token_repo.h"
 #include "server/session_queue.h"
 #include "server/session_repo.h"
 #include "server/ws_types.h"
@@ -67,6 +66,9 @@ private:
         std::unordered_map<int32_t, WsHandle>                      spectator_handles_;
         std::unordered_map<WsHandle, int32_t>                      ws_to_spectator_;
         int32_t                                                    spectator_count_ = 0;
+        // Per-slot in-memory reconnect tokens. Issued on attach, rotated on reattach.
+        // Validated entirely in-memory — no DB round-trip on the hot reconnect path.
+        std::unordered_map<int32_t, std::string>                   slot_tokens_;
         // Slots whose reconnect window expired and are awaiting queue admission.
         std::unordered_set<int32_t>                                available_slots_;
         // Queue of players waiting to enter when a slot opens at round boundary.
@@ -122,7 +124,6 @@ private:
     Logger frontend_log_;
 
     SessionRepo          session_repo_;
-    ReconnectTokenRepo   reconnect_token_repo_;
     GameSlotsRepo        game_slots_repo_;
     std::mt19937         rng_;
 

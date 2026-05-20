@@ -107,6 +107,7 @@
   },
   "reconnect": {
     "reconnect_window_seconds": 20,
-    "max_queue_size": 8
+    "max_queue_size": 8,
+    "token_ttl_seconds": 7200
   }
 }

@@ -71,7 +71,6 @@ WsServer::WsServer(const ServerConfig& cfg, WsServerDeps deps)
     , server_log_           ("logs/server_logs.txt")
     , engine_log_           ("logs/engine_logs.txt")
     , frontend_log_         ("logs/frontend_logs.txt")
-    , reconnect_token_repo_ (deps.db_pool)
     , game_slots_repo_      (deps.db_pool)
     , rng_                  (std::random_device{}())
 {}
@@ -928,8 +927,21 @@ void WsServer::drain_all_on_loop() {
                             d->lobby_id    = lobby_id;
                             d->player_slot = slot;
                             as.available_slots_.erase(slot);
+                            // Issue a fresh in-memory reconnect token for this slot.
+                            const std::string q_token = generate_reconnect_token();
+                            const int64_t q_ttl_s = static_cast<int64_t>(cfg_.reconnect.token_ttl_seconds);
+                            const int64_t q_exp_ms =
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch()).count()
+                                + q_ttl_s * 1000;
+                            as.slot_tokens_[slot] = q_token;
                             entry.ws->send(nlohmann::json{
                                 {"type","queue_admitted"}, {"slot_index", slot}
+                            }.dump(), uWS::OpCode::TEXT);
+                            entry.ws->send(nlohmann::json{
+                                {"type",       "reconnect_token"},
+                                {"token",      q_token},
+                                {"expires_at", q_exp_ms},
                             }.dump(), uWS::OpCode::TEXT);
                             game_slots_repo_.upsert_active(
                                 as.session_id_, std::stoll(entry.player_id), slot);
@@ -1325,35 +1337,25 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
         as.ws_to_slot_.erase(old_it->second);
     }
 
-    // If a reconnect token was supplied (via ?token= query param or reconnect_game),
-    // validate it. An invalid/expired token is rejected to prevent session hijacking.
+    // Validate reconnect token against the in-memory slot map — no DB round-trip.
+    // The token is slot-scoped: player_id + lobby_id are already implied by the slot.
     if (!data->reconnect_token.empty()) {
-        auto rec = reconnect_token_repo_.validate(data->reconnect_token);
-        if (!rec) {
+        auto it = as.slot_tokens_.find(slot);
+        if (it == as.slot_tokens_.end() || it->second != data->reconnect_token) {
             serialise::error(ws, WsErrorCode::MalformedMessage,
                              "reconnect token invalid or expired", server_log_);
             return false;
         }
-        if (rec->player_id != data->player_id ||
-            rec->lobby_id  != lobby_id) {
-            serialise::error(ws, WsErrorCode::MalformedMessage,
-                             "reconnect token player/lobby mismatch", server_log_);
-            return false;
-        }
-        reconnect_token_repo_.revoke(rec->token_hash);
     }
 
-    // Issue a fresh token with a long TTL so the client can reconnect any time
-    // during the game. The 20s reconnect window is enforced server-side by
-    // GameSession's timer, not by this token's expiry.
-    constexpr int kTokenTtlSeconds = 7200;  // 2 hours — covers any realistic game duration
-    const bool was_reconnect = !data->reconnect_token.empty();
-    const std::string new_token = reconnect_token_repo_.create(
-        data->player_id, lobby_id, kTokenTtlSeconds);
-    const int64_t expires_at_ms =
+    const bool    was_reconnect  = !data->reconnect_token.empty();
+    const int64_t token_ttl_s    = static_cast<int64_t>(cfg_.reconnect.token_ttl_seconds);
+    const std::string new_token  = generate_reconnect_token();
+    const int64_t expires_at_ms  =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count()
-        + static_cast<int64_t>(kTokenTtlSeconds) * 1000;
+        + token_ttl_s * 1000;
+    as.slot_tokens_[slot] = new_token;
 
     as.slot_to_ws_[slot] = ws;
     as.ws_to_slot_[ws]   = slot;
