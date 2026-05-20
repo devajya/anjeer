@@ -1201,9 +1201,9 @@ void WsServer::handle_add_bot(WsHandle ws, const std::string& lobby_id,
         return;
     }
 
-    auto [ok, result] = bot_manager_.add_bot(lobby_id, diff, open_slots);
-    if (!ok) {
-        serialise::error(ws, WsErrorCode::BotLimitReached, result, server_log_);
+    auto add_res = bot_manager_.add_bot(lobby_id, diff, open_slots);
+    if (!add_res.ok) {
+        serialise::error(ws, WsErrorCode::BotLimitReached, add_res.bot_uuid, server_log_);
         return;
     }
 
@@ -1218,15 +1218,12 @@ void WsServer::handle_add_bot(WsHandle ws, const std::string& lobby_id,
         // the DB value. Log enough context to diagnose without a full investigation.
         server_log_.error("add_bot",
             "bot_count update failed lobby=" + lobby_id +
-            " bot_uuid=" + result +
+            " bot_uuid=" + add_res.bot_uuid +
             " err=" + ex.what());
     }
 
-    const std::string& bot_uuid = result;
-    const auto bots = bot_manager_.get_bots(lobby_id);
-    std::string username;
-    for (const auto& b : bots)
-        if (b.bot_uuid == bot_uuid) { username = b.username; break; }
+    const std::string& bot_uuid = add_res.bot_uuid;
+    const std::string& username = add_res.username;
 
     nlohmann::json ev{
         {"type",           "player_joined"},
@@ -1284,16 +1281,13 @@ void WsServer::handle_remove_bot(WsHandle ws, const std::string& lobby_id,
         return;
     }
 
-    // Find username before removal for the broadcast
-    std::string username;
-    for (const auto& b : bot_manager_.get_bots(lobby_id))
-        if (b.bot_uuid == bot_uuid) { username = b.username; break; }
-
-    if (!bot_manager_.remove_bot(lobby_id, bot_uuid)) {
+    auto rem_res = bot_manager_.remove_bot(lobby_id, bot_uuid);
+    if (!rem_res.ok) {
         serialise::error(ws, WsErrorCode::MalformedMessage,
                          "bot not found in lobby", server_log_);
         return;
     }
+    const std::string& username = rem_res.username;
 
     try {
         auto handle = db_pool_.acquire();

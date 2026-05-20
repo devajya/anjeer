@@ -21,18 +21,18 @@ BotManager::BotManager(BotScheduler& scheduler, const ServerConfig::BotsConfig& 
 
 // ── Lobby phase ───────────────────────────────────────────────────────────────
 
-std::pair<bool, std::string> BotManager::add_bot(
+BotAddResult BotManager::add_bot(
         const std::string&             lobby_id,
         anjeer::engine::BotDifficulty  difficulty,
         int                            open_slots) {
     if (open_slots <= 0)
-        return {false, "BOT_LIMIT_REACHED"};
+        return {false, "BOT_LIMIT_REACHED", ""};
 
     auto& bots = sessions_[lobby_id];
 
     // Check a game hasn't already started for this lobby.
     for (const auto& e : bots) {
-        if (e.adapter) return {false, "LOBBY_ALREADY_STARTED"};
+        if (e.adapter) return {false, "LOBBY_ALREADY_STARTED", ""};
     }
 
     BotEntry entry;
@@ -40,24 +40,28 @@ std::pair<bool, std::string> BotManager::add_bot(
     entry.difficulty = difficulty;
     bots.push_back(std::move(entry));
 
-    return {true, bots.back().bot_uuid};
+    const int index    = static_cast<int>(bots.size()) - 1;
+    const std::string username = bot_username(difficulty, index);
+    return {true, bots.back().bot_uuid, username};
 }
 
-bool BotManager::remove_bot(const std::string& lobby_id, const std::string& bot_uuid) {
+BotRemoveResult BotManager::remove_bot(const std::string& lobby_id, const std::string& bot_uuid) {
     auto sit = sessions_.find(lobby_id);
-    if (sit == sessions_.end()) return false;
+    if (sit == sessions_.end()) return {false, ""};
 
     auto& bots = sit->second;
     auto it = std::find_if(bots.begin(), bots.end(),
         [&](const BotEntry& e){ return e.bot_uuid == bot_uuid; });
-    if (it == bots.end()) return false;
+    if (it == bots.end()) return {false, ""};
 
     // Only allow removal before game starts.
-    if (it->adapter) return false;
+    if (it->adapter) return {false, ""};
 
+    const int index = static_cast<int>(it - bots.begin());
+    const std::string username = bot_username(it->difficulty, index);
     bots.erase(it);
     if (bots.empty()) sessions_.erase(sit);
-    return true;
+    return {true, username};
 }
 
 // ── Game start ────────────────────────────────────────────────────────────────

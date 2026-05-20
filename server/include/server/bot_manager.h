@@ -31,6 +31,17 @@ struct BotSlotInfo {
     int         slot;        // -1 until attach_to_session
 };
 
+struct BotAddResult {
+    bool        ok;
+    std::string bot_uuid;   // error code string when !ok
+    std::string username;   // populated when ok
+};
+
+struct BotRemoveResult {
+    bool        ok;
+    std::string username;   // username of the removed bot; empty when !ok
+};
+
 // BotManager is accessed exclusively from the uWS event-loop thread.
 // No internal locking is needed; the uWS guarantee of single-threaded access
 // to all event callbacks and timers extends to every public method here.
@@ -44,16 +55,15 @@ public:
     // ── Lobby phase (uWS thread) ──────────────────────────────────────────
 
     // Add a bot to a lobby. open_slots = max_players − current total players.
-    // Returns {true, bot_uuid} on success, {false, error_code} on failure.
-    std::pair<bool, std::string> add_bot(
+    BotAddResult add_bot(
         const std::string&                lobby_id,
         anjeer::engine::BotDifficulty     difficulty,
         int                               open_slots
     );
 
     // Remove a bot from a lobby before the game starts.
-    // Returns false if bot_uuid is not found in the lobby.
-    bool remove_bot(const std::string& lobby_id, const std::string& bot_uuid);
+    // Returns {true, username} on success, {false, ""} if bot_uuid is not found.
+    BotRemoveResult remove_bot(const std::string& lobby_id, const std::string& bot_uuid);
 
     // ── Game start (uWS thread) ───────────────────────────────────────────
 

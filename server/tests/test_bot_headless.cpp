@@ -145,9 +145,9 @@ TEST_CASE("headless sim: 5 bots play a full game to completion", "[bots][headles
     // Register bots and build slot_map
     std::unordered_map<std::string, int> slot_map;
     for (int i = 0; i < N; ++i) {
-        auto [ok, uuid] = mgr.add_bot(lobby_id, BotDifficulty::Easy, N - i);
-        REQUIRE(ok);
-        slot_map[uuid] = i;
+        auto res = mgr.add_bot(lobby_id, BotDifficulty::Easy, N - i);
+        REQUIRE(res.ok);
+        slot_map[res.bot_uuid] = i;
     }
 
     // Attach adapters and enqueue NetConnect for each bot before NetStartGame
