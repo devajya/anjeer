@@ -236,6 +236,7 @@ export function useSpectator(lobbyId: string): WsState {
         case 'queue_admitted':
         case 'reconnect_window_expired':
         case 'lobby_owner_changed':
+        case 'lobby_settings_changed':
           break
 
         default: {

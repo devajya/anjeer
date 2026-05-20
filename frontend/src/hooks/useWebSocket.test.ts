@@ -394,6 +394,79 @@ describe('useWebSocket — round lifecycle', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// AC: lobby_settings_changed — non-creator players see updated autofill toggle
+// ---------------------------------------------------------------------------
+
+describe('useWebSocket — lobby_settings_changed messages', () => {
+  test('updates lobbyState.spawn_bots_on_leave when lobby_id matches', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+
+    // First establish a lobbyState snapshot via lobby_state message.
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'lobby_state',
+        lobby_id: 'lobby-abc',
+        code: 'ABC',
+        creator_id: 1,
+        status: 'waiting',
+        min_players: 2,
+        max_players: 8,
+        mode: 'ui',
+        spawn_bots_on_leave: false,
+        bot_spawn_difficulty: 'easy',
+        players: [],
+      })
+    })
+    expect(result.current.lobbyState?.spawn_bots_on_leave).toBe(false)
+
+    // Owner toggles autofill on → server broadcasts lobby_settings_changed.
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'lobby_settings_changed',
+        lobby_id: 'lobby-abc',
+        spawn_bots_on_leave: true,
+        bot_spawn_difficulty: 'medium',
+      })
+    })
+    expect(result.current.lobbyState?.spawn_bots_on_leave).toBe(true)
+    expect(result.current.lobbyState?.bot_spawn_difficulty).toBe('medium')
+  })
+
+  test('ignores lobby_settings_changed for a different lobby_id', () => {
+    const { result } = renderHook(() => useWebSocket('/ws'))
+    act(() => { MockWebSocket.last.triggerOpen() })
+
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'lobby_state',
+        lobby_id: 'lobby-abc',
+        code: 'ABC',
+        creator_id: 1,
+        status: 'waiting',
+        min_players: 2,
+        max_players: 8,
+        mode: 'ui',
+        spawn_bots_on_leave: false,
+        bot_spawn_difficulty: 'easy',
+        players: [],
+      })
+    })
+
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'lobby_settings_changed',
+        lobby_id: 'lobby-DIFFERENT',
+        spawn_bots_on_leave: true,
+        bot_spawn_difficulty: 'hard',
+      })
+    })
+    // State must not change — different lobby.
+    expect(result.current.lobbyState?.spawn_bots_on_leave).toBe(false)
+  })
+})
+
 describe('useWebSocket — unknown message type', () => {
   test('does not crash on unknown message type', () => {
     renderHook(() => useWebSocket('/ws'))

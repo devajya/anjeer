@@ -159,3 +159,58 @@ describe('Game — grace-period guard (commit 18ad5b7 fix)', () => {
     expect(mockOnWindowExpired).not.toHaveBeenCalled()
   })
 })
+
+// ── noTokenOverflow guard — fresh player joins at game start (bug fix) ─────────
+// Regression: a player who connects to /game while the server is in Countdown
+// phase would miss round_starting. Before the server fix, isInGame stayed false
+// and after 3 s the StaleLobbyModal ("This lobby is full") appeared. These tests
+// document the client-side invariants: the timer is suppressed whenever any
+// isInGame signal is present.
+
+describe('Game — noTokenOverflow timer (fresh player at game start)', () => {
+  it('does NOT show StaleLobbyModal when startsAt is set (round_starting received)', async () => {
+    // startsAt set means the client received round_starting — isInGame=true.
+    reconnectStatusOverride = 'connected'
+    wsOverrides = {
+      connected: true,
+      playerSlot: null,
+      startsAt: '2099-01-01T00:00:05.000Z',
+    }
+
+    const { queryByRole } = renderGame()
+    act(() => { vi.advanceTimersByTime(4000) })
+
+    expect(queryByRole('dialog')).toBeNull()
+  })
+
+  it('does NOT show StaleLobbyModal when waitingForStart is set', async () => {
+    reconnectStatusOverride = 'connected'
+    wsOverrides = {
+      connected: true,
+      playerSlot: null,
+      waitingForStart: { type: 'waiting_for_start', connected: 1, required: 2 },
+    }
+
+    const { queryByRole } = renderGame()
+    act(() => { vi.advanceTimersByTime(4000) })
+
+    expect(queryByRole('dialog')).toBeNull()
+  })
+
+  it('shows StaleLobbyModal after 3s when connected but no game state arrives', async () => {
+    // All isInGame signals absent → noTokenOverflow fires → StaleLobbyModal shown.
+    reconnectStatusOverride = 'connected'
+    wsOverrides = {
+      connected: true,
+      playerSlot: null,
+      startsAt: null,
+      waitingForStart: null,
+      hand: null,
+    }
+
+    const { queryByRole } = renderGame()
+    act(() => { vi.advanceTimersByTime(3100) })
+
+    expect(queryByRole('dialog')).not.toBeNull()
+  })
+})

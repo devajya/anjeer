@@ -16,6 +16,7 @@ import type {
   AllBalancesMessage,
   GameStateSnapshotMessage,
   LobbyOwnerChangedMessage,
+  LobbySettingsChangedMessage,
 } from '../types/messages'
 import { logger } from '../logger'
 
@@ -658,6 +659,23 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             currentOwnerPlayerId: ownerMsg.new_owner_player_id,
             currentOwnerUsername: ownerMsg.new_owner_username,
           }))
+          break
+        }
+
+        case 'lobby_settings_changed': {
+          const changed = msg as LobbySettingsChangedMessage
+          logger.info('ws/recv', `lobby_settings_changed lobby_id=${changed.lobby_id} spawn_bots_on_leave=${changed.spawn_bots_on_leave}`)
+          setState(s => {
+            if (!s.lobbyState || s.lobbyState.lobby_id !== changed.lobby_id) return s
+            return {
+              ...s,
+              lobbyState: {
+                ...s.lobbyState,
+                spawn_bots_on_leave: changed.spawn_bots_on_leave,
+                bot_spawn_difficulty: changed.bot_spawn_difficulty,
+              },
+            }
+          })
           break
         }
 

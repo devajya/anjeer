@@ -429,6 +429,84 @@ afterAll(async () => {
   await new Promise<void>(r => setTimeout(r, 250))
 })
 
+// ─── Bot autofill toggle propagation (lobby_settings_changed bug fix) ────────
+// Each test explicitly unmounts with fake timers to flush the 150 ms REST-leave
+// cleanup timer before it can leak into the "REST leave is NOT sent" test below.
+
+describe('LobbyRoom — bot autofill toggle propagation', () => {
+  test('toggle shows "Off" when lobbyState.spawn_bots_on_leave is false', async () => {
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByText('Bot auto-fill'))
+    expect(screen.getByText('Off')).toBeInTheDocument()
+    expect(screen.queryByText('On')).toBeNull()
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+
+  test('toggle shows "On" when lobbyState.spawn_bots_on_leave is true', async () => {
+    // Simulate non-creator receiving an updated lobbyState (as if lobby_settings_changed
+    // updated it via useWebSocket) — the sync effect sets botAutofill=true.
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: { ...BASE_LOBBY_STATE, spawn_bots_on_leave: true },
+    }))
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByText('Bot auto-fill'))
+    expect(screen.getByText('On')).toBeInTheDocument()
+    expect(screen.queryByText('Off')).toBeNull()
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+
+  test('non-owner cannot click the toggle', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: { ...BASE_LOBBY_STATE, creator_id: 99 },  // user.id=1 is not owner
+    }))
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByRole('switch', { name: /auto-fill/i }))
+    fireEvent.click(screen.getByRole('switch', { name: /auto-fill/i }))
+    const patchCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('bot-settings')
+    )
+    expect(patchCall).toBeUndefined()
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+
+  test('owner clicking toggle sends PATCH and optimistically updates UI', async () => {
+    vi.mocked(fetch).mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('bot-settings')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ spawn_bots_on_leave: true, bot_spawn_difficulty: 'medium' }),
+        } as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ lobbies: [{ id: 'lobby-uuid-1', code: 'ABC123', creator_id: 1, status: 'waiting', min_players: 2, max_players: 8, player_count: 2, created_at: '' }] }),
+      } as Response)
+    })
+
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByRole('switch', { name: /auto-fill/i }))
+    expect(screen.getByText('Off')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: /auto-fill/i }))
+    })
+
+    expect(screen.getByText('On')).toBeInTheDocument()
+    const patchCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('bot-settings')
+    )
+    expect(patchCall).toBeDefined()
+    expect(patchCall?.[1]).toMatchObject({ method: 'PATCH' })
+
+    // Flush the 150 ms cleanup timer so it doesn't leak into the REST-leave tests.
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+})
+
 // ─── CSS regression guards ────────────────────────────────────────────────────
 
 import lobbyRoomCss from '../LobbyRoom.css?raw'

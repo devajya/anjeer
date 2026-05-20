@@ -1020,6 +1020,18 @@ void GameSession::handle_reconnect_reattach(int32_t slot,
 
     if (phase_ == SessionPhase::RoundActive && game_state_) {
         emit_targeted(slot, build_state_snapshot(slot, token, expires_at_ms));
+    } else if (phase_ == SessionPhase::Countdown) {
+        // Player connecting for first time during the pre-deal countdown: send them
+        // the countdown deadline so their client can show the timer. Mirrors
+        // handle_connect's Countdown branch, which only fires for bots (NetConnect).
+        emit_targeted(slot, nlohmann::json{
+            {"type",         "round_starting"},
+            {"starts_at",    steady_to_iso(countdown_deadline_)},
+            {"player_count", static_cast<int>(slots_.size())},
+        }.dump());
+    } else if (phase_ == SessionPhase::Lobby) {
+        // Player connecting before the countdown starts: broadcast current fill count.
+        broadcast_waiting_for_start();
     }
 }
 

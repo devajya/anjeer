@@ -660,6 +660,15 @@ void HttpServer::register_lobby_routes(App& app)
             lobby_repo_.update_bot_settings(txn, lobby_id, spawn_bots, "medium");
             txn.commit();
 
+            // Broadcast setting change so all lobby subscribers (non-creator players)
+            // see the updated toggle without waiting for a full lobby_state refresh.
+            nlohmann::json ev;
+            ev["type"]               = "lobby_settings_changed";
+            ev["lobby_id"]           = lobby_id;
+            ev["spawn_bots_on_leave"]  = spawn_bots;
+            ev["bot_spawn_difficulty"] = "medium";
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
             nlohmann::json res_j;
             res_j["spawn_bots_on_leave"]  = spawn_bots;
             res_j["bot_spawn_difficulty"] = "medium";

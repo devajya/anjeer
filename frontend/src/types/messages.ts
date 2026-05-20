@@ -455,6 +455,18 @@ export interface LobbyOwnerChangedMessage {
 }
 
 /**
+ * Broadcast to all lobby subscribers when the owner changes bot-autofill settings
+ * via PATCH /lobbies/{id}/bot-settings. Non-creator players update their toggle
+ * display from this message rather than waiting for a full lobby_state re-fetch.
+ */
+export interface LobbySettingsChangedMessage {
+  type: 'lobby_settings_changed'
+  lobby_id: string
+  spawn_bots_on_leave: boolean
+  bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
+}
+
+/**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
  * useWebSocket.ts is exhaustive — TypeScript will error on unhandled variants
@@ -496,6 +508,7 @@ export type ServerMessage =
   | QueueAdmittedMessage
   | ReconnectWindowExpiredMessage
   | LobbyOwnerChangedMessage
+  | LobbySettingsChangedMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
