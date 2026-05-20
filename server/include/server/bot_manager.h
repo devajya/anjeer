@@ -18,11 +18,28 @@
 
 namespace anjeer::server {
 
+// AGENT-CTX: Forward declaration instead of #include "server/game_session.h"
+// because game_session.h transitively pulls in uWS, engine, and DB headers.
+// A reference parameter only needs the type name visible, not the full definition.
+// bot_manager.cpp includes game_session.h directly where the method bodies need it.
+class GameSession;
+
 struct BotSlotInfo {
     std::string bot_uuid;
     std::string difficulty;  // "easy" | "medium" | "hard"
     std::string username;    // display name shown in lobby + game roster
     int         slot;        // -1 until attach_to_session
+};
+
+struct BotAddResult {
+    bool        ok;
+    std::string bot_uuid;   // error code string when !ok
+    std::string username;   // populated when ok
+};
+
+struct BotRemoveResult {
+    bool        ok;
+    std::string username;   // username of the removed bot; empty when !ok
 };
 
 // BotManager is accessed exclusively from the uWS event-loop thread.
@@ -38,16 +55,15 @@ public:
     // ── Lobby phase (uWS thread) ──────────────────────────────────────────
 
     // Add a bot to a lobby. open_slots = max_players − current total players.
-    // Returns {true, bot_uuid} on success, {false, error_code} on failure.
-    std::pair<bool, std::string> add_bot(
+    BotAddResult add_bot(
         const std::string&                lobby_id,
         anjeer::engine::BotDifficulty     difficulty,
         int                               open_slots
     );
 
     // Remove a bot from a lobby before the game starts.
-    // Returns false if bot_uuid is not found in the lobby.
-    bool remove_bot(const std::string& lobby_id, const std::string& bot_uuid);
+    // Returns {true, username} on success, {false, ""} if bot_uuid is not found.
+    BotRemoveResult remove_bot(const std::string& lobby_id, const std::string& bot_uuid);
 
     // ── Game start (uWS thread) ───────────────────────────────────────────
 
@@ -105,6 +121,37 @@ public:
 
     bool                    has_bots(const std::string& lobby_id) const;
     std::vector<BotSlotInfo> get_bots(const std::string& lobby_id) const;
+
+    // Returns the bot_uuid for the given slot in the lobby, or "" if the slot
+    // is not occupied by a bot.
+    std::string bot_uuid_for_slot(const std::string& lobby_id, int slot_index) const;
+
+    // Returns the slot index of the most-displaceable bot (lowest difficulty;
+    // least cash as tiebreak), or -1 if no bots are in the lobby.
+    // GameSession overload reads balances from the live session.
+    int get_displaceable_bot_slot(const std::string& lobby_id,
+                                  const GameSession& session) const;
+
+    // AGENT-CTX: Testable overload — accepts a pre-built {slot→balance} map so
+    // unit tests don't need a live GameSession. The GameSession overload above
+    // delegates here. Spec showed only the GameSession form; this overload is
+    // added for unit-test isolation.
+    int get_displaceable_bot_slot(const std::string& lobby_id,
+                                  const std::unordered_map<int,int>& slot_balances) const;
+
+    // Spawns a replacement bot that inherits `hand` (card counts per suit)
+    // rather than a fresh deal. Overrides ctx.hand and ctx.slot before
+    // invoking the normal spawn path.
+    // AGENT-CTX: spec declared hand as std::vector<Card>; the engine uses
+    // std::array<int,4> (per-suit counts matching BotSpawnContext::hand).
+    void spawn_replacement_with_hand(
+        const std::string&                       lobby_id,
+        int                                      slot_index,
+        const std::array<int,4>&                 hand,
+        const std::string&                       difficulty,
+        BotSpawnContext                          ctx,
+        moodycamel::ReaderWriterQueue<NetEvent>& session_inbound,
+        bool                                     is_ui_mode = false);
 
 private:
     struct BotEntry {

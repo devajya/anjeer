@@ -176,6 +176,7 @@ void HttpServer::run()
     register_api_key_routes(app);
     register_spectate_routes(app);
     register_examples_routes(app);
+    register_config_routes(app);
 
     app.loglevel(crow::LogLevel::Warning);
     http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
@@ -523,6 +524,44 @@ void HttpServer::register_lobby_routes(App& app)
         }
     });
 
+    CROW_ROUTE(app, "/lobbies/<string>/leave").methods(crow::HTTPMethod::Post)
+    ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            if (!lobby_opt)
+                return make_error(404, "LOBBY_NOT_FOUND");
+
+            // Only meaningful for waiting lobbies — active sessions use WS leave_lobby.
+            lobby_repo_.remove_player(txn, lobby_id, player.id);
+            lobby_repo_.delete_if_empty(txn, lobby_id);
+            txn.commit();
+
+            nlohmann::json ev;
+            ev["type"]      = "player_left";
+            ev["lobby_id"]  = lobby_id;
+            ev["player_id"] = player.id;
+            ev["username"]  = player.username;
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
+            http_log_.info("lobbies", "player " + std::to_string(player.id) +
+                           " left lobby " + lobby_id + " via REST");
+
+            crow::response res(204);
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("leave failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
+
     // transition_status is CAS; false → a concurrent start already won.
     CROW_ROUTE(app, "/lobbies/<string>/start").methods(crow::HTTPMethod::Post)
     ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
@@ -620,6 +659,15 @@ void HttpServer::register_lobby_routes(App& app)
 
             lobby_repo_.update_bot_settings(txn, lobby_id, spawn_bots, "medium");
             txn.commit();
+
+            // Broadcast setting change so all lobby subscribers (non-creator players)
+            // see the updated toggle without waiting for a full lobby_state refresh.
+            nlohmann::json ev;
+            ev["type"]               = "lobby_settings_changed";
+            ev["lobby_id"]           = lobby_id;
+            ev["spawn_bots_on_leave"]  = spawn_bots;
+            ev["bot_spawn_difficulty"] = "medium";
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
 
             nlohmann::json res_j;
             res_j["spawn_bots_on_leave"]  = spawn_bots;
@@ -829,6 +877,7 @@ void HttpServer::register_api_key_routes(App& app)
                 return make_error(422, "VALIDATION_ERROR");
             }
             txn.commit();
+            api_keys_cache_.invalidate(player.id);
 
             // Retrieve the stored record to return expires_at.
             auto handle2 = db_pool_.acquire();
@@ -864,6 +913,13 @@ void HttpServer::register_api_key_routes(App& app)
             return std::move(*err);
         const auto& player = std::get<Player>(auth);
 
+        if (auto cached = api_keys_cache_.get(player.id)) {
+            http_log_.info("api-keys", "cache hit api_keys/" + std::to_string(player.id));
+            crow::response res(200, *cached);
+            res.set_header("Content-Type", "application/json");
+            return res;
+        }
+
         try {
             auto handle = db_pool_.acquire();
             pqxx::work txn(handle.get());
@@ -884,7 +940,10 @@ void HttpServer::register_api_key_routes(App& app)
                 arr.push_back(entry);
             }
 
-            crow::response res(200, arr.dump());
+            const std::string body = arr.dump();
+            api_keys_cache_.set(player.id, body);
+
+            crow::response res(200, body);
             res.set_header("Content-Type", "application/json");
             return res;
         } catch (const std::exception& e) {
@@ -911,6 +970,7 @@ void HttpServer::register_api_key_routes(App& app)
             }
             txn.commit();
 
+            api_keys_cache_.invalidate(player.id);
             http_log_.info("api-keys", "revoked key " + std::to_string(key_id) +
                            " for player " + std::to_string(player.id));
             return crow::response(200);
@@ -1065,6 +1125,28 @@ void HttpServer::register_spectate_routes(App& app)
             res.write(j.dump());
             res.end();
         }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Config routes
+// ---------------------------------------------------------------------------
+
+// AGENT-CTX: /config/client is intentionally unauthenticated — it exposes only
+// non-sensitive game constants the frontend needs before a WS connection is
+// established (e.g. max backoff window for the reconnect state machine). Add
+// more fields here as needed; never expose secrets.
+template<typename App>
+void HttpServer::register_config_routes(App& app)
+{
+    CROW_ROUTE(app, "/config/client")
+    ([this](const crow::request&, crow::response& res) {
+        nlohmann::json j;
+        j["reconnect_window_seconds"] = config_.reconnect.reconnect_window_seconds;
+        j["max_queue_size"]           = config_.reconnect.max_queue_size;
+        res.set_header("Content-Type", "application/json");
+        res.write(j.dump());
+        res.end();
     });
 }
 

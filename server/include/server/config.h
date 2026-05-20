@@ -140,6 +140,16 @@ struct ServerConfig {
         int32_t suspend_threshold = 50;
         int32_t suspend_seconds   = 30;
     } rate_limit;
+
+    // AGENT-CTX: reconnect_window_seconds is the single source of truth for how long
+    // a disconnected slot is held before expiry. The frontend derives its maximum
+    // backoff window from the same value via GET /config/client — the two cannot
+    // drift independently. max_queue_size caps the per-lobby wait queue (8 slots).
+    struct ReconnectConfig {
+        int reconnect_window_seconds = 20;
+        int max_queue_size           = 8;
+        int token_ttl_seconds        = 7200;
+    } reconnect;
 };
 
 // Load and parse a JSON config file.

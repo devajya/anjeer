@@ -1054,7 +1054,7 @@ TEST_CASE("WS server — spectator submit_order returns SPECTATOR_NOT_ALLOWED", 
     CHECK(got_error);
 }
 
-TEST_CASE("WS server — spectator vote_to_end returns SPECTATOR_NOT_ALLOWED", "[ws_server][spectator]") {
+TEST_CASE("WS server — spectator end_game returns SPECTATOR_NOT_ALLOWED", "[ws_server][spectator]") {
     ensure_mode_server_running();
     const auto setup = setup_spectator_test("spec4");
 
@@ -1063,7 +1063,7 @@ TEST_CASE("WS server — spectator vote_to_end returns SPECTATOR_NOT_ALLOWED", "
     spectator.send_json({ {"type","spectate_lobby"}, {"lobby_id", setup.lobby_id} });
     spectator.recv_of_type("player_hello");
 
-    spectator.send_json({ {"type","vote_to_end"} });
+    spectator.send_json({ {"type","end_game"} });
 
     bool got_error = false;
     try {

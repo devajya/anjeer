@@ -19,6 +19,7 @@
 #include "server/logger.h"
 #include "server/oauth_provider.h"
 #include "server/player_repo.h"
+#include "server/simple_cache.h"
 #include "server/spectate_token_repo.h"
 
 namespace anjeer::server {
@@ -55,6 +56,7 @@ private:
     template<typename App> void register_api_key_routes  (App& app);
     template<typename App> void register_spectate_routes (App& app);
     template<typename App> void register_examples_routes (App& app);
+    template<typename App> void register_config_routes   (App& app);
 
     std::string make_access_cookie (const std::string& value) const;
     std::string make_refresh_cookie(const std::string& value) const;
@@ -75,6 +77,14 @@ private:
     Logger              http_log_;
 
     std::unordered_map<std::string, std::unique_ptr<IOAuthProvider>> providers_;
+
+    // AGENT-CTX: api_keys_cache_ is keyed by player_id (int64_t) and stores the
+    // serialised JSON array for GET /players/me/api-keys. TTL is 60 s.
+    // Invalidated on POST (create) and DELETE (revoke) so writes are always fresh.
+    // Keybinds and lobby-list caches follow the same pattern.
+    // Replace with Redis at deploy time (see slice_definitions.txt).
+    SimpleCache<int64_t, std::string> api_keys_cache_{ std::chrono::seconds(60) };
+    SimpleCache<int64_t, std::string> keybinds_cache_{ std::chrono::seconds(60) };
 
     struct PendingState {
         std::string                           provider;

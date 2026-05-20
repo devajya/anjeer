@@ -1,0 +1,36 @@
+.reconnect-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.reconnect-overlay__card {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 2.5rem 3rem;
+  text-align: center;
+  min-width: 260px;
+}
+
+.reconnect-overlay__title {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+  color: #e0e0e0;
+}
+
+.reconnect-overlay__hint {
+  margin: 0 0 0.75rem;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.reconnect-overlay__redirect {
+  margin: 0;
+  color: #ccc;
+  font-size: 0.95rem;
+}

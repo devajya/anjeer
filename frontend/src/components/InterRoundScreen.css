@@ -97,6 +97,13 @@
   gap: 1rem;
 }
 
+.irs__owner-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .vote-tally {
   display: flex;
   gap: 0.4rem;

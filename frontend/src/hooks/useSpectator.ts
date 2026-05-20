@@ -1,14 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import type {
-  ServerMessage,
-  BookUpdateMessage,
-  TradeMessage,
-  AllBalancesMessage,
-} from '../types/messages'
+import type { ServerMessage } from '../types/messages'
 import type { WsState } from './useWebSocket'
 import { logger } from '../logger'
-
-const MAX_TRADE_HISTORY = 20
+import { applyMessage } from './useWsReducer'
 
 const INITIAL_STATE: WsState = {
   connected: false,
@@ -28,7 +22,6 @@ const INITIAL_STATE: WsState = {
   lobbyState: null,
   lobbyStarted: null,
   interRound: null,
-  voteTally: null,
   gameEnded: null,
   sessionError: null,
   departedSlots: [],
@@ -38,6 +31,13 @@ const INITIAL_STATE: WsState = {
   allBalances: [],
   spectatorCount: 0,
   scriptLogs: [],
+  // Reconnect/owner fields: spectators never receive these; fixed null/false.
+  reconnectTokenMsg:    null,
+  gameStateSnapshot:    null,
+  reconnectWindowExpired: false,
+  queueState:           { status: 'idle' },
+  currentOwnerPlayerId: null,
+  currentOwnerUsername: '',
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and
@@ -86,41 +86,13 @@ export function useSpectator(lobbyId: string): WsState {
           setState(s => ({ ...s, playerId: msg.player_id }))
           break
 
-        case 'book_update': {
-          const u: BookUpdateMessage = msg
-          setState(s => ({
-            ...s,
-            books: {
-              ...s.books,
-              [u.suit]: {
-                best_bid:      u.best_bid,
-                best_ask:      u.best_ask,
-                best_bid_slot: u.best_bid_slot,
-                best_ask_slot: u.best_ask_slot,
-              },
-            },
-          }))
+        case 'book_update':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
-        case 'trade': {
-          const trade: TradeMessage = msg
-          const entry = {
-            id:             tradeSeqRef.current++,
-            suit:           trade.suit,
-            price:          trade.price,
-            aggressor_side: trade.aggressor_side,
-            your_side:      null as 'buy' | 'sell' | null,
-            buyer_slot:     trade.buyer_slot,
-            seller_slot:    trade.seller_slot,
-            ts:             Date.now(),
-          }
-          setState(s => ({
-            ...s,
-            trades: [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
-          }))
+        case 'trade':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
         case 'round_starting': {
           const roster = msg.usernames
@@ -144,7 +116,6 @@ export function useSpectator(lobbyId: string): WsState {
             roundEndAt:    msg.round_end_at,
             roundEnd:      null,
             interRound:    null,
-            voteTally:     null,
             roster:        msg.roster,
             deltas:        [],
             allHandTotals: msg.all_hand_totals ?? [],
@@ -157,60 +128,43 @@ export function useSpectator(lobbyId: string): WsState {
           break
 
         case 'inter_round':
-          setState(s => ({ ...s, interRound: msg, roundEnd: null, roundEndAt: null }))
-          break
-
-        case 'vote_tally':
-          setState(s => ({ ...s, voteTally: msg }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_ended':
-          setState(s => ({ ...s, gameEnded: msg, interRound: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_player_left':
-          setState(s => ({
-            ...s,
-            departedSlots: s.departedSlots.includes(msg.player_slot)
-              ? s.departedSlots
-              : [...s.departedSlots, msg.player_slot],
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'game_bot_joined':
-          setState(s => ({
-            ...s,
-            departedSlots: s.departedSlots.filter(slot => slot !== msg.player_slot),
-            roster: s.roster.map(r =>
-              r.player_slot === msg.player_slot ? { ...r, username: msg.username } : r
-            ),
-          }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'session_error':
-          setState(s => ({ ...s, sessionError: msg, interRound: null }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'delta_update':
-          setState(s => ({ ...s, deltas: msg.deltas }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
-        case 'all_balances': {
-          const ab: AllBalancesMessage = msg
-          setState(s => ({ ...s, allBalances: ab.balances }))
+        case 'all_balances':
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
-        }
 
         case 'hand_totals':
-          setState(s => ({ ...s, allHandTotals: msg.totals }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'spectator_count':
-          setState(s => ({ ...s, spectatorCount: msg.count }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         case 'script_log':
-          setState(s => ({ ...s, scriptLogs: [...(s.scriptLogs ?? []), msg] }))
+          setState(s => applyMessage(s, msg, tradeSeqRef))
           break
 
         // Spectators never receive these; listed for type exhaustiveness.
@@ -222,6 +176,20 @@ export function useSpectator(lobbyId: string): WsState {
         case 'player_joined':
         case 'player_left':
         case 'lobby_started':
+          break
+
+        // Slice 10.5 — not delivered to spectators; stubs for exhaustiveness.
+        case 'reconnect_token':
+        case 'game_state_snapshot':
+        case 'game_bot_replaced':
+        case 'queue_joined':
+        case 'queue_left':
+        case 'queue_position_update':
+        case 'queue_overflow':
+        case 'queue_admitted':
+        case 'reconnect_window_expired':
+        case 'lobby_owner_changed':
+        case 'lobby_settings_changed':
           break
 
         default: {

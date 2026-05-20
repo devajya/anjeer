@@ -1,0 +1,183 @@
+/* ── Overlay backdrop ────────────────────────────────────────────────────── */
+.qp {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 200;
+}
+
+/* ── Card ────────────────────────────────────────────────────────────────── */
+.qp__card {
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.75rem 2rem;
+  width: min(380px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: qp-card-enter 0.22s ease both;
+}
+
+@keyframes qp-card-enter {
+  from { opacity: 0; transform: scale(0.96) translateY(6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+/* ── Title with live indicator ──────────────────────────────────────────── */
+.qp__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f0f0f0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Pulsing dot — shows the queue is live */
+.qp__pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #78b4ff;
+  animation: qp-pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes qp-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%       { opacity: 1;   transform: scale(1.15); }
+}
+
+.qp__summary {
+  font-size: 0.9rem;
+  color: #aaa;
+  margin: 0;
+}
+
+.qp__summary strong {
+  color: #f0f0f0;
+}
+
+/* ── Position track ─────────────────────────────────────────────────────── */
+.qp__track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  /* Overflow hidden clips any entry animating in from outside */
+  overflow: hidden;
+}
+
+.qp__entry {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #bbb;
+  /* FLIP transition is applied inline via JS; this is a fallback */
+  will-change: transform;
+}
+
+/* New entries slide in from the right */
+.qp__entry[data-new] {
+  animation: qp-enter 0.28s ease both;
+}
+
+@keyframes qp-enter {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+.qp__entry--self {
+  background: rgba(255, 255, 255, 0.07);
+  color: #f0f0f0;
+  font-weight: 600;
+}
+
+/* Flash the self row when position advances */
+.qp__entry--advancing {
+  animation: qp-advance 0.65s ease forwards;
+}
+
+@keyframes qp-advance {
+  0%   { background: rgba(120, 180, 255, 0.07); }
+  35%  { background: rgba(120, 180, 255, 0.22); }
+  100% { background: rgba(255, 255, 255, 0.07); }
+}
+
+.qp__entry-pos {
+  color: #666;
+  font-size: 0.8rem;
+  min-width: 2rem;
+  text-align: right;
+}
+
+.qp__entry--self .qp__entry-pos {
+  color: #f0f0f0;
+}
+
+.qp__entry-name {
+  flex: 1;
+}
+
+/* Arrow badge that appears briefly when self advances */
+.qp__entry-badge {
+  font-size: 0.75rem;
+  color: #78b4ff;
+  animation: qp-badge 0.65s ease both;
+}
+
+@keyframes qp-badge {
+  0%   { opacity: 0; transform: translateY(4px); }
+  30%  { opacity: 1; transform: translateY(0);   }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.qp__truncation {
+  font-size: 0.78rem;
+  color: #555;
+  padding: 0.15rem 0.5rem;
+  letter-spacing: 0.05em;
+}
+
+/* ── Actions ────────────────────────────────────────────────────────────── */
+.qp__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.qp__btn {
+  flex: 1;
+  padding: 0.55rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.qp__btn:hover {
+  opacity: 0.85;
+}
+
+.qp__btn--leave {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ddd;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.qp__btn--spectate {
+  background: rgba(120, 180, 255, 0.15);
+  color: #78b4ff;
+  border: 1px solid rgba(120, 180, 255, 0.25);
+}

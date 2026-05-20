@@ -3,12 +3,22 @@
 #include "engine/engine.h"
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace anjeer::server {
 
 // ── Inbound: network thread → game-loop thread ────────────────────────────────
+
+// Minimal admission info for NetAdmitQueue. WsHandle is omitted: GameSession
+// does not own sockets. WsServer updates its own handle maps independently.
+struct SlotAdmitInfo {
+    int         slot_index;
+    int64_t     player_id;
+    std::string username;
+};
 
 struct NetConnect    { int32_t slot; int64_t player_id; std::string username; };
 struct NetDisconnect { int32_t slot; };
@@ -16,7 +26,12 @@ struct NetSubmit     { int32_t slot; std::string suit; engine::Side side; int32_
 struct NetNudge      { int32_t slot; std::string suit; engine::Side side; };
 struct NetCancel     { int32_t slot; int64_t order_id; };
 struct NetStartGame     {};
-struct NetVoteToEnd     { int32_t slot; };
+// Owner explicitly starts the next round during the inter-round window, bypassing
+// the auto-start countdown. Only WsServer enqueues this after verifying the sender
+// is the current owner (current_owner_player_id_ in ActiveSession).
+struct NetOwnerStartRound {};
+// Owner force-ends the game during the inter-round window.
+struct NetOwnerEndGame {};
 // Permanent leave: player sent leave_lobby during an active session. Unlike
 // NetDisconnect (temporary drop), this marks the slot inactive and decrements
 // active_player_count_ so check_end_condition can fire.
@@ -26,11 +41,32 @@ struct NetPermanentLeave { int32_t slot; };
 struct NetSpectatorJoin  { int32_t spectator_id; std::string spectator_name; };
 struct NetSpectatorLeave { int32_t spectator_id; };
 
+// Reconnect-aware disconnect: starts the per-slot reconnect window timer in
+// GameSession. WsServer calls handle_player_disconnect() which enqueues this.
+// Distinct from NetDisconnect so the two flows (legacy close vs. reattach-aware
+// close) can coexist until T10 migrates WsServer entirely to the new path.
+struct NetReconnectDisconnect { int32_t slot; };
+
+// Carries the fresh token WsServer created BEFORE enqueuing so that the
+// game-loop thread can embed it in the state snapshot without a DB call.
+struct NetReconnectReattach {
+    int32_t     slot;
+    std::string reconnect_token;
+    int64_t     reconnect_expires_at_ms;
+};
+
+// Routes queue admission through the SPSC inbound queue so GameSession's
+// slots_ is mutated on the game-loop thread only. WsServer enqueues this when
+// it handles GameRoundStarted; GameSession processes it before the next tick.
+struct NetAdmitQueue { std::vector<SlotAdmitInfo> entries; };
+
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
-    NetStartGame, NetVoteToEnd, NetPermanentLeave,
-    NetSpectatorJoin, NetSpectatorLeave>;
+    NetStartGame, NetOwnerStartRound, NetOwnerEndGame, NetPermanentLeave,
+    NetSpectatorJoin, NetSpectatorLeave,
+    NetReconnectDisconnect, NetReconnectReattach,
+    NetAdmitQueue>;
 
 // ── Outbound: game-loop thread → network thread ───────────────────────────────
 // AGENT-CTX: GameSession never touches WsHandle or uWS directly — it writes
@@ -56,8 +92,20 @@ struct GameSpawnBot {
     float              remaining_s; // seconds left in the current round
 };
 
+// Outbound signal: reconnect window expired for this slot.
+// WsServer sends reconnect_window_expired to the client socket (if it is still
+// connected from a previous session) and removes any pending reconnect token.
+struct GameReconnectExpired { int32_t slot; };
+
+// Outbound signal: a new round just entered begin_round().
+// AGENT-CTX: WsServer handles this to drain LobbyQueue entries into available
+// slots. Emitted before round_start payloads so admitted players are wired up
+// before the game-loop thread sends targeted round_start messages.
+struct GameRoundStarted {};
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
-                               GameSpawnBot>;
+                               GameSpawnBot, GameReconnectExpired,
+                               GameRoundStarted>;
 
 } // namespace anjeer::server

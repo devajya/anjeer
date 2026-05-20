@@ -198,6 +198,35 @@ std::vector<OrderEvent> OrderBook::cancel(int64_t order_id, int32_t player_id) {
     }};
 }
 
+// Collect IDs first so iterator invalidation from cancel() calls is not an issue.
+std::vector<OrderEvent> OrderBook::cancel_player(int32_t player_id) {
+    std::vector<int64_t> ids;
+    for (const auto& o : bids_) if (o.player_id == player_id) ids.push_back(o.id);
+    for (const auto& o : asks_) if (o.player_id == player_id) ids.push_back(o.id);
+    std::vector<OrderEvent> all;
+    for (auto id : ids) {
+        auto evs = cancel(id, player_id);
+        all.insert(all.end(), evs.begin(), evs.end());
+    }
+    return all;
+}
+
+std::vector<OrderBook::OrderSnapshot> OrderBook::bids_snapshot() const {
+    std::vector<OrderSnapshot> snap;
+    snap.reserve(bids_.size());
+    for (const auto& o : bids_)
+        snap.push_back({o.id, o.price, o.player_id});
+    return snap;
+}
+
+std::vector<OrderBook::OrderSnapshot> OrderBook::asks_snapshot() const {
+    std::vector<OrderSnapshot> snap;
+    snap.reserve(asks_.size());
+    for (const auto& o : asks_)
+        snap.push_back({o.id, o.price, o.player_id});
+    return snap;
+}
+
 std::vector<OrderEvent> OrderBook::nudge(Side side, int32_t player_id) {
     // AGENT-CTX: Nudge always creates a NEW order (Option B per Slice 2 resolution).
     // It does NOT reference or modify any existing order. The computed price is

@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { findLobbyByCode } from '../api/lobbyApi'
+import { StaleLobbyModal } from '../components/StaleLobbyModal'
 import type { LobbyPlayer } from '../types/messages'
 import './LobbyRoom.css'
 
@@ -183,11 +184,11 @@ export function LobbyRoom() {
   // navigates back before findLobbyByCode's REST call resolves.
   const navLobbyId = (location.state as { lobbyId?: string } | null)?.lobbyId ?? null
   const [lobbyId, setLobbyId]               = useState<string | null>(navLobbyId)
+  const [staleLobby, setStaleLobby]         = useState(false)
   const [fetchError, setFetchError]         = useState<string | null>(null)
   const [startError, setStartError]         = useState<string | null>(null)
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null)
   const [botAutofill, setBotAutofill]       = useState(false)
-  const autofillSyncedRef                   = useRef(false)
 
   // AGENT-CTX: Refs let the unmount cleanup read current lobbyId / connected
   // without adding them as deps (which would re-run the cleanup on every
@@ -202,25 +203,40 @@ export function LobbyRoom() {
   // already sent it synchronously before calling navigate().
   const navigatedToGameRef = useRef(false)
   const leaveSentRef       = useRef(false)
+  // Holds a pending REST-leave timer so StrictMode's synthetic remount can
+  // cancel it before it fires. Only the real unmount lets the timer run.
+  const leaveTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { lobbyIdRef.current = lobbyId }, [lobbyId])
   useEffect(() => { connectedRef.current = connected }, [connected])
 
-  // Unmount cleanup: send leave_lobby for any navigation except navigate-to-game.
-  // AGENT-CTX: Covers browser back/forward and direct URL changes where
-  // handleBack() is never called. React runs LobbyRoom effect cleanups before
-  // useWebSocket's internal cleanup closes the socket, so sendMessage is safe here.
+  // Unmount cleanup: leave lobby for any navigation except navigate-to-game.
+  // WS leave_lobby is sent immediately when connected. The REST leave is
+  // deferred 150 ms so React StrictMode's synthetic cleanup → remount cycle
+  // can cancel it (the remount clears leaveTimerRef before it fires).
   useEffect(() => {
+    // On StrictMode remount: cancel any REST leave scheduled by the synthetic cleanup.
+    if (leaveTimerRef.current !== null) {
+      clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
+      leaveSentRef.current  = false   // reset so the real unmount can still fire
+    }
+
     return () => {
-      if (
-        !navigatedToGameRef.current &&
-        !leaveSentRef.current &&
-        lobbyIdRef.current &&
-        connectedRef.current
-      ) {
-        leaveSentRef.current = true
+      if (navigatedToGameRef.current || leaveSentRef.current || !lobbyIdRef.current) return
+      leaveSentRef.current = true
+      if (connectedRef.current) {
         sendMessage({ type: 'leave_lobby', lobby_id: lobbyIdRef.current })
       }
+      const id = lobbyIdRef.current
+      leaveTimerRef.current = setTimeout(() => {
+        leaveTimerRef.current = null
+        fetch(`/lobbies/${id}/leave`, {
+          method: 'POST',
+          credentials: 'include',
+          keepalive: true,
+        }).catch(() => {})
+      }, 150)
     }
   }, [sendMessage])
 
@@ -229,7 +245,12 @@ export function LobbyRoom() {
     async function resolve() {
       try {
         const found = await findLobbyByCode(code)
-        if (!found) { if (!cancelled) setFetchError('Lobby not found'); return }
+        // AGENT-CTX: 'finished' and 'closed' are the terminal statuses in LobbyView.
+        // Both map to "stale" from the player's perspective — the game is over.
+        if (!found || found.status === 'finished' || found.status === 'closed') {
+          if (!cancelled) setStaleLobby(true)
+          return
+        }
         if (!cancelled) setLobbyId(found.id)
       } catch {
         if (!cancelled) setFetchError('Network error')
@@ -245,13 +266,10 @@ export function LobbyRoom() {
     return () => { unsubscribeLobby(lobbyId) }
   }, [lobbyId, connected, subscribeLobby, unsubscribeLobby])
 
-  // Sync botAutofill from the first lobby_state snapshot we receive.
-  // After that, local state is authoritative (toggle calls PATCH).
+  // Sync botAutofill from every lobby_state update so all players (including
+  // non-owners) see the current value after the owner toggles it via PATCH.
   useEffect(() => {
-    if (!autofillSyncedRef.current && lobbyState) {
-      setBotAutofill(lobbyState.spawn_bots_on_leave)
-      autofillSyncedRef.current = true
-    }
+    if (lobbyState) setBotAutofill(lobbyState.spawn_bots_on_leave)
   }, [lobbyState])
 
   useEffect(() => {
@@ -332,7 +350,7 @@ export function LobbyRoom() {
   const isOwner  = user != null && lobbyState != null && user.id === lobbyState.creator_id
   // AGENT-CTX: Start requires 2+ total players (real+bots). Server enforces
   // only that ≥1 real player is present; the combined count is enforced here.
-  // Teardown uses real_player_count_==0 (server); vote majority is real-only.
+  // Teardown uses real_player_count_==0 (server).
   const canStart  = isOwner && players.length >= (lobbyState?.min_players ?? 2)
   const canAddBot = isOwner && players.length < maxSlots
 
@@ -349,6 +367,8 @@ export function LobbyRoom() {
     if (i === creatorIdx) continue
     if (oi < otherPlayers.length) seats[i] = otherPlayers[oi++]
   }
+
+  if (staleLobby) return <StaleLobbyModal />
 
   if (fetchError) {
     return <div className="lr__error-page" role="alert">{fetchError}</div>

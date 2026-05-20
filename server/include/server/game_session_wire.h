@@ -38,17 +38,12 @@ namespace parse {
 struct SubmitOrderFields { std::string suit; std::string side; int32_t price; };
 struct NudgeFields        { std::string suit; std::string side; };
 struct CancelFields       { int64_t order_id; };
-// AGENT-CTX: VoteToEndFields is empty — the server identifies the voter by
-// their slot, not by any field in the message. Keeping the struct avoids a
-// special-case bool return in the dispatch switch.
-struct VoteToEndFields    {};
 struct LeaveLobbyFields   { std::string lobby_id; };
 
 std::optional<SubmitOrderFields> submit_order(const nlohmann::json& j);
 std::optional<NudgeFields>       nudge        (const nlohmann::json& j);
 std::optional<CancelFields>      cancel_order (const nlohmann::json& j);
 std::optional<engine::Side>      side         (const std::string& s) noexcept;
-std::optional<VoteToEndFields>   vote_to_end  (const nlohmann::json& j);
 std::optional<LeaveLobbyFields>  leave_lobby  (const nlohmann::json& j);
 
 } // namespace parse
@@ -135,17 +130,12 @@ void trade      (const std::set<WsHandle>& conns,
 // socket sends because GameSession runs on its own thread and has no WsHandle.
 // WsServer drains the outbound queue and calls ws->send() with these strings.
 
-// next_round_at: ISO timestamp, or empty string → serialised as JSON null
-// (null when vote majority already reached before inter_round_seconds expires).
+// next_round_at: ISO timestamp, or empty string → serialised as JSON null.
 std::string inter_round_payload(
     int                                round_number,
     const std::string&                 goal_suit,
     const std::vector<WirePlayerResult>& results,
-    int                                vote_count,
-    int                                votes_required,
     const std::string&                 next_round_at);
-
-std::string vote_tally_payload(int votes, int required);
 
 std::string game_ended_payload(
     const std::vector<WireRoundSummary>&  rounds,

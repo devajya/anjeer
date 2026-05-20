@@ -17,6 +17,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -27,7 +28,7 @@ enum class SessionPhase { Lobby, Countdown, RoundActive, InterRound, Ended };
 // AGENT-CTX: SlotInfo represents one player seat for the lifetime of the session.
 // connected tracks current WS state (can flip on each NetConnect/NetDisconnect).
 // active=false means the player has permanently left — no further NetConnect will
-// re-seat them. The distinction matters for vote-to-end threshold calculation.
+// re-seat them.
 struct SlotInfo {
     int64_t     player_id = -1;
     std::string username;
@@ -35,6 +36,14 @@ struct SlotInfo {
     bool        connected = false;
     bool        active    = true;
 };
+
+// Returned by cancel_orders_for_slot to let the caller (WsServer) log or
+// persist cancelled orders without re-reading engine state.
+struct CancelledOrder {
+    int     suit_index;
+    int64_t order_id;
+};
+
 
 class SessionRepo;  // forward declaration — used in persist helpers
 
@@ -67,6 +76,50 @@ public:
 
     bool is_done() const { return done_.load(std::memory_order_acquire); }
 
+    const std::string& lobby_id() const { return lobby_id_; }
+
+    // Returns {slot_index → balance} for all occupied slots.
+    // Used by BotManager::get_displaceable_bot_slot (via bot_manager_session.cpp).
+    std::unordered_map<int,int> slot_balances() const;
+
+    // ── T9: Reconnect / queue public API ─────────────────────────────────────
+    // Called from the uWS event-loop thread (WsServer) — enqueues NetEvents so
+    // all state mutations happen on the game-loop thread.
+
+    // Starts the reconnect window timer for this slot. Safe to call from any thread.
+    void handle_player_disconnect(int slot_index);
+
+    // Cancels the reconnect timer; sends state snapshot to the reattaching slot.
+    // WsServer creates the token BEFORE calling this so the snapshot includes it.
+    void handle_player_reattach(int slot_index,
+                                const std::string& reconnect_token,
+                                int64_t reconnect_expires_at_ms);
+
+    // Cancels all open orders for the slot across all books; broadcasts book
+    // updates to remaining players. Returns the cancelled orders.
+    // Must be called on the game-loop thread.
+    std::vector<CancelledOrder> cancel_orders_for_slot(int slot_index);
+
+    // Builds the full JSON state snapshot for the given slot.
+    // AGENT-CTX: serialize_state_snapshot was not added to game_session_wire.h
+    // because the complete snapshot requires books_, delta_table_, and slots_,
+    // all of which are GameSession-private. The snapshot is built inline here
+    // to avoid a complex multi-arg wire helper or exposing private state via getters.
+    std::string build_state_snapshot(int slot_index,
+                                     const std::string& reconnect_token,
+                                     int64_t reconnect_expires_at_ms) const;
+
+    // Returns the current hand for the slot (suit_counts).
+    // AGENT-CTX: Spec used std::vector<Card> but Card does not exist in the engine;
+    // engine::PlayerHand (suit_counts array) is the correct type.
+    engine::PlayerHand hand_for_slot(int slot_index) const;
+
+    // Deactivates a bot slot so the game-loop can fill it at the next round
+    // boundary via NetAdmitQueue. No-op if the slot is not an active bot slot
+    // (player_id < 0). Called from the uWS event-loop thread — only safe
+    // during the GameRoundStarted window before begin_round() proceeds.
+    void deactivate_bot_slot(int slot_index);
+
 private:
     // ── Game loop ─────────────────────────────────────────────────────────────
     void run();
@@ -80,11 +133,22 @@ private:
     void handle_nudge      (const NetNudge&);
     void handle_cancel         (const NetCancel&);
     void handle_start_game     ();
-    void handle_vote_to_end    (int32_t slot);
+    void handle_owner_start_round();
+    void handle_owner_end_game();
     void handle_permanent_leave(int32_t slot);
     void handle_spectator_join (const NetSpectatorJoin&);
     void handle_spectator_leave(const NetSpectatorLeave&);
     void send_spectator_snapshot(int32_t spectator_id);
+
+    void handle_admit_queue(const NetAdmitQueue&);
+
+    // ── Reconnect internal handlers (called on game-loop thread) ──────────────
+    void handle_reconnect_disconnect(int32_t slot);
+    void handle_reconnect_reattach  (int32_t slot,
+                                     const std::string& token,
+                                     int64_t expires_at_ms);
+    // Checks per-slot reconnect timers each tick; fires expiry logic when window lapses.
+    void check_reconnect_expirations();
 
     // ── Session / round lifecycle ─────────────────────────────────────────────
     void begin_countdown  ();
@@ -99,9 +163,6 @@ private:
     // disconnect. It does NOT fire during RoundActive because we allow temporary
     // disconnection without ending the round — the round timer drives expiry.
     void check_end_condition();
-    // Majority is computed over real players only — bots (negative player_id) never
-    // vote and are excluded so a lobby of 1 human + 4 bots needs only 1 vote.
-    int  majority_threshold() const { return (real_player_count_ + 1) / 2; }
 
     // ── Engine event pipeline ─────────────────────────────────────────────────
     // AGENT-CTX: Returns true if a trade occurred in the batch. Callers use
@@ -155,14 +216,21 @@ private:
 
     // ── Player state ──────────────────────────────────────────────────────────
     std::vector<SlotInfo>    slots_;
-    std::vector<bool>        vote_to_end_;
     std::vector<bool>        funded_this_round_;   // set by collect_buy_ins each round
     int                      active_player_count_ = 0;
     // Counts only human slots (player_id >= 0); decremented when a real player
-    // permanently leaves. Majority threshold and min-players check use this so
-    // bot replacements never inflate the required vote count.
+    // permanently leaves. Min-player check uses this so bots never inflate the count.
     int                      real_player_count_   = 0;
     std::unordered_set<int32_t> spectator_ids_;   // IDs only — WsHandles stay in WsServer
+
+    // Per-slot reconnect deadlines. Populated when a reconnect-aware disconnect is
+    // processed; cleared on reattach or expiry. nullopt = no active timer.
+    // Sized to slots_.size() at construction. Only checked during RoundActive.
+    std::vector<std::optional<std::chrono::steady_clock::time_point>> reconnect_deadlines_;
+
+    // Returns cumulative payouts per slot across all completed rounds.
+    // Used in build_state_snapshot for the all_scores field.
+    std::vector<int> compute_all_scores() const;
 
     // AGENT-CTX: Grace window before ending on all-disconnected. 500ms lets
     // WsServer reconnect a client to a freed slot (slot reuse for test compat)

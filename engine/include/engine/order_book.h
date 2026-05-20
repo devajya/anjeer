@@ -139,6 +139,18 @@ public:
     [[nodiscard]] std::optional<int32_t> best_bid() const noexcept;
     [[nodiscard]] std::optional<int32_t> best_ask() const noexcept;
 
+    // One resting order as seen by external readers (e.g. reconnect snapshot).
+    // player_slot mirrors Order::player_id (slot index in this codebase).
+    struct OrderSnapshot { int64_t order_id; int32_t price; int32_t player_slot; };
+
+    // Cancel all resting orders belonging to player_id.
+    // Returns {OrderCancelAckEvent, BookUpdateEvent}* for each cancelled order.
+    // Collects IDs before mutation so iteration is safe.
+    [[nodiscard]] std::vector<OrderEvent> cancel_player(int32_t player_id);
+
+    [[nodiscard]] std::vector<OrderSnapshot> bids_snapshot() const;
+    [[nodiscard]] std::vector<OrderSnapshot> asks_snapshot() const;
+
 private:
     struct Order {
         int64_t id;

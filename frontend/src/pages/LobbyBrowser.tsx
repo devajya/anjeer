@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
+import { useWebSocket } from '../hooks/useWebSocket'
+import { QueuePopup } from '../components/QueuePopup'
 import type { LobbyView } from '../types/lobby'
 import './LobbyBrowser.css'
 
@@ -9,6 +11,7 @@ type Tab = 'starting' | 'active'
 
 export function LobbyBrowser() {
   const navigate              = useNavigate()
+  const [searchParams]        = useSearchParams()
   const { user, logout }      = useAuth()
   const [tab, setTab]         = useState<Tab>('starting')
   const [lobbies, setLobbies]   = useState<LobbyView[]>([])
@@ -22,6 +25,18 @@ export function LobbyBrowser() {
   // AGENT-CTX: menuRef used for click-outside detection — closes the dropdown when
   // the user clicks anywhere outside the hamburger + menu container.
   const menuRef = useRef<HTMLDivElement>(null)
+  const { queueState, joinQueue, leaveQueue, resetQueue } = useWebSocket('/ws')
+  const [overflowLobbyIds, setOverflowLobbyIds] = useState<Set<string>>(new Set())
+
+  // Auto-queue when redirected from an expired reconnect window.
+  // AGENT-CTX: ReconnectOverlay and Game.tsx grace-period both navigate to
+  // /lobby?queue_for=<lobbyId>. Switch to Active tab and enqueue immediately.
+  useEffect(() => {
+    const queueFor = searchParams.get('queue_for')
+    if (!queueFor) return
+    setTab('active')
+    joinQueue(queueFor)
+  }, []) // intentional: mount-only, treat URL param as a one-shot instruction
 
   useEffect(() => {
     if (!menuOpen) return
@@ -46,6 +61,16 @@ export function LobbyBrowser() {
   }
 
   useEffect(() => { loadLobbies() }, [])
+
+  useEffect(() => {
+    if (queueState.status === 'overflow') {
+      setOverflowLobbyIds(prev => new Set([...prev, queueState.lobbyId]))
+    }
+    if (queueState.status === 'admitted') {
+      navigate(`/game?lobby_id=${queueState.lobbyId}`)
+      resetQueue()
+    }
+  }, [queueState.status])
 
   async function joinLobby(lobby: LobbyView) {
     setJoining(lobby.id)
@@ -280,41 +305,73 @@ export function LobbyBrowser() {
                 {!loading && activeLobbies.length === 0 && (
                   <p className="lp__empty">No active games right now</p>
                 )}
-                {activeLobbies.map(lobby => (
-                  <div key={lobby.id} className="lp__card">
-                    <div className="lp__card-left">
-                      <div className="lp__card-title-row">
-                        <span className="lp__card-title">Game {lobby.code}</span>
-                        <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
-                          {(lobby.mode ?? 'ui').toUpperCase()}
+                {activeLobbies.map(lobby => {
+                  const isFull = overflowLobbyIds.has(lobby.id)
+                  return (
+                    <div key={lobby.id} className="lp__card">
+                      <div className="lp__card-left">
+                        <div className="lp__card-title-row">
+                          <span className="lp__card-title">Game {lobby.code}</span>
+                          <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
+                            {(lobby.mode ?? 'ui').toUpperCase()}
+                          </span>
+                        </div>
+                        <span className="lp__card-meta">
+                          <span className="lp__card-meta-icon">♟</span>
+                          Standard · In progress
+                        </span>
+                        <span className="lp__card-players">
+                          <span className="lp__card-meta-icon">👥</span>
+                          {lobby.player_count} players
                         </span>
                       </div>
-                      <span className="lp__card-meta">
-                        <span className="lp__card-meta-icon">♟</span>
-                        Standard · In progress
-                      </span>
-                      <span className="lp__card-players">
-                        <span className="lp__card-meta-icon">👥</span>
-                        {lobby.player_count} players
-                      </span>
+                      <div className="lp__card-actions">
+                        <button
+                          className="lp__btn lp__btn--spectate"
+                          onClick={() => navigate(`/spectate/${lobby.code}`)}
+                          aria-label={`Spectate lobby ${lobby.code}`}
+                        >
+                          Spectate
+                        </button>
+                        {/* AGENT-CTX: Only UI-mode active lobbies show Join; API-mode lobbies
+                            are accessed via CLI. isFull is set reactively on queue_overflow. */}
+                        {lobby.mode !== 'api' && (
+                          <button
+                            className="lp__btn lp__btn--join"
+                            disabled={isFull}
+                            onClick={() => joinQueue(lobby.id)}
+                            aria-label={isFull ? 'Queue full' : `Join lobby ${lobby.code}`}
+                          >
+                            {isFull ? 'Queue Full' : 'Join'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="lp__card-actions">
-                      <button
-                        className="lp__btn lp__btn--spectate"
-                        onClick={() => navigate(`/spectate/${lobby.code}`)}
-                        aria-label={`Spectate lobby ${lobby.code}`}
-                      >
-                        Spectate
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </>
             )}
           </div>
 
         </div>
       </div>
+
+      {/* ── Queue popup overlay ─────────────────────────────────────────── */}
+      {queueState.status === 'queued' && (
+        <QueuePopup
+          lobbyId={queueState.lobbyId}
+          position={queueState.position}
+          queueSize={queueState.queueSize}
+          playersAround={queueState.playersAround}
+          onLeave={() => leaveQueue(queueState.lobbyId)}
+          onSpectate={() => {
+            const lobbyId = queueState.status === 'queued' ? queueState.lobbyId : null
+            const lobby   = activeLobbies.find(l => l.id === lobbyId)
+            resetQueue()
+            if (lobby) navigate(`/spectate/${lobby.code}`)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -27,6 +27,10 @@ add_executable(server
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/reconnect_token_repo.cpp
+    src/game_slots_repo.cpp
+    src/lobby_queue.cpp
+    src/bot_manager_session.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -93,6 +97,10 @@ add_executable(ws_server_tests
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/bot_manager_session.cpp
+    src/reconnect_token_repo.cpp
+    src/game_slots_repo.cpp
+    src/lobby_queue.cpp
 )
 
 target_include_directories(ws_server_tests PRIVATE include)
@@ -462,6 +470,7 @@ add_executable(bot_headless_tests
     src/bot_scheduler.cpp
     src/bot_adapter.cpp
     src/bot_manager.cpp
+    src/bot_manager_session.cpp
 )
 
 target_include_directories(bot_headless_tests PRIVATE include)
@@ -484,3 +493,144 @@ target_link_libraries(bot_headless_tests PRIVATE
 
 add_test(NAME bot_headless_tests COMMAND bot_headless_tests)
 set_tests_properties(bot_headless_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# ReconnectTokenRepo integration tests — requires anjeer_test DB
+# ---------------------------------------------------------------------------
+add_executable(reconnect_token_repo_tests
+    tests/test_reconnect_token_repo.cpp
+    src/db.cpp
+    src/crypto_util.cpp
+    src/reconnect_token_repo.cpp
+)
+
+target_include_directories(reconnect_token_repo_tests PRIVATE include)
+
+target_compile_definitions(reconnect_token_repo_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(reconnect_token_repo_tests PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+
+add_test(NAME reconnect_token_repo_tests COMMAND reconnect_token_repo_tests)
+set_tests_properties(reconnect_token_repo_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# SimpleCache unit tests — header-only template, no DB, no network
+# ---------------------------------------------------------------------------
+add_executable(simple_cache_tests
+    tests/test_simple_cache.cpp
+)
+
+target_include_directories(simple_cache_tests PRIVATE include)
+
+target_link_libraries(simple_cache_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+catch_discover_tests(simple_cache_tests)
+
+# ---------------------------------------------------------------------------
+# GameSlotsRepo integration tests — requires anjeer_test DB
+# ---------------------------------------------------------------------------
+add_executable(game_slots_repo_tests
+    tests/test_game_slots_repo.cpp
+    src/db.cpp
+    src/game_slots_repo.cpp
+)
+
+target_include_directories(game_slots_repo_tests PRIVATE include)
+
+target_compile_definitions(game_slots_repo_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(game_slots_repo_tests PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    pthread
+)
+
+add_test(NAME game_slots_repo_tests COMMAND game_slots_repo_tests)
+set_tests_properties(game_slots_repo_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# LobbyQueue unit tests — no DB, no network; pure in-process queue logic
+# ---------------------------------------------------------------------------
+# AGENT-CTX: lobby_queue.h includes ws_types.h which pulls in uWS App.h, so
+# the test binary must link uWebSockets and crypto (OpenSSL) even though no
+# live server is started. broadcast_positions is NOT tested here; it requires
+# a live uWS::Loop and is covered by T10 WS integration tests.
+add_executable(lobby_queue_tests
+    tests/test_lobby_queue.cpp
+    src/lobby_queue.cpp
+)
+
+target_include_directories(lobby_queue_tests PRIVATE include)
+
+target_link_libraries(lobby_queue_tests PRIVATE
+    Catch2::Catch2WithMain
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    crypto
+    pthread
+)
+
+catch_discover_tests(lobby_queue_tests)
+
+# ---------------------------------------------------------------------------
+# Reconnect + queue integration tests — full WsServer, requires anjeer_test DB
+# ---------------------------------------------------------------------------
+add_executable(reconnect_integration_tests
+    tests/test_reconnect_integration.cpp
+    src/config.cpp
+    src/ws_server.cpp
+    src/lobby_gateway.cpp
+    src/game_session.cpp
+    src/game_session_wire.cpp
+    src/session_repo.cpp
+    src/logger.cpp
+    src/db.cpp
+    src/player_repo.cpp
+    src/lobby_repo.cpp
+    src/auth_service.cpp
+    src/event_bus.cpp
+    src/crypto_util.cpp
+    src/api_key_repo.cpp
+    src/rate_limiter.cpp
+    src/bot_scheduler.cpp
+    src/bot_adapter.cpp
+    src/bot_manager.cpp
+    src/bot_manager_session.cpp
+    src/reconnect_token_repo.cpp
+    src/game_slots_repo.cpp
+    src/lobby_queue.cpp
+)
+
+target_include_directories(reconnect_integration_tests PRIVATE include)
+
+target_compile_definitions(reconnect_integration_tests PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+
+target_link_libraries(reconnect_integration_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    uWebSockets
+    nlohmann_json::nlohmann_json
+    libpqxx::pqxx
+    jwt-cpp::jwt-cpp
+    readerwriterqueue
+    crypto
+    pthread
+)
+
+add_test(NAME reconnect_integration_tests COMMAND reconnect_integration_tests)
+set_tests_properties(reconnect_integration_tests PROPERTIES RUN_SERIAL TRUE)

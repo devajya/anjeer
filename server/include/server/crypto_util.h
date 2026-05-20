@@ -16,4 +16,8 @@ std::string sha256_hex(std::string_view input);
 // Callers store only sha256_hex(key) in the DB — the plaintext is shown once.
 std::string generate_api_key();
 
+// Returns "rtk_" + 64 lowercase hex chars (32 random bytes via RAND_bytes).
+// Same storage convention as generate_api_key: store sha256_hex(token) only.
+std::string generate_reconnect_token();
+
 } // namespace anjeer::server

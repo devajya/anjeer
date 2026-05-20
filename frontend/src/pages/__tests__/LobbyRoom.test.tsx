@@ -1,5 +1,5 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { describe, test, expect, vi, beforeEach, afterAll } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { LobbyRoom } from '../LobbyRoom'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -67,7 +67,6 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     lobbyState:        BASE_LOBBY_STATE,
     lobbyStarted:      null,
     interRound:        null,
-    voteTally:         null,
     gameEnded:         null,
     sessionError:      null,
     departedSlots:     [],
@@ -78,10 +77,19 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     sendMessage:       mockSendMsg,
     subscribeLobby:    mockSubscribe,
     unsubscribeLobby:  mockUnsub,
+    joinQueue:         vi.fn(),
+    leaveQueue:        vi.fn(),
+    resetQueue:        vi.fn(),
     ownsBestBidBySuit: {},
     ownsBestAskBySuit: {},
     spectatorCount:    0,
     scriptLogs:        [],
+    reconnectTokenMsg:      null,
+    gameStateSnapshot:      null,
+    reconnectWindowExpired: false,
+    queueState:             { status: 'idle' },
+    currentOwnerPlayerId:   null,
+    currentOwnerUsername:   '',
     ...overrides,
   }
 }
@@ -355,6 +363,150 @@ describe('LobbyRoom — bot controls', () => {
       lobby_id: 'lobby-uuid-1',
       bot_uuid: 'bot-uuid-1',
     })
+  })
+})
+
+// ─── REST leave on disconnected unmount (commit 18ad5b7) ─────────────────────
+
+describe('LobbyRoom — REST leave when WS disconnected', () => {
+  test('fetch /lobbies/:id/leave is called on direct unmount even when WS is disconnected', async () => {
+    // Before commit 18ad5b7 the cleanup only sent leave_lobby when connected.
+    // After the fix it always defers a REST leave regardless of connection state.
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({ connected: false }))
+
+    const { unmount } = renderRoom()
+    // Wait for findLobbyByCode to resolve and set lobbyId in state.
+    await waitFor(() => expect(screen.getByText('← Lobbies')).toBeInTheDocument())
+    await act(async () => {})   // flush findLobbyByCode promise
+
+    vi.useFakeTimers()
+    try {
+      unmount()
+      act(() => { vi.advanceTimersByTime(200) })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // WS leave should NOT have been sent (not connected)
+    expect(mockSendMsg).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave_lobby' })
+    )
+    // REST leave SHOULD have been called
+    const leaveCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('/leave')
+    )
+    expect(leaveCall).toBeDefined()
+    expect(leaveCall?.[1]).toMatchObject({ method: 'POST' })
+  })
+
+  test('REST leave is NOT sent when back-nav button was used (leaveSentRef guard)', async () => {
+    // handleBack sends WS leave and sets leaveSentRef so the unmount cleanup
+    // skips the REST leave — no double-leave. This is intentional design.
+    renderRoom()
+    await waitFor(() => screen.getByText('← Lobbies'))
+    await act(async () => {})
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByText('← Lobbies'))
+      act(() => { vi.advanceTimersByTime(200) })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // WS leave was sent synchronously by handleBack
+    expect(mockSendMsg).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'leave_lobby' })
+    )
+    // REST leave should NOT be sent (leaveSentRef prevents it)
+    const leaveCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('/leave')
+    )
+    expect(leaveCall).toBeUndefined()
+  })
+})
+
+// afterAll: flush any lingering 150ms REST-leave timers scheduled during the
+// last test's unmount so they fire before Vitest restores global stubs.
+afterAll(async () => {
+  await new Promise<void>(r => setTimeout(r, 250))
+})
+
+// ─── Bot autofill toggle propagation (lobby_settings_changed bug fix) ────────
+// Each test explicitly unmounts with fake timers to flush the 150 ms REST-leave
+// cleanup timer before it can leak into the "REST leave is NOT sent" test below.
+
+describe('LobbyRoom — bot autofill toggle propagation', () => {
+  test('toggle shows "Off" when lobbyState.spawn_bots_on_leave is false', async () => {
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByText('Bot auto-fill'))
+    expect(screen.getByText('Off')).toBeInTheDocument()
+    expect(screen.queryByText('On')).toBeNull()
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+
+  test('toggle shows "On" when lobbyState.spawn_bots_on_leave is true', async () => {
+    // Simulate non-creator receiving an updated lobbyState (as if lobby_settings_changed
+    // updated it via useWebSocket) — the sync effect sets botAutofill=true.
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: { ...BASE_LOBBY_STATE, spawn_bots_on_leave: true },
+    }))
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByText('Bot auto-fill'))
+    expect(screen.getByText('On')).toBeInTheDocument()
+    expect(screen.queryByText('Off')).toBeNull()
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+
+  test('non-owner cannot click the toggle', async () => {
+    vi.mocked(useWebSocket).mockReturnValue(makeWsReturn({
+      lobbyState: { ...BASE_LOBBY_STATE, creator_id: 99 },  // user.id=1 is not owner
+    }))
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByRole('switch', { name: /auto-fill/i }))
+    fireEvent.click(screen.getByRole('switch', { name: /auto-fill/i }))
+    const patchCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('bot-settings')
+    )
+    expect(patchCall).toBeUndefined()
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
+  })
+
+  test('owner clicking toggle sends PATCH and optimistically updates UI', async () => {
+    vi.mocked(fetch).mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('bot-settings')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ spawn_bots_on_leave: true, bot_spawn_difficulty: 'medium' }),
+        } as Response)
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ lobbies: [{ id: 'lobby-uuid-1', code: 'ABC123', creator_id: 1, status: 'waiting', min_players: 2, max_players: 8, player_count: 2, created_at: '' }] }),
+      } as Response)
+    })
+
+    const { unmount } = renderRoom()
+    await waitFor(() => screen.getByRole('switch', { name: /auto-fill/i }))
+    expect(screen.getByText('Off')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch', { name: /auto-fill/i }))
+    })
+
+    expect(screen.getByText('On')).toBeInTheDocument()
+    const patchCall = vi.mocked(fetch).mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('bot-settings')
+    )
+    expect(patchCall).toBeDefined()
+    expect(patchCall?.[1]).toMatchObject({ method: 'PATCH' })
+
+    // Flush the 150 ms cleanup timer so it doesn't leak into the REST-leave tests.
+    vi.useFakeTimers()
+    try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
   })
 })
 

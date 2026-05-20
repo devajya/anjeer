@@ -1,3 +1,5 @@
+import { Navigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 import './Login.css'
 
 // AGENT-CTX: OAuth redirects use relative paths (/auth/{provider}) so that
@@ -9,6 +11,12 @@ const PROVIDERS = [
 ] as const
 
 export function Login() {
+  const { user, loading } = useAuth()
+
+  // Block forward navigation to /login when the user is already authenticated.
+  if (loading) return null
+  if (user !== null) return <Navigate to="/lobby" replace />
+
   return (
     <div className="login">
       <h1 className="login__title">Anjeer</h1>
