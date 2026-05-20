@@ -2,7 +2,6 @@
 
 #include <sstream>
 #include <stdexcept>
-#include <thread>
 
 #include <pqxx/pqxx>
 
@@ -10,14 +9,28 @@ namespace anjeer::server {
 
 GameSlotsRepo::GameSlotsRepo(DbPool& pool) : pool_(pool) {}
 
+GameSlotsRepo::~GameSlotsRepo() {
+    std::vector<std::future<void>> pending;
+    {
+        std::lock_guard<std::mutex> lk(futures_mu_);
+        pending = std::move(futures_);
+    }
+    for (auto& f : pending) f.wait();
+}
+
+template<typename F>
+void GameSlotsRepo::async_write(F&& fn) {
+    std::lock_guard<std::mutex> lk(futures_mu_);
+    futures_.emplace_back(std::async(std::launch::async, std::forward<F>(fn)));
+}
+
 // ── Async writes ───────────────────────────────────────────────────────────────
 
 void GameSlotsRepo::upsert_active(const std::string& session_id,
                                   int64_t player_id,
                                   int slot_index) {
-    DbPool* p = &pool_;
-    std::thread([p, session_id, player_id, slot_index]() {
-        auto handle = p->acquire();
+    async_write([this, session_id, player_id, slot_index]() {
+        auto handle = pool_.acquire();
         pqxx::work txn(handle.get());
         txn.exec_params(
             "INSERT INTO game_slots (session_id, player_id, slot_index, status, updated_at) "
@@ -27,13 +40,12 @@ void GameSlotsRepo::upsert_active(const std::string& session_id,
             session_id, player_id, slot_index
         );
         txn.commit();
-    }).detach();
+    });
 }
 
 void GameSlotsRepo::mark_disconnected(const std::string& session_id, int slot_index) {
-    DbPool* p = &pool_;
-    std::thread([p, session_id, slot_index]() {
-        auto handle = p->acquire();
+    async_write([this, session_id, slot_index]() {
+        auto handle = pool_.acquire();
         pqxx::work txn(handle.get());
         txn.exec_params(
             "UPDATE game_slots SET status = 'disconnected', disconnected_at = NOW(), "
@@ -41,13 +53,12 @@ void GameSlotsRepo::mark_disconnected(const std::string& session_id, int slot_in
             session_id, slot_index
         );
         txn.commit();
-    }).detach();
+    });
 }
 
 void GameSlotsRepo::mark_expired(const std::string& session_id, int slot_index) {
-    DbPool* p = &pool_;
-    std::thread([p, session_id, slot_index]() {
-        auto handle = p->acquire();
+    async_write([this, session_id, slot_index]() {
+        auto handle = pool_.acquire();
         pqxx::work txn(handle.get());
         txn.exec_params(
             "UPDATE game_slots SET status = 'expired', updated_at = NOW() "
@@ -55,13 +66,12 @@ void GameSlotsRepo::mark_expired(const std::string& session_id, int slot_index) 
             session_id, slot_index
         );
         txn.commit();
-    }).detach();
+    });
 }
 
 void GameSlotsRepo::set_payout(const std::string& session_id, int slot_index, int payout) {
-    DbPool* p = &pool_;
-    std::thread([p, session_id, slot_index, payout]() {
-        auto handle = p->acquire();
+    async_write([this, session_id, slot_index, payout]() {
+        auto handle = pool_.acquire();
         pqxx::work txn(handle.get());
         txn.exec_params(
             "UPDATE game_slots SET pending_payout = $3, updated_at = NOW() "
@@ -69,13 +79,12 @@ void GameSlotsRepo::set_payout(const std::string& session_id, int slot_index, in
             session_id, slot_index, payout
         );
         txn.commit();
-    }).detach();
+    });
 }
 
 void GameSlotsRepo::mark_reattached(const std::string& session_id, int slot_index) {
-    DbPool* p = &pool_;
-    std::thread([p, session_id, slot_index]() {
-        auto handle = p->acquire();
+    async_write([this, session_id, slot_index]() {
+        auto handle = pool_.acquire();
         pqxx::work txn(handle.get());
         txn.exec_params(
             "UPDATE game_slots SET status = 'active', disconnected_at = NULL, "
@@ -83,7 +92,7 @@ void GameSlotsRepo::mark_reattached(const std::string& session_id, int slot_inde
             session_id, slot_index
         );
         txn.commit();
-    }).detach();
+    });
 }
 
 // ── Sync read ──────────────────────────────────────────────────────────────────

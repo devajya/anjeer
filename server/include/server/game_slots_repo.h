@@ -5,9 +5,9 @@
 // hold-and-score: a disconnected player's pending payout is computed at
 // round end and stored here even if their WS is gone.
 //
-// All writes are async fire-and-forget (detached std::thread capturing
-// DbPool* by pointer). This keeps every caller — all on the uWS event-loop
-// thread — non-blocking. The FK on session_id is safe because the
+// All writes are async (std::async tracked in futures_, joined in destructor).
+// This keeps every caller — all on the uWS event-loop thread — non-blocking.
+// The FK on session_id is safe because the
 // game_sessions row is committed synchronously before any slot rows are
 // written (T9 obligation).
 //
@@ -21,6 +21,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <future>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,6 +45,7 @@ struct GameSlotRecord {
 class GameSlotsRepo {
 public:
     explicit GameSlotsRepo(DbPool& pool);
+    ~GameSlotsRepo();
 
     // Upserts a row with status='active'. On conflict (session_id, slot_index)
     // resets player_id, clears disconnected_at, and sets status='active'.
@@ -61,6 +64,11 @@ public:
 
 private:
     DbPool& pool_;
+    std::mutex futures_mu_;
+    std::vector<std::future<void>> futures_;
+
+    template<typename F>
+    void async_write(F&& fn);
 
     static std::chrono::system_clock::time_point parse_ts(const std::string& s);
     static SlotStatus parse_status(const std::string& s);
