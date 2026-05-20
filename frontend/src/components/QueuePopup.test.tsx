@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { QueuePopup } from './QueuePopup'
-import type { PlayersAround } from '../hooks/useQueueSocket'
+import type { PlayersAround } from '../types/messages'
 
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async (importOriginal) => {

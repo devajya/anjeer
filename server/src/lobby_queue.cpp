@@ -64,6 +64,16 @@ bool LobbyQueue::dequeue_by_ws(WsHandle ws) {
     return true;
 }
 
+bool LobbyQueue::update_ws(int64_t player_id, WsHandle new_ws) {
+    auto it = std::find_if(entries_.begin(), entries_.end(),
+        [&](const QueueEntry& e) { return e.player_id == player_id; });
+    if (it == entries_.end()) return false;
+    if (it->ws) ws_to_player_.erase(it->ws);
+    it->ws = new_ws;
+    if (new_ws) ws_to_player_[new_ws] = player_id;
+    return true;
+}
+
 void LobbyQueue::broadcast_positions(uWS::Loop* loop) const {
     // Snapshot entries so the lambda captures values, not iterators.
     const int total = static_cast<int>(entries_.size());

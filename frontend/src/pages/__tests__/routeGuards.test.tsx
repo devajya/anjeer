@@ -49,10 +49,13 @@ vi.mock('../../hooks/useWebSocket', () => ({
     reconnectTokenMsg: null,
     gameStateSnapshot: null,
     reconnectWindowExpired: false,
-    queueOverflow: false,
+    queueState: { status: 'idle' },
     currentOwnerPlayerId: null,
     subscribeLobby: vi.fn(),
     unsubscribeLobby: vi.fn(),
+    joinQueue: vi.fn(),
+    leaveQueue: vi.fn(),
+    resetQueue: vi.fn(),
     ...wsState,
   }),
 }))
@@ -190,7 +193,7 @@ describe('Game page — direct URL checks', () => {
 
   it('direct game URL with no token and full queue shows LOBBY_FULL message and redirects', async () => {
     // Simulate server sending queue_overflow (lobby and queue both full).
-    wsState = { queueOverflow: true }
+    wsState = { queueState: { status: 'overflow', lobbyId: 'ABCDEF' } }
     render(
       <MemoryRouter initialEntries={['/game?lobby_id=ABCDEF']}>
         <Game />

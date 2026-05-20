@@ -35,7 +35,7 @@ const INITIAL_STATE: WsState = {
   reconnectTokenMsg:    null,
   gameStateSnapshot:    null,
   reconnectWindowExpired: false,
-  queueOverflow:        false,
+  queueState:           { status: 'idle' },
   currentOwnerPlayerId: null,
   currentOwnerUsername: '',
 }

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useEffect, useState } from 'react'
-import type { PlayersAround } from '../hooks/useQueueSocket'
+import type { PlayersAround } from '../types/messages'
 import './QueuePopup.css'
 
 interface Props {

@@ -382,6 +382,7 @@ export interface GameStateSnapshotMessage {
   deltas: number[][]
   round_timer_remaining: number
   all_balances: number[]
+  all_hand_totals: number[]
   all_scores: number[]
   roster: Array<{ player_slot: number; username: string }>
   reconnect_token: string
@@ -413,12 +414,14 @@ export interface QueueLeftMessage {
   type: 'queue_left'
 }
 
+export type PlayersAround = { position: number; username: string; is_self: boolean }
+
 /** Broadcast to all waiters whenever the queue mutates (join, leave, admit). */
 export interface QueuePositionUpdateMessage {
   type: 'queue_position_update'
   position: number
   queue_size: number
-  players_around: Array<{ position: number; username: string; is_self: boolean }>
+  players_around: PlayersAround[]
 }
 
 /** Sent to a player whose join_queue request arrived when the queue was full. */

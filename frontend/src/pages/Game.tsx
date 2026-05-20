@@ -51,7 +51,7 @@ const { user, logout } = useAuth()
     waitingForStart, ownsBestBidBySuit, ownsBestAskBySuit,
     interRound, gameEnded, sessionError,
     roster, deltas, allBalances, allHandTotals, spectatorCount,
-    reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueOverflow,
+    reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueState,
     currentOwnerPlayerId, currentOwnerUsername,
   } = useWebSocket('/ws')
 
@@ -216,7 +216,7 @@ const { user, logout } = useAuth()
   // sessionError takes priority over gameEnded in case both arrive in one
   // render cycle (e.g. crash fires after game_ended; shouldn't happen but safe).
   // All hooks above must be called before these returns to avoid a hooks-order violation.
-  if (queueOverflow || noTokenOverflow) return (
+  if (queueState.status === 'overflow' || noTokenOverflow) return (
     <StaleLobbyModal
       title="This lobby is full"
       message="The lobby and wait queue are both full."

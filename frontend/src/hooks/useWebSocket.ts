@@ -14,11 +14,18 @@ import type {
   GameStateSnapshotMessage,
   LobbyOwnerChangedMessage,
   LobbySettingsChangedMessage,
+  PlayersAround,
 } from '../types/messages'
 import { logger } from '../logger'
 import { applyMessage } from './useWsReducer'
 
 // ─── Domain types exposed by the hook ────────────────────────────────────────
+
+export type QueueState =
+  | { status: 'idle' }
+  | { status: 'queued'; lobbyId: string; position: number; queueSize: number; playersAround: PlayersAround[] }
+  | { status: 'overflow'; lobbyId: string }
+  | { status: 'admitted'; lobbyId: string; slotIndex: number }
 
 export interface BookState {
   best_bid: number | null
@@ -166,8 +173,8 @@ export interface WsState {
   gameStateSnapshot: GameStateSnapshotMessage | null
   /** True once reconnect_window_expired is received (terminal; never cleared). */
   reconnectWindowExpired: boolean
-  /** True when server rejects join_queue because the lobby and queue are both full. */
-  queueOverflow: boolean
+  /** Queue membership state. Tracks position updates and terminal signals (overflow, admitted). */
+  queueState: QueueState
   /**
    * player_id of the current session owner. Set on lobby_owner_changed (unicast
    * on attach, broadcast on transfer). null until first message received.
@@ -197,6 +204,12 @@ export type UseWebSocketReturn = WsState & {
   subscribeLobby:     (lobby_id: string) => void
   /** Sends unsubscribe_lobby. Called by LobbyRoom cleanup effect on unmount. */
   unsubscribeLobby:   (lobby_id: string) => void
+  /** Enqueue for an active lobby. Tracks lobbyId so queue messages can populate queueState. */
+  joinQueue:          (lobby_id: string) => void
+  /** Leave the current queue. No-op if not queued. */
+  leaveQueue:         (lobby_id: string) => void
+  /** Reset queue state to idle (e.g. after navigation away). */
+  resetQueue:         () => void
 }
 
 export function useWebSocket(url: string): UseWebSocketReturn {
@@ -230,7 +243,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     reconnectTokenMsg: null,
     gameStateSnapshot: null,
     reconnectWindowExpired: false,
-    queueOverflow: false,
+    queueState: { status: 'idle' },
     currentOwnerPlayerId: null,
     currentOwnerUsername: '',
   })
@@ -244,6 +257,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   // incoming error message can be keyed to the correct SuitPanel. Null for
   // commands with no suit (e.g. cancel_order), which store errors under '_'.
   const pendingSuitRef = useRef<string | null>(null)
+  // Tracks the lobby_id of the most-recently sent join_queue, so queue_joined /
+  // queue_position_update (which carry no lobby_id) can populate queueState.lobbyId.
+  const pendingQueueLobbyRef = useRef<string | null>(null)
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -527,14 +543,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
           setState(s => ({
             ...s,
-            hand:         snap.hand,
-            playerSlot:   snap.player_slot,
-            startsAt:     null,
+            hand:          snap.hand,
+            initialHand:   snap.hand,
+            playerSlot:    snap.player_slot,
+            startsAt:      null,
             roundEndAt,
-            balance:      snap.all_balances[snap.player_slot] ?? s.balance,
-            allBalances:  snap.all_balances,
-            deltas:       snap.deltas,
-            roster:       snap.roster,
+            balance:       snap.all_balances[snap.player_slot] ?? s.balance,
+            allBalances:   snap.all_balances,
+            allHandTotals: snap.all_hand_totals ?? [],
+            deltas:        snap.deltas,
+            roster:        snap.roster,
             books,
             myOrders,
             gameStateSnapshot: snap,
@@ -562,21 +580,41 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
         }
 
-        // ── Slice 10.5 queue stubs — full logic added in T12 ──────────────
-        // AGENT-CTX: Queue messages are consumed by QueuePopup (T12) via its own
-        // state machine. useWebSocket is not the right place for queue position state.
-        // queue_overflow is the exception: it is a terminal signal (lobby + queue full)
-        // that Game.tsx must react to, so it is promoted to WsState.
-        case 'queue_overflow':
-          setState(s => ({ ...s, queueOverflow: true }))
-          logger.info('ws/recv', `queue_overflow — lobby ${msg.lobby_id} full`)
+        case 'queue_joined': {
+          const lobbyId = pendingQueueLobbyRef.current ?? ''
+          logger.info('ws/recv', `queue_joined pos=${msg.position} lobby=${lobbyId}`)
+          setState(s => ({
+            ...s,
+            queueState: { status: 'queued', lobbyId, position: msg.position, queueSize: msg.queue_size, playersAround: [] },
+          }))
           break
-        case 'queue_joined':
+        }
+        case 'queue_position_update': {
+          const lobbyId = pendingQueueLobbyRef.current ?? ''
+          logger.info('ws/recv', `queue_position_update pos=${msg.position} lobby=${lobbyId}`)
+          setState(s => ({
+            ...s,
+            queueState: { status: 'queued', lobbyId, position: msg.position, queueSize: msg.queue_size, playersAround: msg.players_around },
+          }))
+          break
+        }
         case 'queue_left':
-        case 'queue_position_update':
-        case 'queue_admitted':
-          logger.info('ws/recv', `${msg.type} — handled by QueuePopup (T12)`)
+          logger.info('ws/recv', 'queue_left')
+          pendingQueueLobbyRef.current = null
+          setState(s => ({ ...s, queueState: { status: 'idle' } }))
           break
+        case 'queue_overflow':
+          logger.info('ws/recv', `queue_overflow — lobby ${msg.lobby_id} full`)
+          pendingQueueLobbyRef.current = null
+          setState(s => ({ ...s, queueState: { status: 'overflow', lobbyId: msg.lobby_id } }))
+          break
+        case 'queue_admitted': {
+          const lobbyId = pendingQueueLobbyRef.current ?? ''
+          logger.info('ws/recv', `queue_admitted slot=${msg.slot_index} lobby=${lobbyId}`)
+          pendingQueueLobbyRef.current = null
+          setState(s => ({ ...s, queueState: { status: 'admitted', lobbyId, slotIndex: msg.slot_index } }))
+          break
+        }
 
         case 'lobby_owner_changed': {
           const ownerMsg = msg as LobbyOwnerChangedMessage
@@ -659,6 +697,22 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     sendMessage({ type: 'unsubscribe_lobby', lobby_id })
   }, [sendMessage])
 
+  const joinQueue = useCallback((lobby_id: string) => {
+    pendingQueueLobbyRef.current = lobby_id
+    sendMessage({ type: 'join_queue', lobby_id })
+  }, [sendMessage])
+
+  const leaveQueue = useCallback((lobby_id: string) => {
+    pendingQueueLobbyRef.current = null
+    sendMessage({ type: 'leave_queue', lobby_id })
+    setState(s => ({ ...s, queueState: { status: 'idle' } }))
+  }, [sendMessage])
+
+  const resetQueue = useCallback(() => {
+    pendingQueueLobbyRef.current = null
+    setState(s => ({ ...s, queueState: { status: 'idle' } }))
+  }, [])
+
   // Derived per-suit self-trade guards. When the server adds best_bid_player /
   // best_ask_player fields (Slice 8), replace this derivation in one place here.
   const ownsBestBidBySuit: Record<string, boolean> = {}
@@ -671,5 +725,5 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       orders.some(o => o.side === 'sell' && o.price === book.best_ask)
   }
 
-  return { ...state, sendMessage, ownsBestBidBySuit, ownsBestAskBySuit, subscribeLobby, unsubscribeLobby }
+  return { ...state, sendMessage, ownsBestBidBySuit, ownsBestAskBySuit, subscribeLobby, unsubscribeLobby, joinQueue, leaveQueue, resetQueue }
 }

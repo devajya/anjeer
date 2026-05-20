@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
-import { useQueueSocket } from '../hooks/useQueueSocket'
+import { useWebSocket } from '../hooks/useWebSocket'
 import { QueuePopup } from '../components/QueuePopup'
 import type { LobbyView } from '../types/lobby'
 import './LobbyBrowser.css'
@@ -25,9 +25,7 @@ export function LobbyBrowser() {
   // AGENT-CTX: menuRef used for click-outside detection — closes the dropdown when
   // the user clicks anywhere outside the hamburger + menu container.
   const menuRef = useRef<HTMLDivElement>(null)
-  // AGENT-CTX: Queue state managed by a lightweight WS hook; overflowLobbyIds persists
-  // overflow signals per lobby so the Join button stays disabled after a full-queue attempt.
-  const queueSocket       = useQueueSocket()
+  const { queueState, joinQueue, leaveQueue, resetQueue } = useWebSocket('/ws')
   const [overflowLobbyIds, setOverflowLobbyIds] = useState<Set<string>>(new Set())
 
   // Auto-queue when redirected from an expired reconnect window.
@@ -37,7 +35,7 @@ export function LobbyBrowser() {
     const queueFor = searchParams.get('queue_for')
     if (!queueFor) return
     setTab('active')
-    queueSocket.joinQueue(queueFor)
+    joinQueue(queueFor)
   }, []) // intentional: mount-only, treat URL param as a one-shot instruction
 
   useEffect(() => {
@@ -65,15 +63,14 @@ export function LobbyBrowser() {
   useEffect(() => { loadLobbies() }, [])
 
   useEffect(() => {
-    const { state } = queueSocket
-    if (state.status === 'overflow') {
-      setOverflowLobbyIds(prev => new Set([...prev, state.lobbyId]))
+    if (queueState.status === 'overflow') {
+      setOverflowLobbyIds(prev => new Set([...prev, queueState.lobbyId]))
     }
-    if (state.status === 'admitted') {
-      navigate(`/game?lobby_id=${state.lobbyId}`)
-      queueSocket.reset()
+    if (queueState.status === 'admitted') {
+      navigate(`/game?lobby_id=${queueState.lobbyId}`)
+      resetQueue()
     }
-  }, [queueSocket.state.status])
+  }, [queueState.status])
 
   async function joinLobby(lobby: LobbyView) {
     setJoining(lobby.id)
@@ -342,7 +339,7 @@ export function LobbyBrowser() {
                           <button
                             className="lp__btn lp__btn--join"
                             disabled={isFull}
-                            onClick={() => queueSocket.joinQueue(lobby.id)}
+                            onClick={() => joinQueue(lobby.id)}
                             aria-label={isFull ? 'Queue full' : `Join lobby ${lobby.code}`}
                           >
                             {isFull ? 'Queue Full' : 'Join'}
@@ -360,17 +357,17 @@ export function LobbyBrowser() {
       </div>
 
       {/* ── Queue popup overlay ─────────────────────────────────────────── */}
-      {queueSocket.state.status === 'queued' && (
+      {queueState.status === 'queued' && (
         <QueuePopup
-          lobbyId={queueSocket.state.lobbyId}
-          position={queueSocket.state.position}
-          queueSize={queueSocket.state.queueSize}
-          playersAround={queueSocket.state.playersAround}
-          onLeave={() => queueSocket.leaveQueue()}
+          lobbyId={queueState.lobbyId}
+          position={queueState.position}
+          queueSize={queueState.queueSize}
+          playersAround={queueState.playersAround}
+          onLeave={() => leaveQueue(queueState.lobbyId)}
           onSpectate={() => {
-            const lobbyId = queueSocket.state.status === 'queued' ? queueSocket.state.lobbyId : null
+            const lobbyId = queueState.status === 'queued' ? queueState.lobbyId : null
             const lobby   = activeLobbies.find(l => l.id === lobbyId)
-            queueSocket.reset()
+            resetQueue()
             if (lobby) navigate(`/spectate/${lobby.code}`)
           }}
         />

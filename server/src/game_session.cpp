@@ -1147,6 +1147,13 @@ std::string GameSession::build_state_snapshot(int slot_index,
     nlohmann::json balances_json = nlohmann::json::array();
     for (const auto& sl : slots_) balances_json.push_back(sl.balance);
 
+    nlohmann::json hand_totals_json = nlohmann::json::array();
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        const auto& h = game_state_->hand(i);
+        hand_totals_json.push_back(h.suit_counts[0] + h.suit_counts[1] +
+                                   h.suit_counts[2] + h.suit_counts[3]);
+    }
+
     const auto all_scores = compute_all_scores();
     nlohmann::json scores_json = nlohmann::json::array();
     for (auto sc : all_scores) scores_json.push_back(sc);
@@ -1163,6 +1170,7 @@ std::string GameSession::build_state_snapshot(int slot_index,
         {"deltas",                deltas_json},
         {"round_timer_remaining", remaining},
         {"all_balances",          balances_json},
+        {"all_hand_totals",       hand_totals_json},
         {"all_scores",            scores_json},
         {"roster",                roster_json},
         {"reconnect_token",       reconnect_token},

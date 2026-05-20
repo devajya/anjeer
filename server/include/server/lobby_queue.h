@@ -51,6 +51,10 @@ public:
     // Removes the entry whose WsHandle matches ws. Returns true if found.
     bool dequeue_by_ws(WsHandle ws);
 
+    // Replaces the stored WsHandle for an already-queued player (e.g. on
+    // WS reconnect before the player is admitted). Returns false if not found.
+    bool update_ws(int64_t player_id, WsHandle new_ws);
+
     // Sends queue_position_update to every waiting entry via loop->defer().
     void broadcast_positions(uWS::Loop* loop) const;
 

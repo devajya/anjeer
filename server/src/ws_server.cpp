@@ -1472,7 +1472,11 @@ void WsServer::handle_join_queue(WsHandle ws, const std::string& lobby_id,
     auto& as = it->second;
 
     if (as.queue_->has(data->player_id)) {
-        // Already in queue — send a refreshed position rather than an error.
+        // Player reconnected with a new WS before being admitted — update the
+        // stored handle so dequeue_by_ws tracks the live connection, then
+        // confirm the position. Also set lobby_id so .close can clean up.
+        as.queue_->update_ws(data->player_id, ws);
+        data->lobby_id = lobby_id;
         const int pos = as.queue_->position_of(data->player_id);
         ws->send(nlohmann::json{
             {"type","queue_joined"}, {"position", pos}, {"queue_size", as.queue_->size()}
