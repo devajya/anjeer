@@ -55,6 +55,7 @@ private:
         std::unique_ptr<GameSession>                               session;
         std::string                                                session_id_;   // for GameSlotsRepo calls
         std::vector<SlotInfo>                                      slots_;        // authoritative slot list
+        std::unordered_map<int64_t, int32_t>                       player_id_to_slot_;  // O(1) slot lookup by player_id
         std::unordered_map<int32_t, WsHandle>                      slot_to_ws_;
         std::unordered_map<WsHandle, int32_t>                      ws_to_slot_;
         LobbyMode                                                  lobby_mode_          = LobbyMode::UI;

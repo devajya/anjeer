@@ -226,11 +226,8 @@ void WsServer::run() {
                 auto session_it = active_sessions_.find(lobby_id);
                 if (session_it != active_sessions_.end()) {
                     auto& as = session_it->second;
-                    // Find the slot for this player
-                    int32_t slot = -1;
-                    for (int i = 0; i < static_cast<int>(as.slots_.size()); ++i) {
-                        if (as.slots_[i].player_id == player_id) { slot = i; break; }
-                    }
+                    auto pid_it = as.player_id_to_slot_.find(player_id);
+                    const int32_t slot = (pid_it != as.player_id_to_slot_.end()) ? pid_it->second : -1;
                     if (slot >= 0) {
                         // Defense-in-depth: if expiry already fired, don't attach.
                         // Primary guard is player_to_lobby_.erase on expiry; this catches
@@ -678,6 +675,10 @@ void WsServer::create_session(const std::string& lobby_id) {
     // we can pass queue refs by reference (GameSession stores refs, not copies).
     auto& as        = active_sessions_[lobby_id];
     as.slots_        = slots;   // copy for WsServer's slot mapping
+    for (int i = 0; i < static_cast<int>(slots.size()); ++i) {
+        if (slots[i].player_id >= 0)
+            as.player_id_to_slot_[slots[i].player_id] = i;
+    }
     as.lobby_mode_   = lobby_mode;
     as.inbound  = std::make_unique<moodycamel::ReaderWriterQueue<NetEvent>>(256);
     as.outbound = std::make_unique<moodycamel::ReaderWriterQueue<GameEvent>>(256);
@@ -920,9 +921,11 @@ void WsServer::drain_all_on_loop() {
                             const int   slot  = info.slot_index;
                             as.slot_to_ws_[slot]          = entry.ws;
                             as.ws_to_slot_[entry.ws]      = slot;
+                            as.player_id_to_slot_.erase(as.slots_[slot].player_id);
                             as.slots_[slot].player_id     = info.player_id;
                             as.slots_[slot].username      = info.username;
                             as.slots_[slot].active        = true;
+                            as.player_id_to_slot_[info.player_id] = slot;
                             player_to_lobby_[info.player_id] = lobby_id;
                             auto* d = entry.ws->getUserData();
                             d->lobby_id    = lobby_id;
@@ -1048,6 +1051,7 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
                 as.inbound->enqueue(NetPermanentLeave{slot});
                 // Mark inactive before transfer_ownership so it skips this slot.
                 as.slots_[slot].active = false;
+                as.player_id_to_slot_.erase(data->player_id);
                 // Immediately free the player's active-lobby binding so they can
                 // join another lobby without waiting for session teardown.
                 player_to_lobby_.erase(data->player_id);
@@ -1378,9 +1382,9 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     // whether to render owner controls in the inter-round screen.
     if (as.current_owner_player_id_ >= 0) {
         std::string owner_username;
-        for (const auto& s : as.slots_) {
-            if (s.player_id == as.current_owner_player_id_) { owner_username = s.username; break; }
-        }
+        auto owner_it = as.player_id_to_slot_.find(as.current_owner_player_id_);
+        if (owner_it != as.player_id_to_slot_.end())
+            owner_username = as.slots_[owner_it->second].username;
         ws->send(nlohmann::json{
             {"type",               "lobby_owner_changed"},
             {"new_owner_player_id", as.current_owner_player_id_},
@@ -1423,16 +1427,13 @@ void WsServer::handle_reconnect_game(WsHandle ws,
     }
     auto& as = session_it->second;
 
-    // Find this player's slot
-    int32_t slot = -1;
-    for (int i = 0; i < static_cast<int>(as.slots_.size()); ++i) {
-        if (as.slots_[i].player_id == data->player_id) { slot = i; break; }
-    }
-    if (slot < 0) {
+    auto slot_it = as.player_id_to_slot_.find(data->player_id);
+    if (slot_it == as.player_id_to_slot_.end()) {
         serialise::error(ws, WsErrorCode::MalformedMessage,
                          "player has no slot in this session", server_log_);
         return;
     }
+    const int32_t slot = slot_it->second;
 
     // If the slot is available for queue admission the reconnect window already
     // expired and a bot has taken over. Block the attach and tell the client so
