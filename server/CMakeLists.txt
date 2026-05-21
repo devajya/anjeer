@@ -31,6 +31,7 @@ add_executable(server
     src/game_slots_repo.cpp
     src/lobby_queue.cpp
     src/bot_manager_session.cpp
+    src/eval_runner.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -47,6 +48,26 @@ target_link_libraries(server PRIVATE
     crypto
     pthread
 )
+
+# ---------------------------------------------------------------------------
+# EvalRunner unit tests — no DB, no network; pure thread-pool + queue logic
+# ---------------------------------------------------------------------------
+add_executable(eval_runner_tests
+    tests/eval_runner_tests.cpp
+    src/eval_runner.cpp
+)
+
+target_include_directories(eval_runner_tests PRIVATE include)
+
+target_link_libraries(eval_runner_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+
+catch_discover_tests(eval_runner_tests)
 
 # ---------------------------------------------------------------------------
 # Unit tests (Catch2)
