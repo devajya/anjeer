@@ -644,6 +644,18 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
         }
 
+        case 'eval_posterior_update':
+          logger.info('ws/recv', `eval_posterior_update slot=${msg.player_slot} round=${msg.round}`)
+          break
+
+        case 'eval_accumulation_signal':
+          logger.info('ws/recv', `eval_accumulation_signal slot=${msg.player_slot} suit=${msg.suit} net=${msg.net_count}`)
+          break
+
+        case 'eval_execution_guidance':
+          logger.info('ws/recv', `eval_execution_guidance slot=${msg.player_slot} action=${msg.action} suit=${msg.suit}`)
+          break
+
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new
           // ServerMessage variant is added but not handled above.

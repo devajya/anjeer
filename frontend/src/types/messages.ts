@@ -341,6 +341,44 @@ export interface ScriptLogMessage {
   timestamp: number
 }
 
+// ── Slice 11: Eval framework signals ─────────────────────────────────────────
+
+/**
+ * Goal-suit posterior distribution for one player slot.
+ * Broadcast (target_slot == -1) or unicast to the observing spectator.
+ * posteriors maps suit name → probability in [0, 1]; values sum to 1.
+ */
+export interface EvalPosteriorUpdateMessage {
+  type: 'eval_posterior_update'
+  player_slot: number
+  posteriors: Record<string, number>
+  round: number
+}
+
+/**
+ * Net card-accumulation signal for one player/suit pair.
+ * confidence is in [0, 1]: 0 = no signal, 1 = high confidence.
+ */
+export interface EvalAccumulationSignalMessage {
+  type: 'eval_accumulation_signal'
+  player_slot: number
+  suit: string
+  net_count: number
+  confidence: number
+}
+
+/**
+ * Recommended trading action for a player slot, produced by the eval pipeline.
+ * price is null for 'hold' guidance or when no specific price is implied.
+ */
+export interface EvalExecutionGuidanceMessage {
+  type: 'eval_execution_guidance'
+  player_slot: number
+  action: 'buy' | 'sell' | 'hold'
+  suit: string
+  price: number | null
+}
+
 // ── Slice 10.5: auxiliary (non-exported — snapshot-only) ─────────────────────
 
 /** One resting order inside an order book snapshot. Not exported: snapshot use only. */
@@ -512,6 +550,10 @@ export type ServerMessage =
   | ReconnectWindowExpiredMessage
   | LobbyOwnerChangedMessage
   | LobbySettingsChangedMessage
+  // Slice 11
+  | EvalPosteriorUpdateMessage
+  | EvalAccumulationSignalMessage
+  | EvalExecutionGuidanceMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
