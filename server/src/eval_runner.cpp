@@ -12,7 +12,10 @@ EvalRunner::EvalRunner(std::vector<std::unique_ptr<EvalModule>> modules,
     , queue_capacity_(queue_capacity)
     , modules_(std::move(modules))
     , output_cb_(std::move(output_cb))
-{}
+{
+    for (auto& m : modules_)
+        m->set_output_cb(output_cb_);
+}
 
 EvalRunner::~EvalRunner() {
     stop();

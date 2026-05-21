@@ -94,6 +94,12 @@ private:
     void handle_reconnect_game(WsHandle ws, const std::string& lobby_id,
                                 const std::string& token);
 
+    // Routes one EvalOutput to the correct WS handles for a session.
+    // Called on the uWS event-loop thread from drain_all_on_loop.
+    // Private (target_slot >= 0): sent to that slot's handle only.
+    // Public (target_slot == -1): sent to all active player + spectator handles.
+    void dispatch_eval_output(ActiveSession& as, const eval::EvalOutput& out);
+
     // Transfers lobby ownership to the next real player. If no real players remain,
     // calls teardown_session. Always called on the uWS event-loop thread.
     void transfer_ownership(ActiveSession& as, const std::string& lobby_id);

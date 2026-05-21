@@ -212,6 +212,21 @@ struct Harness {
         return std::nullopt;
     }
 
+    std::optional<eval::EvalOutput> recv_eval_output(
+            std::chrono::milliseconds timeout = std::chrono::milliseconds(2000)) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            GameEvent ev;
+            if (outbound.try_dequeue(ev)) {
+                if (auto* e = std::get_if<GameEvalOutput>(&ev))
+                    return e->out;
+            } else {
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+        return std::nullopt;
+    }
+
     bool recv_done(std::chrono::milliseconds timeout = 2000ms) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -579,6 +594,19 @@ struct CountingModule : anjeer::server::eval::EvalModule {
     }
 };
 
+// Emits one private (slot 0) and one public (-1) EvalOutput on round start.
+struct EmittingModule : anjeer::server::eval::EvalModule {
+    void on_round_start(const anjeer::engine::GameStateSnapshot&) override {
+        emit({anjeer::server::eval::EvalOutput::Type::PosteriorUpdate, 0,
+              nlohmann::json{{"type", "eval.posterior_update"}}});
+        emit({anjeer::server::eval::EvalOutput::Type::AccumulationSignal, -1,
+              nlohmann::json{{"type", "eval.accumulation_signal"}}});
+    }
+    void on_trade_event(const anjeer::server::eval::EvalTradeEvent&) override {}
+    void on_book_update(const anjeer::server::eval::EvalBookUpdate&) override {}
+    void on_round_end  (const anjeer::engine::GameStateSnapshot&) override {}
+};
+
 } // namespace
 
 // G-E1: push_round_start fired exactly once when a round begins.
@@ -634,4 +662,34 @@ TEST_CASE("G-E3: eval push_trade fires for each matched trade", "[game_session][
 
     mod->wait_for(mod->trades, 1, 1000ms);
     CHECK(mod->trades.load() >= 1);
+}
+
+// G-E4: EvalModule emits private + public outputs; verify GameEvalOutput target_slots.
+TEST_CASE("G-E4: eval output routed to correct target_slot in outbound queue",
+          "[game_session][eval]") {
+    run_migrations();
+    auto* mod = new EmittingModule;
+    std::vector<std::unique_ptr<anjeer::server::eval::EvalModule>> mods;
+    mods.push_back(std::unique_ptr<anjeer::server::eval::EvalModule>(mod));
+
+    Harness h(make_cfg(), make_slots(2), "eval-session-4", "eval-lobby-4", std::move(mods));
+    h.advance_to_round_active();
+
+    // EmittingModule emits on on_round_start: slot-0 private + broadcast (-1).
+    // The outputs flow: output_cb → eval_out_pending_ → drain_eval_output() → outbound.
+    auto out1 = h.recv_eval_output();
+    auto out2 = h.recv_eval_output();
+
+    REQUIRE(out1.has_value());
+    REQUIRE(out2.has_value());
+
+    std::unordered_map<int, anjeer::server::eval::EvalOutput> by_slot;
+    by_slot[out1->target_slot] = *out1;
+    by_slot[out2->target_slot] = *out2;
+
+    REQUIRE(by_slot.count(0));
+    CHECK(by_slot.at(0).payload.value("type", "") == "eval.posterior_update");
+
+    REQUIRE(by_slot.count(-1));
+    CHECK(by_slot.at(-1).payload.value("type", "") == "eval.accumulation_signal");
 }
