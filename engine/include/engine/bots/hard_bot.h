@@ -19,9 +19,9 @@ public:
     HardBot(const BotConfig& cfg, uint64_t seed) : cfg_(cfg), rng_(seed) {}
 
     void on_event(const BotEvent& event) override;
-    [[nodiscard]] std::vector<BotAction> decide(const BotGameSnapshot& snap) override;
+    [[nodiscard]] std::vector<BotAction> decide(const GameStateSnapshot& snap) override;
     std::string_view name() const override { return "HardBot"; }
-    std::string debug_info(const BotGameSnapshot& snap) const override;
+    std::string debug_info(const GameStateSnapshot& snap) const override;
 
     // Test accessors.
     const std::array<float, 12>& deck_weights()  const { return deck_weights_; }
@@ -76,11 +76,11 @@ private:
 
     float ev(int suit_idx) const;
 
-    std::vector<BotAction> taker_scan(const BotGameSnapshot& snap) const;
-    std::vector<BotAction> review_pending(const BotGameSnapshot& snap);
-    std::vector<BotAction> gap_fill(const BotGameSnapshot& snap) const;
-    std::vector<BotAction> locked_actions(const BotGameSnapshot& snap) const;
-    std::vector<BotAction> seed_market(const BotGameSnapshot& snap) const;
+    std::vector<BotAction> taker_scan(const GameStateSnapshot& snap) const;
+    std::vector<BotAction> review_pending(const GameStateSnapshot& snap);
+    std::vector<BotAction> gap_fill(const GameStateSnapshot& snap) const;
+    std::vector<BotAction> locked_actions(const GameStateSnapshot& snap) const;
+    std::vector<BotAction> seed_market(const GameStateSnapshot& snap) const;
 };
 
 std::unique_ptr<HardBot> make_hard_bot(const BotConfig& cfg, uint64_t seed);

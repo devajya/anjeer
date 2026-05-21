@@ -31,14 +31,14 @@ static BotConfig cfg_default() {
     return c;
 }
 
-static BotGameSnapshot make_snapshot(
+static GameStateSnapshot make_snapshot(
     const std::array<int, 4>& hand,
     float time_remaining,
     int player_slot  = 0,
     int player_count = 4,
     int32_t balance  = 500)
 {
-    BotGameSnapshot s;
+    GameStateSnapshot s;
     s.hand             = hand;
     s.time_remaining_s = time_remaining;
     s.round_duration_s = 240.0f;

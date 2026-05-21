@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/game_snapshot.h"
 #include "engine/suit.h"
 #include "engine/order_book.h"
 
@@ -145,26 +146,6 @@ struct BotPendingOrder {
     Side        side;
     int32_t     price = 0;
     std::chrono::steady_clock::time_point placed_at;
-};
-
-// ── Game snapshot ─────────────────────────────────────────────────────────────
-
-// Read-only view passed to decide() each tick — built by BotAdapter.
-// Strategies track their own pending_orders internally (not in this snapshot).
-struct BotGameSnapshot {
-    std::array<int, 4>                    hand;
-    std::array<std::optional<int32_t>, 4> best_bid;
-    std::array<std::optional<int32_t>, 4> best_ask;
-    std::array<std::optional<int32_t>, 4> last_trade_price;
-    std::vector<std::array<int, 4>>       delta_table;
-    int     player_slot      = -1;
-    int     player_count     = 0;
-    float   time_remaining_s = 0.0f;
-    float   round_duration_s = 0.0f;
-    int32_t balance          = 0;
-    int32_t buy_in           = 0;
-    int32_t points_per_card  = 0;
-    bool    round_active     = false;
 };
 
 // ── Actions ───────────────────────────────────────────────────────────────────

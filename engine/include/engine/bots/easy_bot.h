@@ -19,9 +19,9 @@ public:
     EasyBot(const BotConfig& cfg, uint64_t seed) : cfg_(cfg), rng_(seed) {}
 
     void on_event(const BotEvent& event) override;
-    [[nodiscard]] std::vector<BotAction> decide(const BotGameSnapshot& snap) override;
+    [[nodiscard]] std::vector<BotAction> decide(const GameStateSnapshot& snap) override;
     std::string_view name() const override { return "EasyBot"; }
-    std::string debug_info(const BotGameSnapshot& snap) const override;
+    std::string debug_info(const GameStateSnapshot& snap) const override;
 
     // Test accessor.
     std::array<float, 4> goal_probs() const { return goal_posteriors(deck_weights_); }
@@ -53,9 +53,9 @@ private:
 
     float ev(int suit_idx) const;
 
-    std::vector<BotAction> taker_scan(const BotGameSnapshot& snap) const;
-    std::vector<BotAction> review_pending(const BotGameSnapshot& snap);
-    std::vector<BotAction> gap_fill(const BotGameSnapshot& snap) const;
+    std::vector<BotAction> taker_scan(const GameStateSnapshot& snap) const;
+    std::vector<BotAction> review_pending(const GameStateSnapshot& snap);
+    std::vector<BotAction> gap_fill(const GameStateSnapshot& snap) const;
 };
 
 } // namespace anjeer::engine

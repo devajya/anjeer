@@ -80,7 +80,7 @@ void MediumBot::handle(const BotOrderAckEvent& e) {
 
 // ── Taker scan ────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> MediumBot::taker_scan(const BotGameSnapshot& snap) const {
+std::vector<BotAction> MediumBot::taker_scan(const GameStateSnapshot& snap) const {
     float best_edge = 0.0f;
     std::optional<BotAction> best;
 
@@ -126,7 +126,7 @@ std::vector<BotAction> MediumBot::taker_scan(const BotGameSnapshot& snap) const 
 
 // ── Resting order review ──────────────────────────────────────────────────────
 
-std::vector<BotAction> MediumBot::review_pending(const BotGameSnapshot& snap) {
+std::vector<BotAction> MediumBot::review_pending(const GameStateSnapshot& snap) {
     std::vector<BotAction> actions;
     auto now = clock::now();
 
@@ -187,7 +187,7 @@ std::vector<BotAction> MediumBot::review_pending(const BotGameSnapshot& snap) {
 
 // ── Gap fill ─────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> MediumBot::gap_fill(const BotGameSnapshot& snap) const {
+std::vector<BotAction> MediumBot::gap_fill(const GameStateSnapshot& snap) const {
     bool endgame = (cfg_.endgame_threshold_s > 0 &&
                     snap.time_remaining_s < static_cast<float>(cfg_.endgame_threshold_s));
 
@@ -258,7 +258,7 @@ std::vector<BotAction> MediumBot::gap_fill(const BotGameSnapshot& snap) const {
 
 // ── decide() ──────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> MediumBot::decide(const BotGameSnapshot& snap) {
+std::vector<BotAction> MediumBot::decide(const GameStateSnapshot& snap) {
     if (!snap.round_active) return {};
 
     auto taker = taker_scan(snap);
@@ -272,7 +272,7 @@ std::vector<BotAction> MediumBot::decide(const BotGameSnapshot& snap) {
 
 // ── Debug ─────────────────────────────────────────────────────────────────────
 
-std::string MediumBot::debug_info(const BotGameSnapshot& /*snap*/) const {
+std::string MediumBot::debug_info(const GameStateSnapshot& /*snap*/) const {
     static const char* sn[] = {"C", "D", "H", "S"};
     auto P = goal_posteriors(deck_weights_);
     int  g = 0;

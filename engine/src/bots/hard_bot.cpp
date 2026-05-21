@@ -143,7 +143,7 @@ void HardBot::handle(const BotOrderAckEvent& e) {
 
 // ── Taker scan ────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> HardBot::taker_scan(const BotGameSnapshot& snap) const {
+std::vector<BotAction> HardBot::taker_scan(const GameStateSnapshot& snap) const {
     float best_edge = 0.0f;
     std::optional<BotAction> best;
 
@@ -189,7 +189,7 @@ std::vector<BotAction> HardBot::taker_scan(const BotGameSnapshot& snap) const {
 
 // ── Resting order review ──────────────────────────────────────────────────────
 
-std::vector<BotAction> HardBot::review_pending(const BotGameSnapshot& snap) {
+std::vector<BotAction> HardBot::review_pending(const GameStateSnapshot& snap) {
     std::vector<BotAction> actions;
     auto now = clock::now();
 
@@ -251,7 +251,7 @@ std::vector<BotAction> HardBot::review_pending(const BotGameSnapshot& snap) {
 
 // ── Gap fill (pre-lock-in) ─────────────────────────────────────────────────────
 
-std::vector<BotAction> HardBot::gap_fill(const BotGameSnapshot& snap) const {
+std::vector<BotAction> HardBot::gap_fill(const GameStateSnapshot& snap) const {
     bool endgame = (cfg_.endgame_threshold_s > 0 &&
                     snap.time_remaining_s < static_cast<float>(cfg_.endgame_threshold_s));
 
@@ -322,7 +322,7 @@ std::vector<BotAction> HardBot::gap_fill(const BotGameSnapshot& snap) const {
 
 // ── Locked actions (post-lock-in) ────────────────────────────────────────────
 
-std::vector<BotAction> HardBot::locked_actions(const BotGameSnapshot& snap) const {
+std::vector<BotAction> HardBot::locked_actions(const GameStateSnapshot& snap) const {
     int resting = 0;
     for (int s = 0; s < 4; ++s)
         for (int sd = 0; sd < 2; ++sd)
@@ -355,7 +355,7 @@ std::vector<BotAction> HardBot::locked_actions(const BotGameSnapshot& snap) cons
 
 // ── Seed market ───────────────────────────────────────────────────────────────
 
-std::vector<BotAction> HardBot::seed_market(const BotGameSnapshot& snap) const {
+std::vector<BotAction> HardBot::seed_market(const GameStateSnapshot& snap) const {
     if (cfg_.early_seed_threshold <= 0.0f) return {};
     if (snap.time_remaining_s <= 0.5f * snap.round_duration_s) return {};
 
@@ -374,7 +374,7 @@ std::vector<BotAction> HardBot::seed_market(const BotGameSnapshot& snap) const {
 
 // ── decide() ──────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> HardBot::decide(const BotGameSnapshot& snap) {
+std::vector<BotAction> HardBot::decide(const GameStateSnapshot& snap) {
     if (!snap.round_active) return {};
 
     auto taker = taker_scan(snap);
@@ -397,7 +397,7 @@ std::vector<BotAction> HardBot::decide(const BotGameSnapshot& snap) {
 
 // ── Debug ─────────────────────────────────────────────────────────────────────
 
-std::string HardBot::debug_info(const BotGameSnapshot& /*snap*/) const {
+std::string HardBot::debug_info(const GameStateSnapshot& /*snap*/) const {
     static const char* sn[] = {"C", "D", "H", "S"};
     auto P = goal_posteriors(deck_weights_);
     int  g = goal_suit_locked_ ? locked_goal_suit_
