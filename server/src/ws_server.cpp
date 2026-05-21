@@ -861,6 +861,18 @@ void WsServer::drain_all_on_loop() {
                         if (expired_pid == as.current_owner_player_id_)
                             transfer_ownership(as, lobby_id);
                     }
+                } else if constexpr (std::is_same_v<T, GameEvalOutput>) {
+                    const std::string payload = arg.out.payload.dump();
+                    if (arg.out.target_slot == -1) {
+                        for (auto& [slot, ws] : as.slot_to_ws_)
+                            ws->send(payload, uWS::OpCode::TEXT);
+                        for (auto& [sid, ws] : as.spectator_handles_)
+                            ws->send(payload, uWS::OpCode::TEXT);
+                    } else {
+                        auto wh = as.slot_to_ws_.find(arg.out.target_slot);
+                        if (wh != as.slot_to_ws_.end())
+                            wh->second->send(payload, uWS::OpCode::TEXT);
+                    }
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.
                     // For each bot displaced: stop the BotAdapter, deactivate the slot in

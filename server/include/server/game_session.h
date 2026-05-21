@@ -4,7 +4,9 @@
 #include "server/db.h"
 #include "server/logger.h"
 #include "server/session_queue.h"
+#include "server/eval/eval_runner.h"
 #include "engine/engine.h"
+#include "engine/game_snapshot.h"
 #include <nlohmann/json.hpp>
 
 #include <readerwriterqueue.h>
@@ -13,6 +15,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
@@ -55,6 +58,9 @@ struct GameSessionContext {
     Logger&             engine_log;
     std::mt19937        rng;
     DbPool&             db_pool;
+    // Optional eval modules injected at construction (e.g. for tests).
+    // Empty in production; the eval pipeline adds modules via future config.
+    std::vector<std::unique_ptr<eval::EvalModule>> eval_modules;
 };
 
 class GameSession {
@@ -196,6 +202,17 @@ private:
     void persist_error(const std::string& type, const std::string& msg,
                        const nlohmann::json& ctx = nlohmann::json::object());
 
+    // ── Eval integration ──────────────────────────────────────────────────────
+    // Constructs a full GameStateSnapshot from live session state.
+    // Called at round start, after each trade, and at round end — any time the
+    // eval subsystem needs a consistent read of hands, balances, books, and deltas.
+    engine::GameStateSnapshot make_eval_snapshot() const;
+    // Moves buffered EvalOutput items from eval_out_pending_ to outbound_ as GameEvalOutput.
+    // AGENT-CTX: eval_runner_ worker thread writes to eval_out_pending_ (mutex-guarded);
+    // drain_eval_output() is called from tick() so all outbound_ writes stay on the
+    // game-loop thread, preserving the SPSC invariant on outbound_.
+    void drain_eval_output();
+
     // ── ISO timestamp helpers ─────────────────────────────────────────────────
     static std::string to_iso_string(std::chrono::system_clock::time_point tp);
     static std::string steady_to_iso(std::chrono::steady_clock::time_point tp);
@@ -273,6 +290,13 @@ private:
     std::chrono::steady_clock::time_point countdown_deadline_;
     std::chrono::steady_clock::time_point round_deadline_;
     std::chrono::steady_clock::time_point inter_round_deadline_;
+
+    // ── Eval state ───────────────────────────────────────────────────────────
+    std::unique_ptr<eval::EvalRunner>  eval_runner_;
+    std::mutex                         eval_out_mu_;
+    std::vector<eval::EvalOutput>      eval_out_pending_;
+    std::vector<engine::TradeRecord>   recent_trades_;           // cleared each begin_round
+    std::chrono::steady_clock::time_point round_start_time_{};   // set in begin_round
 
     // ── Thread control ────────────────────────────────────────────────────────
     // AGENT-CTX: stop_ is written by shutdown() on the calling thread and read by

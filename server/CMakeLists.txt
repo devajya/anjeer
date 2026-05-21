@@ -104,6 +104,7 @@ add_executable(ws_server_tests
     src/ws_server.cpp
     src/lobby_gateway.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
@@ -323,6 +324,7 @@ add_executable(game_session_tests
     src/lobby_repo.cpp
     src/session_repo.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
     src/game_session_wire.cpp
     src/logger.cpp
     src/event_bus.cpp
@@ -483,6 +485,7 @@ add_executable(bot_headless_tests
     src/config.cpp
     src/db.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/lobby_repo.cpp
@@ -614,6 +617,7 @@ add_executable(reconnect_integration_tests
     src/ws_server.cpp
     src/lobby_gateway.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
