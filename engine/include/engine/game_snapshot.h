@@ -33,23 +33,42 @@ struct BookSnapshot {
     std::optional<int32_t> best_ask_slot;
 };
 
-// Read-only view of game state — used by BotAgent::decide() each tick
-// (via BotAdapter) and by EvalRunner snapshots at round boundaries.
-// Bot-facing fields are a subset of the full server-side state.
+// Shared read-only view of game state.
+//
+// Bot-facing fields (hand, balance, best_bid, best_ask, last_trade_price,
+// round_active, round_duration_s, buy_in, points_per_card) are a subset
+// populated by BotAdapter from per-bot wire events.
+//
+// Eval-facing fields (hands, balances, player_names, slot_active, deltas,
+// books, recent_trades, round_number, deck_table, current_deck_index) are
+// populated by GameSession::make_eval_snapshot() at round boundaries and
+// after each trade; bots never read these.
 struct GameStateSnapshot {
-    std::array<int, 4>                    hand;
+    // ── Bot-facing ────────────────────────────────────────────────────────
+    std::array<int, 4>                    hand{};
     std::array<std::optional<int32_t>, 4> best_bid;
     std::array<std::optional<int32_t>, 4> best_ask;
     std::array<std::optional<int32_t>, 4> last_trade_price;
-    std::vector<std::array<int, 4>>       delta_table;
-    int     player_slot      = -1;
-    int     player_count     = 0;
-    float   time_remaining_s = 0.0f;
+    int     my_slot          = -1;
+    int     num_active_slots = 0;
+    double  time_remaining_s = 0.0;
     float   round_duration_s = 0.0f;
     int32_t balance          = 0;
     int32_t buy_in           = 0;
     int32_t points_per_card  = 0;
     bool    round_active     = false;
+
+    // ── Eval-facing (server-side only; never sent over wire) ──────────────
+    std::array<std::array<int, 4>, 4> hands{};        // [slot][suit]
+    std::array<int32_t, 4>           balances{};
+    std::array<std::string, 4>       player_names{};
+    std::array<bool, 4>              slot_active{};
+    std::array<std::array<int, 4>, 4> deltas{};        // net card flow [slot][suit]
+    std::array<BookSnapshot, 4>      books{};
+    std::vector<TradeRecord>         recent_trades;
+    int                              round_number        = 0;
+    std::array<DeckSpec, 12>         deck_table{};
+    int                              current_deck_index  = -1;
 };
 
 } // namespace anjeer::engine

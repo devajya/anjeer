@@ -36,7 +36,7 @@ BotAdapter::BotAdapter(
     , round_duration_s_(ctx.round_duration_s)
     , adapter_rng_(static_cast<uint64_t>(ctx.slot) ^ 0x9e3779b97f4a7c15ULL)
 {
-    snapshot_.player_slot      = ctx.slot;
+    snapshot_.my_slot          = ctx.slot;
     snapshot_.points_per_card  = ctx.points_per_card;
     snapshot_.buy_in           = ctx.buy_in;
     snapshot_.round_duration_s = static_cast<float>(ctx.round_duration_s);
@@ -113,9 +113,9 @@ void BotAdapter::tick() {
     // Refresh time_remaining_s.
     if (round_end_valid_) {
         auto sys_now = std::chrono::system_clock::now();
-        auto rem = std::chrono::duration_cast<std::chrono::duration<float>>(
+        auto rem = std::chrono::duration_cast<std::chrono::duration<double>>(
             round_end_time_ - sys_now);
-        snapshot_.time_remaining_s = std::max(0.0f, rem.count());
+        snapshot_.time_remaining_s = std::max(0.0, rem.count());
     }
 
     auto actions = strategy_->decide(snapshot_);
@@ -162,7 +162,7 @@ void BotAdapter::process_event(const std::string& json) {
         snapshot_.round_active = true;
         actions_in_flight_     = 0;
         flight_deadlines_.clear();
-        snapshot_.player_slot  = j.value("player_slot", player_slot_);
+        snapshot_.my_slot  = j.value("player_slot", player_slot_);
         snapshot_.balance          = j.value("balance", int32_t{0});
 
         if (j.contains("hand")) {
@@ -175,8 +175,7 @@ void BotAdapter::process_event(const std::string& json) {
 
         if (j.contains("all_balances") && j["all_balances"].is_array()) {
             int pc = static_cast<int>(j["all_balances"].size());
-            snapshot_.player_count = pc;
-            snapshot_.delta_table.assign(pc, {0, 0, 0, 0});
+            snapshot_.num_active_slots = pc;
         }
 
         if (j.contains("round_end_at") && j["round_end_at"].is_string()) {
@@ -192,15 +191,15 @@ void BotAdapter::process_event(const std::string& json) {
         anjeer::engine::BotRoundStartEvent ev{};
         ev.hand            = snapshot_.hand;
         ev.round_duration_s = snapshot_.round_duration_s;
-        ev.player_slot     = snapshot_.player_slot;
-        ev.player_count    = snapshot_.player_count;
+        ev.player_slot     = snapshot_.my_slot;
+        ev.player_count    = snapshot_.num_active_slots;
         ev.balance         = snapshot_.balance;
         ev.buy_in          = buy_in_;
         ev.points_per_card = points_per_card_;
         strategy_->on_event(ev);
         log_event("round_start",
-            "slot=" + std::to_string(snapshot_.player_slot) +
-            " players=" + std::to_string(snapshot_.player_count) +
+            "slot=" + std::to_string(snapshot_.my_slot) +
+            " players=" + std::to_string(snapshot_.num_active_slots) +
             " hand=[C:" + std::to_string(snapshot_.hand[0]) +
             " D:" + std::to_string(snapshot_.hand[1]) +
             " H:" + std::to_string(snapshot_.hand[2]) +
@@ -267,9 +266,9 @@ void BotAdapter::process_event(const std::string& json) {
             }
             table.push_back(arr);
         }
-        snapshot_.delta_table = table;
+        int n_rows = static_cast<int>(table.size());
         strategy_->on_event(anjeer::engine::BotDeltaUpdateEvent{std::move(table)});
-        log_event("delta_update", "rows=" + std::to_string(snapshot_.delta_table.size()));
+        log_event("delta_update", "rows=" + std::to_string(n_rows));
     }
     else if (type == "order_ack") {
         std::string oid = std::to_string(j.value("order_id", int64_t{0}));
