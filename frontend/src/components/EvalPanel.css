@@ -82,3 +82,9 @@
 .eval-panel__body::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+.eval-panel__divider {
+  height: 1px;
+  background: #222;
+  margin: 8px 0;
+}

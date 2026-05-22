@@ -744,7 +744,24 @@ void WsServer::create_session(const std::string& lobby_id) {
 
 // ─── dispatch_eval_output ─────────────────────────────────────────────────
 void WsServer::dispatch_eval_output(ActiveSession& as, const eval::EvalOutput& out) {
-    const std::string payload = out.payload.dump();
+    // Inject wire-protocol discriminant fields so the frontend switch can route
+    // the message. The C++ eval modules build only the inner payload; the type
+    // tag and player_slot are owned by the transport layer here.
+    nlohmann::json wrapped = out.payload;
+    switch (out.type) {
+        case eval::EvalOutput::Type::PosteriorUpdate:
+            wrapped["type"] = "eval_posterior_update";
+            break;
+        case eval::EvalOutput::Type::AccumulationSignal:
+            wrapped["type"] = "eval_accumulation_signal";
+            break;
+        case eval::EvalOutput::Type::ExecutionGuidance:
+            wrapped["type"] = "eval_execution_guidance";
+            break;
+    }
+    wrapped["player_slot"] = out.target_slot;
+    const std::string payload = wrapped.dump();
+
     if (out.target_slot == -1) {
         for (auto& [slot, ws] : as.slot_to_ws_)
             ws->send(payload, uWS::OpCode::TEXT);

@@ -10,6 +10,7 @@ import { KeybindSettings } from './pages/KeybindSettings'
 import { ApiKeySettings } from './pages/ApiKeySettings'
 import { SpectatorView } from './pages/SpectatorView'
 import { DocsPage } from './pages/DocsPage'
+import { LearnPage } from './pages/LearnPage'
 
 // AGENT-CTX: Prevents direct access to /game without a lobby_id query param.
 // A valid lobby_id is required because Game.tsx uses it for WS join and reconnect
@@ -84,6 +85,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <DocsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/learn"
+          element={
+            <ProtectedRoute>
+              <LearnPage />
             </ProtectedRoute>
           }
         />

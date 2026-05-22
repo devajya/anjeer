@@ -8,6 +8,7 @@ import type { LobbyView } from '../types/lobby'
 import './LobbyBrowser.css'
 
 type Tab = 'starting' | 'active'
+type MenuTab = 'settings' | 'apis' | 'learn'
 
 export function LobbyBrowser() {
   const navigate              = useNavigate()
@@ -22,8 +23,9 @@ export function LobbyBrowser() {
   const [codeInput, setCodeInput] = useState('')
   const [joinCodeError, setJoinCodeError] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-  // AGENT-CTX: menuRef used for click-outside detection — closes the dropdown when
-  // the user clicks anywhere outside the hamburger + menu container.
+  const [menuTab, setMenuTab]   = useState<MenuTab>('settings')
+  // AGENT-CTX: menuRef wraps both trigger and dropdown so click-outside detection
+  // ignores clicks within this subtree. Hamburger moved to header-left next to avatar.
   const menuRef = useRef<HTMLDivElement>(null)
   const { queueState, joinQueue, leaveQueue, resetQueue } = useWebSocket('/ws')
   const [overflowLobbyIds, setOverflowLobbyIds] = useState<Set<string>>(new Set())
@@ -136,13 +138,7 @@ export function LobbyBrowser() {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="lp__header">
         <div className="lp__header-left">
-          <div className="lp__avatar" title={user?.username}>{userInitial}</div>
-          <span className="lp__trophy" aria-label="Leaderboard">🏆</span>
-        </div>
-        <div className="lp__header-right">
-          <span className="lp__brand">Anjeer</span>
-          {/* AGENT-CTX: menuRef wraps both trigger and dropdown so click-outside
-              detection (mousedown on document) ignores clicks within this subtree. */}
+          {/* Hamburger moved here — left of avatar */}
           <div className="lp__menu-wrap" ref={menuRef}>
             <button
               className="lp__hamburger"
@@ -153,38 +149,77 @@ export function LobbyBrowser() {
               ☰
             </button>
             {menuOpen && (
-              <div className="lp__menu" role="menu">
-                <button
-                  className="lp__menu-item"
-                  role="menuitem"
-                  onClick={() => { setMenuOpen(false); navigate('/settings/keybinds') }}
-                >
-                  Key Bindings
-                </button>
-                <button
-                  className="lp__menu-item"
-                  role="menuitem"
-                  onClick={() => { setMenuOpen(false); navigate('/api-keys') }}
-                >
-                  API Keys
-                </button>
-                <button
-                  className="lp__menu-item"
-                  role="menuitem"
-                  onClick={() => { setMenuOpen(false); navigate('/docs') }}
-                >
-                  API Docs
-                </button>
-                <button
-                  className="lp__menu-item lp__menu-item--danger"
-                  role="menuitem"
-                  onClick={() => { setMenuOpen(false); logout() }}
-                >
-                  Log Out
-                </button>
+              <div className="lp__menu" role="dialog" aria-label="Navigation menu">
+                {/* Tab bar */}
+                <div className="lp__menu-tabs" role="tablist">
+                  {(['settings', 'apis', 'learn'] as MenuTab[]).map(t => (
+                    <button
+                      key={t}
+                      role="tab"
+                      aria-selected={menuTab === t}
+                      className={`lp__menu-tab${menuTab === t ? ' lp__menu-tab--active' : ''}`}
+                      onClick={() => setMenuTab(t)}
+                    >
+                      {t === 'settings' ? 'Settings' : t === 'apis' ? 'APIs' : 'Learn'}
+                    </button>
+                  ))}
+                </div>
+                {/* Tab panels */}
+                <div className="lp__menu-panel">
+                  {menuTab === 'settings' && (
+                    <button
+                      className="lp__menu-item"
+                      role="menuitem"
+                      onClick={() => { setMenuOpen(false); navigate('/settings/keybinds') }}
+                    >
+                      Key Bindings
+                    </button>
+                  )}
+                  {menuTab === 'apis' && (<>
+                    <button
+                      className="lp__menu-item"
+                      role="menuitem"
+                      onClick={() => { setMenuOpen(false); navigate('/api-keys') }}
+                    >
+                      API Keys
+                    </button>
+                    <button
+                      className="lp__menu-item"
+                      role="menuitem"
+                      onClick={() => { setMenuOpen(false); navigate('/docs') }}
+                    >
+                      API Docs
+                    </button>
+                  </>)}
+                  {menuTab === 'learn' && (
+                    <button
+                      className="lp__menu-item"
+                      role="menuitem"
+                      onClick={() => { setMenuOpen(false); navigate('/learn') }}
+                    >
+                      Understanding Eval Stats
+                    </button>
+                  )}
+                </div>
+                {/* Log out always visible at bottom */}
+                <div className="lp__menu-footer">
+                  <button
+                    className="lp__menu-item lp__menu-item--danger"
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); logout() }}
+                  >
+                    Log Out
+                  </button>
+                </div>
               </div>
             )}
           </div>
+          <div className="lp__avatar" title={user?.username}>{userInitial}</div>
+        </div>
+        <div className="lp__header-right">
+          <span className="lp__brand">Anjeer</span>
+          {/* Trophy moved to right where hamburger used to be */}
+          <span className="lp__trophy" aria-label="Leaderboard">🏆</span>
         </div>
       </header>
 

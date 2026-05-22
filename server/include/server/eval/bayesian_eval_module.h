@@ -26,8 +26,6 @@ class BayesianEvalModule : public EvalModule {
 public:
     BayesianEvalModule() = default;
 
-    void set_output_cb(EvalOutputCallback cb) { cb_ = std::move(cb); }
-
     void on_round_start(const engine::GameStateSnapshot&) override;
     void on_trade_event(const EvalTradeEvent&)            override;
     void on_book_update(const EvalBookUpdate&)            override;
@@ -43,7 +41,6 @@ private:
     std::array<std::array<int, 4>, 4>     hands_{};      // [slot][suit_index]
     double                                time_remaining_s_{0.0};
     int32_t                               points_per_card_{0};
-    EvalOutputCallback                    cb_;
 
     // lf_[n] = log(n!), precomputed for n in [0, 40] at construction
     std::array<double, 41> lf_{};

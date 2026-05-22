@@ -119,7 +119,6 @@ void BayesianEvalModule::apply_trade_heuristic(const EvalTradeEvent& ev) {
 // emit_all — fires EvalOutput{PosteriorUpdate} once per active slot
 // ---------------------------------------------------------------------------
 void BayesianEvalModule::emit_all(double /*time_remaining_s*/) {
-    if (!cb_) return;
 
     for (int slot = 0; slot < 4; ++slot) {
         // Skip slots whose posterior was never initialised (inactive)
@@ -175,7 +174,7 @@ void BayesianEvalModule::emit_all(double /*time_remaining_s*/) {
         }
         payload["delta_ev"] = std::move(dev);
 
-        cb_(EvalOutput{EvalOutput::Type::PosteriorUpdate, slot, std::move(payload)});
+        emit(EvalOutput{EvalOutput::Type::PosteriorUpdate, slot, std::move(payload)});
     }
 }
 
@@ -185,10 +184,12 @@ void BayesianEvalModule::emit_all(double /*time_remaining_s*/) {
 
 void BayesianEvalModule::on_round_start(const GameStateSnapshot& snap) {
     init_from_snapshot(snap);
+    emit_all(snap.time_remaining_s);
 }
 
 void BayesianEvalModule::on_trade_event(const EvalTradeEvent& ev) {
     apply_trade_heuristic(ev);
+    emit_all(time_remaining_s_);
 }
 
 void BayesianEvalModule::on_book_update(const EvalBookUpdate&) {

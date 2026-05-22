@@ -90,6 +90,7 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     queueState:             { status: 'idle' },
     currentOwnerPlayerId:   null,
     currentOwnerUsername:   '',
+    evalPosteriorUpdate:    null,
     ...overrides,
   }
 }

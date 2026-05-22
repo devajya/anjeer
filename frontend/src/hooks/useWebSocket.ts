@@ -183,6 +183,14 @@ export interface WsState {
   currentOwnerPlayerId: number | null
   /** Username of the current session owner. Set alongside currentOwnerPlayerId. */
   currentOwnerUsername: string
+  // ── Slice 11: Eval signals ────────────────────────────────────────────────
+  /**
+   * Latest Bayesian posterior update for this player slot. null until the first
+   * eval_posterior_update message arrives.
+   * AGENT-CTX: Overwritten on each new message (not accumulated); the eval
+   * pipeline sends a full posterior snapshot each time, not incremental deltas.
+   */
+  evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -246,6 +254,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     queueState: { status: 'idle' },
     currentOwnerPlayerId: null,
     currentOwnerUsername: '',
+    evalPosteriorUpdate: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -645,7 +654,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         }
 
         case 'eval_posterior_update':
-          logger.info('ws/recv', `eval_posterior_update slot=${msg.player_slot} round=${msg.round}`)
+          logger.info('ws/recv', `eval_posterior_update slot=${msg.player_slot} configs=${msg.configurations?.length}`)
+          setState(s => ({ ...s, evalPosteriorUpdate: msg }))
           break
 
         case 'eval_accumulation_signal':

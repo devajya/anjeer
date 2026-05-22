@@ -1006,8 +1006,15 @@ std::string GameSession::steady_to_iso(std::chrono::steady_clock::time_point tp)
 
 engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
     engine::GameStateSnapshot snap;
-    snap.round_number = round_number_;
-    snap.round_active = (phase_ == SessionPhase::RoundActive);
+    snap.round_number    = round_number_;
+    snap.round_active    = (phase_ == SessionPhase::RoundActive);
+    snap.points_per_card = cfg_.scoring.points_per_card;
+
+    if (phase_ == SessionPhase::RoundActive) {
+        const auto remaining = round_deadline_ - std::chrono::steady_clock::now();
+        snap.time_remaining_s = std::max(0.0,
+            std::chrono::duration<double>(remaining).count());
+    }
 
     // Deck table: copy all 12 deck specs.
     for (int i = 0; i < static_cast<int>(kDecks.size()); ++i) {

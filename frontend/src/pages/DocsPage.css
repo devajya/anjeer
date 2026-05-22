@@ -141,3 +141,67 @@
   font-size: 0.78rem;
   color: var(--color-muted, #888);
 }
+
+/* ── Eval stats section ──────────────────────────────────────────────────── */
+
+.docs__caveat {
+  border-left: 3px solid var(--color-border, #333);
+  padding: 0.75rem 1rem;
+  margin: 1.25rem 0;
+  background: var(--color-panel-header, #1a1a1a);
+  border-radius: 0 6px 6px 0;
+}
+
+.docs__caveat h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--color-text, #e0e0e0);
+}
+
+.docs__caveat p {
+  margin: 0.4rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.docs__caveat-player {
+  margin-top: 0.6rem !important;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--color-border, #333);
+  color: var(--color-muted, #aaa);
+}
+
+.docs__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.88rem;
+}
+
+.docs__table th,
+.docs__table td {
+  text-align: left;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--color-border, #333);
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.docs__table th {
+  background: var(--color-panel-header, #1a1a1a);
+  font-weight: 600;
+  color: var(--color-text, #e0e0e0);
+}
+
+.docs__table td:first-child {
+  white-space: nowrap;
+  width: 18%;
+}
+
+.docs__table td:nth-child(2) {
+  width: 40%;
+}
+
+.docs__table tr:nth-child(even) td {
+  background: rgba(255,255,255,0.02);
+}

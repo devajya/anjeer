@@ -343,16 +343,32 @@ export interface ScriptLogMessage {
 
 // ── Slice 11: Eval framework signals ─────────────────────────────────────────
 
+/** One deck configuration entry inside EvalPosteriorUpdateMessage.configurations. */
+export interface EvalConfiguration {
+  deck_index: number
+  counts: [number, number, number, number]
+  goal_suit: string
+  probability: number
+}
+
 /**
- * Goal-suit posterior distribution for one player slot.
- * Broadcast (target_slot == -1) or unicast to the observing spectator.
- * posteriors maps suit name → probability in [0, 1]; values sum to 1.
+ * Bayesian posterior update for one player slot.
+ * AGENT-CTX: target_slot in EvalOutput maps to player_slot here (private unicast).
+ * The server must inject `type` and `player_slot` into the payload before sending;
+ * the C++ BayesianEvalModule emits the inner fields only — see Task 20 for the
+ * server-side dispatch fix that adds these wrapper fields.
  */
 export interface EvalPosteriorUpdateMessage {
   type: 'eval_posterior_update'
   player_slot: number
-  posteriors: Record<string, number>
-  round: number
+  /** All 12 deck configurations with their posterior probabilities. */
+  configurations: EvalConfiguration[]
+  /** Marginal probability per goal suit (sum to 1.0). */
+  goal_suit_marginals: Record<string, number>
+  /** Expected payout at round end given current hand and posteriors. */
+  settlement_ev: number
+  /** Marginal EV gain of acquiring one additional card per suit. */
+  delta_ev: Record<string, number>
 }
 
 /**

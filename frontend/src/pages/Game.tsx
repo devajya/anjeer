@@ -54,6 +54,7 @@ const { user, logout } = useAuth()
     roster, deltas, allBalances, allHandTotals, spectatorCount,
     reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueState,
     currentOwnerPlayerId, currentOwnerUsername,
+    evalPosteriorUpdate,
   } = useWebSocket('/ws')
 
   const {
@@ -376,7 +377,10 @@ const { user, logout } = useAuth()
           </div>
 
           {/* ── EVAL: Collapsible eval panel ── */}
-          <EvalPanel onExpandedChange={setEvalExpanded} />
+          <EvalPanel
+            onExpandedChange={setEvalExpanded}
+            posteriorUpdate={evalPosteriorUpdate}
+          />
 
         </div>
       </main>
