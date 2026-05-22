@@ -32,6 +32,7 @@ add_executable(server
     src/lobby_queue.cpp
     src/bot_manager_session.cpp
     src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -74,6 +75,7 @@ catch_discover_tests(eval_runner_tests)
 # ---------------------------------------------------------------------------
 add_executable(bayesian_module_tests
     tests/bayesian_module_tests.cpp
+    src/bayesian_eval_module.cpp
 )
 
 target_include_directories(bayesian_module_tests PRIVATE include)

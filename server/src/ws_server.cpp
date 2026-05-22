@@ -1,6 +1,7 @@
 #include "server/ws_server.h"
 #include "server/crypto_util.h"
 #include "server/game_session_wire.h"
+#include "server/eval/bayesian_eval_module.h"
 
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
@@ -718,6 +719,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     }
 
     GameSessionContext gs_ctx{cfg_, server_log_, engine_log_, std::mt19937{rng_()}, db_pool_};
+    gs_ctx.eval_modules.push_back(std::make_unique<eval::BayesianEvalModule>());
 
     as.session = std::make_unique<GameSession>(
         session_id, lobby_id,

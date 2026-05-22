@@ -190,6 +190,9 @@ export function useSpectator(lobbyId: string): WsState {
         case 'reconnect_window_expired':
         case 'lobby_owner_changed':
         case 'lobby_settings_changed':
+        case 'eval_posterior_update':
+        case 'eval_accumulation_signal':
+        case 'eval_execution_guidance':
           break
 
         default: {

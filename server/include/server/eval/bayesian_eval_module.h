@@ -18,11 +18,15 @@ namespace anjeer::server::eval {
 //   settlement_ev        — Σ P(σ) · hands[slot][goal_suit(σ)] · points_per_card
 //   delta_ev             — per-suit marginal EV gain of acquiring one more card
 //
-// AGENT-CTX: on_* bodies are intentionally no-ops in this Task-8 stub;
-// full implementation ships in Task 10. Tests compile and fail at runtime.
+// AGENT-CTX: on_* bodies are intentionally no-ops until Task 10.
+// set_output_cb() allows tests to inject a callback after default construction
+// without requiring a constructor argument — the EvalRunner wires the callback
+// at session init via ws_server.cpp; tests call set_output_cb directly.
 class BayesianEvalModule : public EvalModule {
 public:
     BayesianEvalModule() = default;
+
+    void set_output_cb(EvalOutputCallback cb) { cb_ = std::move(cb); }
 
     void on_round_start(const engine::GameStateSnapshot&) override {}
     void on_trade_event(const EvalTradeEvent&)            override {}
@@ -39,6 +43,7 @@ private:
     std::array<std::array<int, 4>, 4>     hands_{};      // [slot][suit_index]
     double                                time_remaining_s_{0.0};
     int32_t                               points_per_card_{0};
+    EvalOutputCallback                    cb_;
 
     // lf_[n] = log(n!), precomputed for n in [0, 40] at construction
     std::array<double, 41> lf_{};
