@@ -56,6 +56,7 @@ target_link_libraries(server PRIVATE
 add_executable(eval_runner_tests
     tests/eval_runner_tests.cpp
     src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
 )
 
 target_include_directories(eval_runner_tests PRIVATE include)
@@ -125,6 +126,7 @@ add_executable(ws_server_tests
     src/lobby_gateway.cpp
     src/game_session.cpp
     src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
@@ -345,6 +347,7 @@ add_executable(game_session_tests
     src/session_repo.cpp
     src/game_session.cpp
     src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
     src/game_session_wire.cpp
     src/logger.cpp
     src/event_bus.cpp
@@ -506,6 +509,7 @@ add_executable(bot_headless_tests
     src/db.cpp
     src/game_session.cpp
     src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/lobby_repo.cpp
@@ -638,6 +642,7 @@ add_executable(reconnect_integration_tests
     src/lobby_gateway.cpp
     src/game_session.cpp
     src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp

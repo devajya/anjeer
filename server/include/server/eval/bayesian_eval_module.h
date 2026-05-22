@@ -28,10 +28,10 @@ public:
 
     void set_output_cb(EvalOutputCallback cb) { cb_ = std::move(cb); }
 
-    void on_round_start(const engine::GameStateSnapshot&) override {}
-    void on_trade_event(const EvalTradeEvent&)            override {}
-    void on_book_update(const EvalBookUpdate&)            override {}
-    void on_round_end  (const engine::GameStateSnapshot&) override {}
+    void on_round_start(const engine::GameStateSnapshot&) override;
+    void on_trade_event(const EvalTradeEvent&)            override;
+    void on_book_update(const EvalBookUpdate&)            override;
+    void on_round_end  (const engine::GameStateSnapshot&) override;
 
     // Test inspector — returns the normalised posterior for one slot over all 12 configs.
     const std::array<double, 12>& posteriors_for(int slot) const { return posteriors_[slot]; }
