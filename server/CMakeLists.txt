@@ -70,6 +70,24 @@ target_link_libraries(eval_runner_tests PRIVATE
 catch_discover_tests(eval_runner_tests)
 
 # ---------------------------------------------------------------------------
+# Bayesian eval module unit tests — no DB, no network; pure math + latency
+# ---------------------------------------------------------------------------
+add_executable(bayesian_module_tests
+    tests/bayesian_module_tests.cpp
+)
+
+target_include_directories(bayesian_module_tests PRIVATE include)
+
+target_link_libraries(bayesian_module_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    pthread
+)
+
+catch_discover_tests(bayesian_module_tests)
+
+# ---------------------------------------------------------------------------
 # Unit tests (Catch2)
 # ---------------------------------------------------------------------------
 
