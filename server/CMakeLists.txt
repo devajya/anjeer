@@ -33,6 +33,7 @@ add_executable(server
     src/bot_manager_session.cpp
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -57,6 +58,7 @@ add_executable(eval_runner_tests
     tests/eval_runner_tests.cpp
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
 )
 
 target_include_directories(eval_runner_tests PRIVATE include)
@@ -77,6 +79,7 @@ catch_discover_tests(eval_runner_tests)
 add_executable(bayesian_module_tests
     tests/bayesian_module_tests.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
 )
 
 target_include_directories(bayesian_module_tests PRIVATE include)
@@ -146,6 +149,7 @@ add_executable(ws_server_tests
     src/game_session.cpp
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
@@ -367,6 +371,7 @@ add_executable(game_session_tests
     src/game_session.cpp
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
     src/game_session_wire.cpp
     src/logger.cpp
     src/event_bus.cpp
@@ -529,6 +534,7 @@ add_executable(bot_headless_tests
     src/game_session.cpp
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/lobby_repo.cpp
@@ -662,6 +668,7 @@ add_executable(reconnect_integration_tests
     src/game_session.cpp
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp

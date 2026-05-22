@@ -32,7 +32,8 @@ public:
     void on_book_update(const EvalBookUpdate&)            override;
     void on_round_end  (const engine::GameStateSnapshot&) override;
 
-    void set_output_cb(EvalOutputCallback cb);
+    // Mirrors BayesianEvalModule test-injection pattern; delegates to base emit().
+    void set_output_cb(EvalOutputCallback cb) { EvalModule::set_output_cb(std::move(cb)); }
 
     // Test inspectors
     double signed_delta(int slot, int suit) const { return signed_deltas_[slot][suit]; }
@@ -43,13 +44,15 @@ private:
     std::array<std::array<double, 4>, 4> signed_deltas_{};
     // ewma_baseline_[suit] — exponential moving average of absolute delta magnitude
     std::array<double, 4>                ewma_baseline_{};
-    EvalOutputCallback                   cb_;
     double                               ewma_alpha_{0.1};
     int                                  num_active_slots_{4};
     std::array<std::string, 4>           player_names_{};
 
     static constexpr double ELEVATED_THRESHOLD = 0.65;
     static constexpr double HIGH_THRESHOLD     = 0.85;
+    // Decay constant for intensity saturation curve: confidence = purity*(1-exp(-k*strength))
+    // k=0.15 → 1 buy≈0.14 (Normal), 8 buys≈0.70 (Elevated), 20 buys≈0.95 (High)
+    static constexpr double INTENSITY_DECAY_K  = 0.15;
 
     void compute_and_emit();
 };
