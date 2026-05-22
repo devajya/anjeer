@@ -91,6 +91,25 @@ target_link_libraries(bayesian_module_tests PRIVATE
 catch_discover_tests(bayesian_module_tests)
 
 # ---------------------------------------------------------------------------
+# Accumulation eval module unit tests — no DB, no network; pure math + latency
+# ---------------------------------------------------------------------------
+add_executable(accumulation_module_tests
+    tests/accumulation_module_tests.cpp
+    src/accumulation_eval_module.cpp
+)
+
+target_include_directories(accumulation_module_tests PRIVATE include)
+
+target_link_libraries(accumulation_module_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    pthread
+)
+
+catch_discover_tests(accumulation_module_tests)
+
+# ---------------------------------------------------------------------------
 # Unit tests (Catch2)
 # ---------------------------------------------------------------------------
 
