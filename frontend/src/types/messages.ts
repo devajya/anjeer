@@ -371,16 +371,21 @@ export interface EvalPosteriorUpdateMessage {
   delta_ev: Record<string, number>
 }
 
+export interface EvalPlayerSignal {
+  slot: number
+  player: string
+  signal: 'Normal' | 'Elevated' | 'High'
+  confidence: number
+  primary_suit: string
+}
+
 /**
- * Net card-accumulation signal for one player/suit pair.
- * confidence is in [0, 1]: 0 = no signal, 1 = high confidence.
+ * Per-round behavioral signal broadcast to all clients.
+ * players contains one entry per active slot.
  */
 export interface EvalAccumulationSignalMessage {
   type: 'eval_accumulation_signal'
-  player_slot: number
-  suit: string
-  net_count: number
-  confidence: number
+  players: EvalPlayerSignal[]
 }
 
 /**

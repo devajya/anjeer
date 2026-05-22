@@ -1025,6 +1025,7 @@ engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
         snap.current_deck_index = static_cast<int>(current_deck_ - kDecks.data());
 
     const int n = static_cast<int>(slots_.size());
+    snap.num_active_slots = n;
     for (int i = 0; i < n && i < 4; ++i) {
         snap.player_names[i] = slots_[i].username;
         snap.balances[i]     = slots_[i].balance;

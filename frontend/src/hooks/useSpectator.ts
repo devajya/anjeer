@@ -38,7 +38,8 @@ const INITIAL_STATE: WsState = {
   queueState:           { status: 'idle' },
   currentOwnerPlayerId: null,
   currentOwnerUsername: '',
-  evalPosteriorUpdate: null,
+  evalPosteriorUpdate:    null,
+  evalAccumulationSignal: null,
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and

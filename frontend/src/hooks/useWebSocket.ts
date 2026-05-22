@@ -191,6 +191,7 @@ export interface WsState {
    * pipeline sends a full posterior snapshot each time, not incremental deltas.
    */
   evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
+  evalAccumulationSignal: import('../types/messages').EvalAccumulationSignalMessage | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -255,6 +256,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     currentOwnerPlayerId: null,
     currentOwnerUsername: '',
     evalPosteriorUpdate: null,
+    evalAccumulationSignal: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -659,7 +661,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
 
         case 'eval_accumulation_signal':
-          logger.info('ws/recv', `eval_accumulation_signal slot=${msg.player_slot} suit=${msg.suit} net=${msg.net_count}`)
+          logger.info('ws/recv', `eval_accumulation_signal players=${msg.players?.length}`)
+          setState(s => ({ ...s, evalAccumulationSignal: msg }))
           break
 
         case 'eval_execution_guidance':

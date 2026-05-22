@@ -51,10 +51,9 @@ describe('useEvalMetrics — EvalAccumulationSignal', () => {
 
     const msg: EvalAccumulationSignalMessage = {
       type: 'eval_accumulation_signal',
-      player_slot: 0,
-      suit: 'diamonds',
-      net_count: 3,
-      confidence: 0.85,
+      players: [
+        { slot: 0, player: 'Alice', signal: 'Elevated', confidence: 0.85, primary_suit: 'diamonds' },
+      ],
     }
 
     act(() => { result.current.handleMessage(msg) })

@@ -55,6 +55,7 @@ const { user, logout } = useAuth()
     reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueState,
     currentOwnerPlayerId, currentOwnerUsername,
     evalPosteriorUpdate,
+    evalAccumulationSignal,
   } = useWebSocket('/ws')
 
   const {
@@ -380,6 +381,7 @@ const { user, logout } = useAuth()
           <EvalPanel
             onExpandedChange={setEvalExpanded}
             posteriorUpdate={evalPosteriorUpdate}
+            accumulationSignal={evalAccumulationSignal}
           />
 
         </div>

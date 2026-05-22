@@ -63,7 +63,15 @@ void EvalRunner::run_loop() {
         bool drained = false;
         while (queue_.try_dequeue(ev)) {
             queue_size_.fetch_sub(1, std::memory_order_relaxed);
-            dispatch(ev);
+            try {
+                dispatch(ev);
+            } catch (const std::exception& ex) {
+                fprintf(stderr, "[eval] dispatch exception: %s\n", ex.what());
+                fflush(stderr);
+            } catch (...) {
+                fprintf(stderr, "[eval] dispatch unknown exception\n");
+                fflush(stderr);
+            }
             drained = true;
         }
         if (!drained) {
@@ -74,25 +82,33 @@ void EvalRunner::run_loop() {
     TaggedEvent ev;
     while (queue_.try_dequeue(ev)) {
         queue_size_.fetch_sub(1, std::memory_order_relaxed);
-        dispatch(ev);
+        try { dispatch(ev); } catch (...) {}
     }
 }
 
 void EvalRunner::dispatch(const TaggedEvent& te) {
     for (auto& m : modules_) {
-        switch (te.tag) {
-            case TaggedEvent::RoundStart:
-                m->on_round_start(std::get<engine::GameStateSnapshot>(te.ev));
-                break;
-            case TaggedEvent::Trade:
-                m->on_trade_event(std::get<EvalTradeEvent>(te.ev));
-                break;
-            case TaggedEvent::Book:
-                m->on_book_update(std::get<EvalBookUpdate>(te.ev));
-                break;
-            case TaggedEvent::RoundEnd:
-                m->on_round_end(std::get<engine::GameStateSnapshot>(te.ev));
-                break;
+        try {
+            switch (te.tag) {
+                case TaggedEvent::RoundStart:
+                    m->on_round_start(std::get<engine::GameStateSnapshot>(te.ev));
+                    break;
+                case TaggedEvent::Trade:
+                    m->on_trade_event(std::get<EvalTradeEvent>(te.ev));
+                    break;
+                case TaggedEvent::Book:
+                    m->on_book_update(std::get<EvalBookUpdate>(te.ev));
+                    break;
+                case TaggedEvent::RoundEnd:
+                    m->on_round_end(std::get<engine::GameStateSnapshot>(te.ev));
+                    break;
+            }
+        } catch (const std::exception& ex) {
+            fprintf(stderr, "[eval] module exception tag=%d: %s\n", static_cast<int>(te.tag), ex.what());
+            fflush(stderr);
+        } catch (...) {
+            fprintf(stderr, "[eval] module unknown exception tag=%d\n", static_cast<int>(te.tag));
+            fflush(stderr);
         }
     }
 }

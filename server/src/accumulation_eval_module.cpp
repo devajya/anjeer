@@ -13,6 +13,7 @@ void AccumulationEvalModule::on_round_start(const engine::GameStateSnapshot& sna
     player_names_     = snap.player_names;
     // EWMA baseline intentionally persists across rounds to normalise for
     // overall market activity level observed in previous rounds.
+    compute_and_emit();
 }
 
 void AccumulationEvalModule::on_trade_event(const EvalTradeEvent& ev) {
@@ -23,6 +24,8 @@ void AccumulationEvalModule::on_trade_event(const EvalTradeEvent& ev) {
     // Track absolute per-trade magnitude for baseline normalisation.
     // Each trade contributes 1.0 of absolute flow to the dominant suit.
     ewma_baseline_[si] = ewma_alpha_ * 1.0 + (1.0 - ewma_alpha_) * ewma_baseline_[si];
+
+    compute_and_emit();
 }
 
 void AccumulationEvalModule::on_book_update(const EvalBookUpdate&) {}

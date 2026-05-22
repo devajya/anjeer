@@ -23,9 +23,13 @@ namespace anjeer::server::eval {
 // dynamically; the counter is the actual bound).
 class EvalRunner {
 public:
+    // AGENT-CTX: capacity 64 keeps moodycamel in the single-block path
+    // (ceilToPow2(65)=128 <= MAX_BLOCK_SIZE*2=1024), allocating ~109 KB.
+    // capacity=4096 would trigger 10×426 KB multi-block allocation that
+    // fragments the heap and causes bad_alloc on subsequent JSON operations.
     EvalRunner(std::vector<std::unique_ptr<EvalModule>> modules,
                EvalOutputCallback                       output_cb,
-               size_t                                   queue_capacity = 4096);
+               size_t                                   queue_capacity = 64);
     ~EvalRunner();
 
     void start();
