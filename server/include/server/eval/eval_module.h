@@ -19,6 +19,7 @@ public:
 
 protected:
     void emit(EvalOutput out) { if (output_cb_) output_cb_(std::move(out)); }
+    bool has_output_cb() const noexcept { return static_cast<bool>(output_cb_); }
 
 private:
     EvalOutputCallback output_cb_;

@@ -17,7 +17,33 @@ void ExecutionEvalModule::on_round_start(const engine::GameStateSnapshot& snap) 
     suit_stats_ = {};
 }
 
-void ExecutionEvalModule::on_trade_event(const EvalTradeEvent&) {}
+void ExecutionEvalModule::on_trade_event(const EvalTradeEvent& t) {
+    const int  idx = engine::suit_index(t.suit);
+    SuitStats& ss  = suit_stats_[idx];
+
+    // fill_rate: count-based EWMA (each trade contributes 1.0) → naturally in [0,1].
+    ss.fill_rate = EWMA_ALPHA * 1.0 + (1.0 - EWMA_ALPHA) * ss.fill_rate;
+
+    // trade_intensity: rate-based EWMA in trades/s; 100 ms default for the first trade.
+    const int64_t interval_ms = (ss.last_trade_ts_ms < 0)
+                                ? 100LL
+                                : (t.timestamp_ms - ss.last_trade_ts_ms);
+    if (interval_ms > 0) {
+        const double rate  = 1000.0 / static_cast<double>(interval_ms);
+        ss.trade_intensity = EWMA_ALPHA * rate + (1.0 - EWMA_ALPHA) * ss.trade_intensity;
+    }
+
+    ++ss.recent_trades;
+    ss.last_trade_ts_ms = t.timestamp_ms;
+
+    // Decay leakage on every trade across all suits.
+    for (SuitStats& s : suit_stats_)
+        s.leakage_penalty *= LEAKAGE_DECAY;
+
+    // Directional cross: buyer lifts the ask → information leakage signal.
+    if (ss.best_ask.has_value() && t.price >= *ss.best_ask)
+        ss.leakage_penalty += LEAKAGE_STEP;
+}
 
 void ExecutionEvalModule::on_book_update(const EvalBookUpdate& bu) {
     // AGENT-CTX: Book state cached here; EWMA updates deferred to Task 18.
@@ -69,7 +95,7 @@ void ExecutionEvalModule::compute_and_emit() {
         std::string rec;
         if (s.spread_width == 0 || (!s.best_bid && !s.best_ask)) {
             rec = "hold";
-        } else if (passive_ev > agg_cost) {
+        } else if (passive_ev > 0.0) {
             rec = "passive";
         } else {
             rec = "aggressive";
