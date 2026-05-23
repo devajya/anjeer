@@ -134,6 +134,29 @@ target_link_libraries(execution_module_tests PRIVATE
 catch_discover_tests(execution_module_tests)
 
 # ---------------------------------------------------------------------------
+# Eval integration tests — headless round simulation; all three modules + runner
+# ---------------------------------------------------------------------------
+add_executable(eval_integration_tests
+    tests/eval_integration_tests.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
+)
+
+target_include_directories(eval_integration_tests PRIVATE include)
+
+target_link_libraries(eval_integration_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+
+catch_discover_tests(eval_integration_tests)
+
+# ---------------------------------------------------------------------------
 # Unit tests (Catch2)
 # ---------------------------------------------------------------------------
 
