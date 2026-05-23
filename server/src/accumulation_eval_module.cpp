@@ -17,9 +17,10 @@ void AccumulationEvalModule::on_round_start(const engine::GameStateSnapshot& sna
 }
 
 void AccumulationEvalModule::on_trade_event(const EvalTradeEvent& ev) {
-    const int si = engine::suit_index(ev.suit);
-    signed_deltas_[ev.buyer_slot][si]  += 1.0;
-    signed_deltas_[ev.seller_slot][si] -= 1.0;
+    const int si  = engine::suit_index(ev.suit);
+    const int cap = static_cast<int>(signed_deltas_.size());
+    if (ev.buyer_slot  >= 0 && ev.buyer_slot  < cap) signed_deltas_[ev.buyer_slot][si]  += 1.0;
+    if (ev.seller_slot >= 0 && ev.seller_slot < cap) signed_deltas_[ev.seller_slot][si] -= 1.0;
 
     // Track absolute per-trade magnitude for baseline normalisation.
     // Each trade contributes 1.0 of absolute flow to the dominant suit.
@@ -37,7 +38,8 @@ void AccumulationEvalModule::on_round_end(const engine::GameStateSnapshot&) {
 void AccumulationEvalModule::compute_and_emit() {
     nlohmann::json players = nlohmann::json::array();
 
-    for (int slot = 0; slot < num_active_slots_; ++slot) {
+    const int n = std::min(num_active_slots_, static_cast<int>(signed_deltas_.size()));
+    for (int slot = 0; slot < n; ++slot) {
         const auto& deltas = signed_deltas_[slot];
 
         double max_abs = 0.0;

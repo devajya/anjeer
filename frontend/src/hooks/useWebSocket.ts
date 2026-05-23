@@ -192,6 +192,7 @@ export interface WsState {
    */
   evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
   evalAccumulationSignal: import('../types/messages').EvalAccumulationSignalMessage | null
+  evalExecutionGuidance: import('../types/messages').EvalExecutionGuidanceMessage | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -257,6 +258,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     currentOwnerUsername: '',
     evalPosteriorUpdate: null,
     evalAccumulationSignal: null,
+    evalExecutionGuidance: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -667,6 +669,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
         case 'eval_execution_guidance':
           logger.info('ws/recv', `eval_execution_guidance slot=${msg.player_slot} action=${msg.action} suit=${msg.suit}`)
+          setState(s => ({ ...s, evalExecutionGuidance: msg.action ? msg : null }))
           break
 
         default: {

@@ -306,6 +306,8 @@ void GameSession::handle_submit(const NetSubmit& ev) {
     if (had_trade) {
         apply_post_trade_state(events);
         apply_global_wipe();
+    } else {
+        push_book_updates_to_eval(events);
     }
 }
 
@@ -324,6 +326,8 @@ void GameSession::handle_nudge(const NetNudge& ev) {
     if (had_trade) {
         apply_post_trade_state(events);
         apply_global_wipe();
+    } else {
+        push_book_updates_to_eval(events);
     }
 }
 
@@ -707,6 +711,22 @@ bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderE
     return had_trade;
 }
 
+void GameSession::push_book_updates_to_eval(const std::vector<engine::OrderEvent>& events) {
+    for (const auto& ev : events) {
+        if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
+            const auto suit_opt = engine::suit_from_string(upd->suit);
+            if (!suit_opt) continue;
+            eval::EvalBookUpdate bu;
+            bu.suit          = *suit_opt;
+            bu.best_bid      = upd->best_bid;
+            bu.best_ask      = upd->best_ask;
+            bu.best_bid_slot = upd->best_bid_player_id;
+            bu.best_ask_slot = upd->best_ask_player_id;
+            eval_runner_->push_book_update(bu);
+        }
+    }
+}
+
 void GameSession::apply_post_trade_state(const std::vector<engine::OrderEvent>& events) {
     apply_card_transfers(events);
     apply_trade_settlements(events);
@@ -1024,9 +1044,9 @@ engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
     if (current_deck_)
         snap.current_deck_index = static_cast<int>(current_deck_ - kDecks.data());
 
-    const int n = static_cast<int>(slots_.size());
+    const int n = std::min(static_cast<int>(slots_.size()), 4);
     snap.num_active_slots = n;
-    for (int i = 0; i < n && i < 4; ++i) {
+    for (int i = 0; i < n; ++i) {
         snap.player_names[i] = slots_[i].username;
         snap.balances[i]     = slots_[i].balance;
         snap.slot_active[i]  = slots_[i].active;

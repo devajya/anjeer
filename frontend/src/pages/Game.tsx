@@ -56,6 +56,7 @@ const { user, logout } = useAuth()
     currentOwnerPlayerId, currentOwnerUsername,
     evalPosteriorUpdate,
     evalAccumulationSignal,
+    evalExecutionGuidance,
   } = useWebSocket('/ws')
 
   const {
@@ -382,6 +383,7 @@ const { user, logout } = useAuth()
             onExpandedChange={setEvalExpanded}
             posteriorUpdate={evalPosteriorUpdate}
             accumulationSignal={evalAccumulationSignal}
+            executionGuidance={evalExecutionGuidance}
           />
 
         </div>

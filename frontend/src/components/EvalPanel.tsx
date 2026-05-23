@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import type { EvalPosteriorUpdateMessage, EvalAccumulationSignalMessage } from '../types/messages'
+import type { EvalPosteriorUpdateMessage, EvalAccumulationSignalMessage, EvalExecutionGuidanceMessage } from '../types/messages'
 import { PosteriorDisplay } from './PosteriorDisplay'
 import { SettlementEV } from './SettlementEV'
 import { AccumulationDisplay } from './AccumulationDisplay'
+import { ExecutionGuidanceDisplay } from './ExecutionGuidanceDisplay'
 import './EvalPanel.css'
 
 interface EvalPanelProps {
@@ -10,9 +11,10 @@ interface EvalPanelProps {
   onExpandedChange?: (expanded: boolean) => void
   posteriorUpdate?: EvalPosteriorUpdateMessage | null
   accumulationSignal?: EvalAccumulationSignalMessage | null
+  executionGuidance?: EvalExecutionGuidanceMessage | null
 }
 
-export function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, accumulationSignal = null }: EvalPanelProps) {
+export function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, accumulationSignal = null, executionGuidance = null }: EvalPanelProps) {
   const [expanded, setExpanded] = useState(false)
 
   function toggle() {
@@ -45,6 +47,8 @@ export function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, 
           <PosteriorDisplay posteriorUpdate={posteriorUpdate} />
           <div className="eval-panel__divider" />
           <AccumulationDisplay accumulationSignal={accumulationSignal} />
+          <div className="eval-panel__divider" />
+          <ExecutionGuidanceDisplay executionGuidance={executionGuidance} />
           {children}
         </div>
       )}

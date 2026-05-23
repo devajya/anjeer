@@ -75,6 +75,7 @@ describe('useEvalMetrics — EvalExecutionGuidance', () => {
       action: 'buy',
       suit: 'clubs',
       price: 75,
+      suits: {},
     }
 
     act(() => { result.current.handleMessage(msg) })

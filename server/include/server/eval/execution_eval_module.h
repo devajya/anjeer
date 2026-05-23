@@ -36,11 +36,13 @@ public:
     void set_output_cb(EvalOutputCallback cb) { EvalModule::set_output_cb(std::move(cb)); }
 
     // Test inspectors — expose per-suit internal state without coupling to JSON
-    double fill_probability_for(int suit_idx) const;
-    double trade_intensity_for (int suit_idx) const { return suit_stats_[suit_idx].trade_intensity; }
-    int    spread_width_for    (int suit_idx) const { return suit_stats_[suit_idx].spread_width; }
-    double leakage_penalty_for (int suit_idx) const { return suit_stats_[suit_idx].leakage_penalty; }
-    int    recent_trades_for   (int suit_idx) const { return suit_stats_[suit_idx].recent_trades; }
+    double fill_probability_for   (int suit_idx) const;
+    double passive_ev_for         (int suit_idx) const;
+    double aggressive_buy_cost_for(int suit_idx) const;
+    double trade_intensity_for    (int suit_idx) const { return suit_stats_[suit_idx].trade_intensity; }
+    int    spread_width_for       (int suit_idx) const { return suit_stats_[suit_idx].spread_width; }
+    double leakage_penalty_for    (int suit_idx) const { return suit_stats_[suit_idx].leakage_penalty; }
+    int    recent_trades_for      (int suit_idx) const { return suit_stats_[suit_idx].recent_trades; }
 
 private:
     struct SuitStats {

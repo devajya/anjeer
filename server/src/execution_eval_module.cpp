@@ -43,6 +43,8 @@ void ExecutionEvalModule::on_trade_event(const EvalTradeEvent& t) {
     // Directional cross: buyer lifts the ask → information leakage signal.
     if (ss.best_ask.has_value() && t.price >= *ss.best_ask)
         ss.leakage_penalty += LEAKAGE_STEP;
+
+    compute_and_emit();
 }
 
 void ExecutionEvalModule::on_book_update(const EvalBookUpdate& bu) {
@@ -64,6 +66,17 @@ double ExecutionEvalModule::fill_probability_for(int suit_idx) const {
     return estimate_fill_probability(suit_stats_[suit_idx]);
 }
 
+double ExecutionEvalModule::passive_ev_for(int suit_idx) const {
+    const SuitStats& s = suit_stats_[suit_idx];
+    return estimate_fill_probability(s) * (s.spread_width / 2.0) - s.leakage_penalty;
+}
+
+double ExecutionEvalModule::aggressive_buy_cost_for(int suit_idx) const {
+    const SuitStats& s  = suit_stats_[suit_idx];
+    const double fair   = s.best_bid ? static_cast<double>(*s.best_bid) : 0.0;
+    return s.best_ask ? compute_execution_cost(*s.best_ask, fair) : 0.0;
+}
+
 double ExecutionEvalModule::estimate_fill_probability(const SuitStats& s) const {
     if (s.spread_width <= 0) return 0.0;
     return std::clamp(
@@ -78,57 +91,82 @@ double ExecutionEvalModule::compute_execution_cost(int best_ask, double modeled_
 void ExecutionEvalModule::compute_and_emit() {
     using nlohmann::json;
 
-    json suits = json::object();
+    struct SuitResult {
+        std::string            rec;
+        double                 passive_ev{0.0};
+        double                 fp{0.0};
+        std::optional<int32_t> best_bid;
+        std::optional<int32_t> best_ask;
+    };
+    std::array<SuitResult, 4> results{};
+
     for (int si = 0; si < 4; ++si) {
-        const SuitStats& s   = suit_stats_[si];
-        const std::string key(engine::suit_name(engine::kAllSuits[si]));
+        const SuitStats& s = suit_stats_[si];
+        SuitResult&      r = results[si];
 
-        const double fp = estimate_fill_probability(s);
-        // proxy fair value = best_bid when no posterior available
+        r.fp       = estimate_fill_probability(s);
+        r.best_bid = s.best_bid;
+        r.best_ask = s.best_ask;
+
         const double fair_value = s.best_bid ? static_cast<double>(*s.best_bid) : 0.0;
-        const double agg_cost   = s.best_ask
-                                      ? compute_execution_cost(*s.best_ask, fair_value)
-                                      : 0.0;
-        const double passive_ev = fp * (s.spread_width / 2.0) - s.leakage_penalty;
+        (void)compute_execution_cost(s.best_ask ? *s.best_ask : 0, fair_value); // kept for future use
+        r.passive_ev = r.fp * (s.spread_width / 2.0) - s.leakage_penalty;
 
-        // Recommendation
-        std::string rec;
-        if (s.spread_width == 0 || (!s.best_bid && !s.best_ask)) {
-            rec = "hold";
-        } else if (passive_ev > 0.0) {
-            rec = "passive";
-        } else {
-            rec = "aggressive";
-        }
+        if (s.spread_width == 0 || (!s.best_bid && !s.best_ask))
+            r.rec = "hold";
+        else if (r.passive_ev > 0.0)
+            r.rec = "passive";
+        else
+            r.rec = "aggressive";
+    }
 
-        // Liquidity tiers: thin < 2 trades, normal < 10, deep >= 10
-        const std::string liq = s.recent_trades < 2  ? "thin"
-                              : s.recent_trades < 10 ? "normal"
-                                                     : "deep";
-
-        // Risk tiers: low fp > 0.6, moderate > 0.3, elevated otherwise
-        const std::string risk = fp > 0.6 ? "low"
-                               : fp > 0.3 ? "moderate"
-                                          : "elevated";
-
-        suits[key] = {
-            {"aggressive_buy_cost", agg_cost},
-            {"passive_ev",          passive_ev},
-            {"fill_probability",    fp},
-            {"recommendation",      rec},
-            {"liquidity",           liq},
-            {"spread_width",        s.spread_width},
-            {"trade_intensity",     s.trade_intensity < 1.0 ? "low"
-                                  : s.trade_intensity < 5.0 ? "moderate"
-                                                            : "high"},
-            {"execution_risk",      risk},
+    // Build per-suit JSON object for the frontend table.
+    json suits_json = json::object();
+    for (int si = 0; si < 4; ++si) {
+        const SuitResult& r   = results[si];
+        const std::string key(engine::suit_name(engine::kAllSuits[si]));
+        const std::string intensity = suit_stats_[si].trade_intensity < 1.0 ? "low"
+                                    : suit_stats_[si].trade_intensity < 5.0 ? "moderate"
+                                                                             : "high";
+        suits_json[key] = {
+            {"fill_probability", r.fp},
+            {"passive_ev",       r.passive_ev},
+            {"trade_intensity",  intensity},
+            {"spread_width",     suit_stats_[si].spread_width},
+            {"recommendation",   r.rec},
         };
+    }
+
+    // Pick the suit with the best opportunity: highest passive_ev (passive),
+    // or highest fill_probability (aggressive).
+    int    best_si    = -1;
+    double best_score = 0.0;
+    for (int si = 0; si < 4; ++si) {
+        const double score = (results[si].rec == "passive")    ? results[si].passive_ev
+                           : (results[si].rec == "aggressive") ? results[si].fp
+                                                               : -1.0;
+        if (score > best_score) { best_score = score; best_si = si; }
+    }
+
+    std::string action = "hold";
+    std::string suit;
+    json        price  = nullptr;
+
+    if (best_si >= 0) {
+        const SuitResult& r = results[best_si];
+        suit   = std::string(engine::suit_name(engine::kAllSuits[best_si]));
+        action = "buy";
+        const auto& target_price = (r.rec == "passive") ? r.best_bid : r.best_ask;
+        price = target_price ? json(*target_price) : json(nullptr);
     }
 
     EvalOutput out;
     out.type        = EvalOutput::Type::ExecutionGuidance;
     out.target_slot = -1;
-    out.payload     = {{"type", "eval.execution_guidance"}, {"suits", suits}};
+    out.payload     = {
+        {"action", action}, {"suit", suit}, {"price", price},
+        {"suits",  suits_json},
+    };
     emit(std::move(out));
 }
 

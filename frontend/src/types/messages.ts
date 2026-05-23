@@ -388,8 +388,17 @@ export interface EvalAccumulationSignalMessage {
   players: EvalPlayerSignal[]
 }
 
+export interface EvalSuitGuidance {
+  fill_probability: number
+  passive_ev: number
+  trade_intensity: 'low' | 'moderate' | 'high'
+  spread_width: number
+  recommendation: 'passive' | 'aggressive' | 'hold'
+}
+
 /**
- * Recommended trading action for a player slot, produced by the eval pipeline.
+ * Recommended trading action + per-suit execution stats, produced by the eval pipeline.
+ * action/suit/price give the single best pick; suits gives the full per-suit breakdown.
  * price is null for 'hold' guidance or when no specific price is implied.
  */
 export interface EvalExecutionGuidanceMessage {
@@ -398,6 +407,7 @@ export interface EvalExecutionGuidanceMessage {
   action: 'buy' | 'sell' | 'hold'
   suit: string
   price: number | null
+  suits: Record<string, EvalSuitGuidance>
 }
 
 // ── Slice 10.5: auxiliary (non-exported — snapshot-only) ─────────────────────

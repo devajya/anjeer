@@ -87,6 +87,7 @@ void EvalRunner::run_loop() {
 }
 
 void EvalRunner::dispatch(const TaggedEvent& te) {
+    int module_idx = 0;
     for (auto& m : modules_) {
         try {
             switch (te.tag) {
@@ -104,12 +105,15 @@ void EvalRunner::dispatch(const TaggedEvent& te) {
                     break;
             }
         } catch (const std::exception& ex) {
-            fprintf(stderr, "[eval] module exception tag=%d: %s\n", static_cast<int>(te.tag), ex.what());
+            fprintf(stderr, "[eval] module[%d] exception tag=%d: %s\n",
+                    module_idx, static_cast<int>(te.tag), ex.what());
             fflush(stderr);
         } catch (...) {
-            fprintf(stderr, "[eval] module unknown exception tag=%d\n", static_cast<int>(te.tag));
+            fprintf(stderr, "[eval] module[%d] unknown exception tag=%d\n",
+                    module_idx, static_cast<int>(te.tag));
             fflush(stderr);
         }
+        ++module_idx;
     }
 }
 

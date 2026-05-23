@@ -180,7 +180,8 @@ private:
     void apply_trade_settlements(const std::vector<engine::OrderEvent>&);
 
     // ── Post-trade state pipeline ─────────────────────────────────────────────
-    void apply_post_trade_state(const std::vector<engine::OrderEvent>&);
+    void apply_post_trade_state   (const std::vector<engine::OrderEvent>&);
+    void push_book_updates_to_eval(const std::vector<engine::OrderEvent>&);
 
     // ── Delta table ───────────────────────────────────────────────────────────
     // AGENT-CTX: Broadcast as a full snapshot after each trade so clients never

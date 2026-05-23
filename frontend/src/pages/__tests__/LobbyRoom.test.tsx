@@ -92,6 +92,7 @@ function makeWsReturn(overrides: Partial<UseWebSocketReturn> = {}): UseWebSocket
     currentOwnerUsername:   '',
     evalPosteriorUpdate:    null,
     evalAccumulationSignal: null,
+    evalExecutionGuidance:  null,
     ...overrides,
   }
 }

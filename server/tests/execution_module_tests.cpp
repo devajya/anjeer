@@ -79,36 +79,19 @@ void drive_crosses(ExecutionEvalModule& mod, Suit suit, int n,
     }
 }
 
-// Collect all ExecutionGuidance outputs from one full round.
-std::vector<EvalOutput> run_round(ExecutionEvalModule& mod,
-                                   const GameStateSnapshot& snap,
-                                   std::function<void()> mid_round) {
-    std::vector<EvalOutput> outputs;
-    mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
-    mod.on_round_start(snap);
-    mid_round();
-    mod.on_round_end(snap);
-    return outputs;
-}
-
-// Return the ExecutionGuidance JSON for `suit_key` from a set of outputs.
-nlohmann::json guidance_for_suit(const std::vector<EvalOutput>& outputs,
-                                  const std::string& suit_key) {
-    for (const auto& out : outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        if (out.payload.contains("suits") &&
-            out.payload["suits"].contains(suit_key))
-            return out.payload["suits"][suit_key];
-    }
-    return {};
+// Return the last ExecutionGuidance EvalOutput from a set of outputs, or nullopt.
+std::optional<EvalOutput> last_execution_output(const std::vector<EvalOutput>& outputs) {
+    for (auto it = outputs.rbegin(); it != outputs.rend(); ++it)
+        if (it->type == EvalOutput::Type::ExecutionGuidance) return *it;
+    return std::nullopt;
 }
 
 } // namespace
 
 // ===========================================================================
-// T17 — No trades → fill_probability at baseline (0) for every suit
+// T17 — No trades/book → all suits hold → action == "hold"
 // ===========================================================================
-TEST_CASE("Execution: fill probability 0 with no trade history", "[execution][T17]") {
+TEST_CASE("Execution: no market activity produces hold recommendation", "[execution][T17]") {
     std::vector<EvalOutput> outputs;
     ExecutionEvalModule mod;
     mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
@@ -119,17 +102,9 @@ TEST_CASE("Execution: fill probability 0 with no trade history", "[execution][T1
 
     REQUIRE(!outputs.empty());
 
-    bool found = false;
-    for (const auto& out : outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        found = true;
-        REQUIRE(out.payload.contains("suits"));
-        for (const auto& [key, g] : out.payload["suits"].items()) {
-            REQUIRE_THAT(g["fill_probability"].get<double>(),
-                         Catch::Matchers::WithinAbs(0.0, 1e-9));
-        }
-    }
-    REQUIRE(found);
+    auto last = last_execution_output(outputs);
+    REQUIRE(last.has_value());
+    REQUIRE(last->payload["action"].get<std::string>() == "hold");
 }
 
 // ===========================================================================
@@ -137,22 +112,14 @@ TEST_CASE("Execution: fill probability 0 with no trade history", "[execution][T1
 // ===========================================================================
 // best_ask=110, best_bid=100 → proxy fair value = 100, cost = 10.
 TEST_CASE("Execution: aggressive buy cost computed correctly", "[execution][T18]") {
-    std::vector<EvalOutput> outputs;
     ExecutionEvalModule mod;
-    mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
-
     GameStateSnapshot snap = make_exec_snap();
     mod.on_round_start(snap);
     mod.on_book_update(make_book(Suit::Spades, 100, 110));
     mod.on_round_end(snap);
 
-    REQUIRE(!outputs.empty());
-
-    auto g = guidance_for_suit(outputs, "spades");
-    REQUIRE(!g.empty());
-    REQUIRE(g.contains("aggressive_buy_cost"));
     // proxy fair value ≈ best_bid(100); cost = ask(110) - fair_value(100) = 10
-    REQUIRE_THAT(g["aggressive_buy_cost"].get<double>(),
+    REQUIRE_THAT(mod.aggressive_buy_cost_for(suit_index(Suit::Spades)),
                  Catch::Matchers::WithinAbs(10.0, 1e-6));
 }
 
@@ -160,10 +127,7 @@ TEST_CASE("Execution: aggressive buy cost computed correctly", "[execution][T18]
 // T19 — passive_ev = fill_prob × (spread_width / 2.0) - leakage_penalty
 // ===========================================================================
 TEST_CASE("Execution: passive EV formula correct", "[execution][T19]") {
-    std::vector<EvalOutput> outputs;
     ExecutionEvalModule mod;
-    mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
-
     GameStateSnapshot snap = make_exec_snap();
     mod.on_round_start(snap);
     // Prime fill_rate then fix spread; no directional crosses so leakage = 0
@@ -172,29 +136,21 @@ TEST_CASE("Execution: passive EV formula correct", "[execution][T19]") {
     mod.on_book_update(make_book(Suit::Clubs, 100, 104));  // spread = 4
     mod.on_round_end(snap);
 
-    REQUIRE(!outputs.empty());
+    const int    si      = suit_index(Suit::Clubs);
+    const double fp      = mod.fill_probability_for(si);
+    const int    sw      = mod.spread_width_for(si);
+    const double penalty = mod.leakage_penalty_for(si);
 
-    auto g = guidance_for_suit(outputs, "clubs");
-    REQUIRE(!g.empty());
-    REQUIRE(g.contains("passive_ev"));
-    REQUIRE(g.contains("fill_probability"));
-    REQUIRE(g.contains("spread_width"));
-
-    const double fp      = g["fill_probability"].get<double>();
-    const int    sw      = g["spread_width"].get<int>();
-    const double penalty = mod.leakage_penalty_for(suit_index(Suit::Clubs));
-    REQUIRE_THAT(g["passive_ev"].get<double>(),
+    REQUIRE_THAT(mod.passive_ev_for(si),
                  Catch::Matchers::WithinAbs(fp * (sw / 2.0) - penalty, 1e-6));
 }
 
 // ===========================================================================
 // T20 — Recommendation switches deterministically at EV threshold
 // ===========================================================================
-// Construction: force a scenario where passive wins (high fill_prob, narrow spread)
-// vs a scenario where passive cannot win (no fill history, wide spread).
-TEST_CASE("Execution: recommendation passive when passive_ev > aggressive_ev",
+TEST_CASE("Execution: recommendation passive when passive_ev > 0",
           "[execution][T20]") {
-    // Scenario A — narrow spread + many trades → passive_ev dominates Hearts
+    // Scenario A — narrow spread + many trades → passive_ev dominates Hearts → action = "buy"
     std::vector<EvalOutput> passive_outputs;
     {
         ExecutionEvalModule mod;
@@ -208,30 +164,27 @@ TEST_CASE("Execution: recommendation passive when passive_ev > aggressive_ev",
         mod.on_round_end(snap);
     }
 
-    // Scenario B — huge spread, zero trade history → hold for Diamonds
+    // Scenario B — zero trade history → hold
     std::vector<EvalOutput> hold_outputs;
     {
         ExecutionEvalModule mod;
         mod.set_output_cb([&](EvalOutput o) { hold_outputs.push_back(std::move(o)); });
         GameStateSnapshot snap = make_exec_snap();
         mod.on_round_start(snap);
-        mod.on_round_end(snap);  // no book, no trades → hold for all
+        mod.on_round_end(snap);
     }
 
-    // Scenario A: Hearts must be "passive"
-    auto g_hearts = guidance_for_suit(passive_outputs, "hearts");
-    REQUIRE(!g_hearts.empty());
-    REQUIRE(g_hearts["recommendation"].get<std::string>() == "passive");
+    // Scenario A: hearts has positive passive_ev → action must be "buy"
+    auto last_passive = last_execution_output(passive_outputs);
+    REQUIRE(last_passive.has_value());
+    REQUIRE(!last_passive->payload.empty());
+    REQUIRE(last_passive->payload["action"].get<std::string>() == "buy");
+    REQUIRE(last_passive->payload["suit"].get<std::string>() == "hearts");
 
-    // Scenario B: every suit must be "hold"
-    bool found_hold = false;
-    for (const auto& out : hold_outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        found_hold = true;
-        for (const auto& [key, g] : out.payload["suits"].items())
-            REQUIRE(g["recommendation"].get<std::string>() == "hold");
-    }
-    REQUIRE(found_hold);
+    // Scenario B: no market → action must be "hold"
+    auto last_hold = last_execution_output(hold_outputs);
+    REQUIRE(last_hold.has_value());
+    REQUIRE(last_hold->payload["action"].get<std::string>() == "hold");
 }
 
 // ===========================================================================
@@ -266,11 +219,6 @@ TEST_CASE("Execution L1: spread_width set correctly from book update", "[executi
 }
 
 // L1-2: Exact EWMA recurrence for trade_intensity.
-// alpha=0.1; first sample x=10 → new_ewma = 0.1*10 + 0.9*0 = 1.0.
-// second sample x=10 → new_ewma = 0.1*10 + 0.9*1.0 = 1.9.
-// NOTE: trade_intensity is computed per trade; the EWMA update uses the interval
-// between consecutive trades to derive a rate, so the test drives two identical-
-// interval trades and checks the exact recurrence result.
 TEST_CASE("Execution L1: trade_intensity EWMA follows exact recurrence", "[execution][L1]") {
     ExecutionEvalModule mod;
     GameStateSnapshot snap = make_exec_snap();
@@ -279,12 +227,10 @@ TEST_CASE("Execution L1: trade_intensity EWMA follows exact recurrence", "[execu
     // Two trades spaced 100ms apart → interval = 100ms → rate = 10 trades/s
     mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 0));
     const double after_one = mod.trade_intensity_for(suit_index(Suit::Clubs));
-    // after 1: ewma = alpha * 10 = 1.0
     REQUIRE_THAT(after_one, Catch::Matchers::WithinAbs(EWMA_ALPHA * 10.0, 1e-9));
 
     mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 100));
     const double after_two = mod.trade_intensity_for(suit_index(Suit::Clubs));
-    // after 2: ewma = alpha*10 + (1-alpha)*1.0 = 1.0 + 0.9 = 1.9
     REQUIRE_THAT(after_two,
                  Catch::Matchers::WithinAbs(EWMA_ALPHA * 10.0 + (1.0 - EWMA_ALPHA) * after_one,
                                             1e-9));
@@ -292,10 +238,7 @@ TEST_CASE("Execution L1: trade_intensity EWMA follows exact recurrence", "[execu
 
 // L1-3: fill_probability is clamped to [0,1] under stress.
 TEST_CASE("Execution L1: fill_probability clamped to [0, 1] under stress", "[execution][L1]") {
-    std::vector<EvalOutput> outputs;
     ExecutionEvalModule mod;
-    mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
-
     GameStateSnapshot snap = make_exec_snap();
     mod.on_round_start(snap);
     for (int i = 0; i < 100; ++i) {
@@ -305,38 +248,24 @@ TEST_CASE("Execution L1: fill_probability clamped to [0, 1] under stress", "[exe
     }
     mod.on_round_end(snap);
 
-    REQUIRE(!outputs.empty());
-
     for (int s = 0; s < 4; ++s) {
         const double fp = mod.fill_probability_for(s);
         REQUIRE(fp >= 0.0);
         REQUIRE(fp <= 1.0);
     }
-    for (const auto& out : outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        for (const auto& [key, g] : out.payload["suits"].items()) {
-            const double fp = g["fill_probability"].get<double>();
-            REQUIRE(fp >= 0.0);
-            REQUIRE(fp <= 1.0);
-        }
-    }
 }
 
 // L1-4: Exponential spread model — fill_probability decays with exp(-spread/k).
-// Prime two identical fill_rate states, then apply narrow vs wide spread; check ratio.
 TEST_CASE("Execution L1: fill_probability follows exponential spread decay", "[execution][L1]") {
     auto fill_prob_for_spread = [](int spread) {
-        std::vector<EvalOutput> outputs;
         ExecutionEvalModule mod;
-        mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
         GameStateSnapshot snap = make_exec_snap();
         mod.on_round_start(snap);
         for (int i = 0; i < 10; ++i)
             mod.on_trade_event(make_trade(0, 1, Suit::Spades, 100, i * 100LL));
         mod.on_book_update(make_book(Suit::Spades, 100, 100 + spread));
         mod.on_round_end(snap);
-        auto g = guidance_for_suit(outputs, "spades");
-        return g.empty() ? -1.0 : g["fill_probability"].get<double>();
+        return mod.fill_probability_for(suit_index(Suit::Spades));
     };
 
     const double fp2  = fill_prob_for_spread(2);
@@ -344,9 +273,7 @@ TEST_CASE("Execution L1: fill_probability follows exponential spread decay", "[e
 
     REQUIRE(fp2  >= 0.0);
     REQUIRE(fp10 >= 0.0);
-    // exp(-10/5) / exp(-2/5) = exp(-8/5) ≈ 0.202; fp10 must be strictly less than fp2
     REQUIRE(fp2 > fp10);
-    // Check the ratio is approximately exp(-(10-2)/k) = exp(-8/5) ≈ 0.202
     if (fp2 > 1e-9) {
         const double expected_ratio = std::exp(-(10.0 - 2.0) / FILL_DECAY_K);
         REQUIRE_THAT(fp10 / fp2, Catch::Matchers::WithinAbs(expected_ratio, 0.05));
@@ -354,35 +281,29 @@ TEST_CASE("Execution L1: fill_probability follows exponential spread decay", "[e
 }
 
 // L1-5: Leakage penalty increments by LEAKAGE_STEP on each directional cross.
-// After 1 cross from zero: penalty ≈ LEAKAGE_STEP (decay may apply per trade, so check ≥).
 TEST_CASE("Execution L1: leakage penalty increments on directional cross", "[execution][L1]") {
     ExecutionEvalModule mod;
     GameStateSnapshot snap = make_exec_snap();
     mod.on_round_start(snap);
 
     mod.on_book_update(make_book(Suit::Hearts, 100, 105));
-    mod.on_trade_event(make_trade(0, 1, Suit::Hearts, 105, 0));  // buyer crosses ask
+    mod.on_trade_event(make_trade(0, 1, Suit::Hearts, 105, 0));
 
     const double penalty = mod.leakage_penalty_for(suit_index(Suit::Hearts));
-    // At minimum one step must have been added (decay shrinks by at most LEAKAGE_DECAY per trade)
     REQUIRE(penalty >= LEAKAGE_STEP * LEAKAGE_DECAY);
 }
 
 // L1-6: Leakage penalty decays after non-directional trades.
-// Cross once → accumulate penalty → drive several unrelated trades in different suit →
-// subsequent trade in same suit with no cross → penalty must be lower.
 TEST_CASE("Execution L1: leakage penalty decays after non-directional trades", "[execution][L1]") {
     ExecutionEvalModule mod;
     GameStateSnapshot snap = make_exec_snap();
     mod.on_round_start(snap);
 
-    // Cross Spades once to establish a baseline penalty
     mod.on_book_update(make_book(Suit::Spades, 100, 105));
     mod.on_trade_event(make_trade(0, 1, Suit::Spades, 105, 0));
     const double penalty_after_cross = mod.leakage_penalty_for(suit_index(Suit::Spades));
     REQUIRE(penalty_after_cross > 0.0);
 
-    // Drive many Clubs trades — each trade event must apply LEAKAGE_DECAY to Spades penalty
     for (int i = 0; i < 10; ++i)
         mod.on_trade_event(make_trade(i % 4, (i + 1) % 4, Suit::Clubs, 100, (i + 1) * 200LL));
 
@@ -424,8 +345,8 @@ TEST_CASE("Execution L1: on_round_start resets all per-suit stats", "[execution]
                  Catch::Matchers::WithinAbs(0.0, 1e-9));
 }
 
-// L1-9: Output JSON contains all required schema fields for every suit.
-TEST_CASE("Execution L1: output JSON has all required schema fields", "[execution][L1]") {
+// L1-9: Output JSON contains required wire-protocol fields: action, suit, price.
+TEST_CASE("Execution L1: output JSON has wire-protocol fields action/suit/price", "[execution][L1]") {
     std::vector<EvalOutput> outputs;
     ExecutionEvalModule mod;
     mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
@@ -437,30 +358,15 @@ TEST_CASE("Execution L1: output JSON has all required schema fields", "[executio
 
     REQUIRE(!outputs.empty());
 
-    bool found = false;
-    for (const auto& out : outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        found = true;
-        REQUIRE(out.target_slot == -1);
-        REQUIRE(out.payload.contains("suits"));
-        for (const auto& [key, g] : out.payload["suits"].items()) {
-            REQUIRE(g.contains("aggressive_buy_cost"));
-            REQUIRE(g.contains("passive_ev"));
-            REQUIRE(g.contains("fill_probability"));
-            REQUIRE(g.contains("recommendation"));
-            REQUIRE(g.contains("liquidity"));
-            REQUIRE(g.contains("spread_width"));
-            REQUIRE(g.contains("trade_intensity"));
-            REQUIRE(g.contains("execution_risk"));
-            const std::string rec  = g["recommendation"].get<std::string>();
-            const std::string liq  = g["liquidity"].get<std::string>();
-            const std::string risk = g["execution_risk"].get<std::string>();
-            REQUIRE((rec  == "passive" || rec  == "aggressive" || rec  == "hold"));
-            REQUIRE((liq  == "thin"    || liq  == "normal"     || liq  == "deep"));
-            REQUIRE((risk == "low"     || risk == "moderate"   || risk == "elevated"));
-        }
-    }
-    REQUIRE(found);
+    auto last = last_execution_output(outputs);
+    REQUIRE(last.has_value());
+    REQUIRE(last->target_slot == -1);
+    REQUIRE(last->payload.contains("action"));
+    REQUIRE(last->payload.contains("suit"));
+    REQUIRE(last->payload.contains("price"));
+
+    const std::string action = last->payload["action"].get<std::string>();
+    REQUIRE((action == "buy" || action == "sell" || action == "hold"));
 }
 
 // L1-10: One-sided bid book (no ask) → spread_width stays 0.
@@ -478,8 +384,8 @@ TEST_CASE("Execution L1: one-sided bid does not set spread_width", "[execution][
 // LAYER 2 — Behavioral monotonicity and stability
 // ===========================================================================
 
-// L2-1: No book update → all suits emit "hold".
-TEST_CASE("Execution L2: no book produces hold for all suits", "[execution][L2]") {
+// L2-1: No book update → action == "hold".
+TEST_CASE("Execution L2: no book produces hold action", "[execution][L2]") {
     std::vector<EvalOutput> outputs;
     ExecutionEvalModule mod;
     mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
@@ -490,14 +396,9 @@ TEST_CASE("Execution L2: no book produces hold for all suits", "[execution][L2]"
 
     REQUIRE(!outputs.empty());
 
-    bool found = false;
-    for (const auto& out : outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        found = true;
-        for (const auto& [key, g] : out.payload["suits"].items())
-            REQUIRE(g["recommendation"].get<std::string>() == "hold");
-    }
-    REQUIRE(found);
+    auto last = last_execution_output(outputs);
+    REQUIRE(last.has_value());
+    REQUIRE(last->payload["action"].get<std::string>() == "hold");
 }
 
 // L2-2: Determinism — identical event streams produce bit-identical outputs.
@@ -562,7 +463,7 @@ TEST_CASE("Execution L2: equal-timestamp trades produce no NaN", "[execution][L2
     mod.on_round_start(snap);
 
     for (int i = 0; i < 5; ++i)
-        mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 0));  // all ts = 0
+        mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 0));
 
     for (int s = 0; s < 4; ++s) {
         REQUIRE(std::isfinite(mod.trade_intensity_for(s)));
@@ -577,7 +478,7 @@ TEST_CASE("Execution L2: large timestamp gap produces no Inf", "[execution][L2]"
     mod.on_round_start(snap);
 
     mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 0));
-    mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 1'000'000'000LL));  // ~11 days
+    mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 1'000'000'000LL));
 
     for (int s = 0; s < 4; ++s) {
         REQUIRE(std::isfinite(mod.trade_intensity_for(s)));
@@ -606,19 +507,18 @@ TEST_CASE("Execution L2: no NaN/Inf under 1000-event stress", "[execution][L2]")
         REQUIRE(std::isfinite(mod.fill_probability_for(s)));
         REQUIRE(std::isfinite(mod.trade_intensity_for(s)));
         REQUIRE(std::isfinite(mod.leakage_penalty_for(s)));
+        REQUIRE(std::isfinite(mod.passive_ev_for(s)));
+        REQUIRE(std::isfinite(mod.aggressive_buy_cost_for(s)));
         REQUIRE(mod.fill_probability_for(s) >= 0.0);
         REQUIRE(mod.fill_probability_for(s) <= 1.0);
     }
 
     REQUIRE(!outputs.empty());
-    for (const auto& out : outputs) {
-        if (out.type != EvalOutput::Type::ExecutionGuidance) continue;
-        for (const auto& [key, g] : out.payload["suits"].items()) {
-            REQUIRE(std::isfinite(g["fill_probability"].get<double>()));
-            REQUIRE(std::isfinite(g["passive_ev"].get<double>()));
-            REQUIRE(std::isfinite(g["aggressive_buy_cost"].get<double>()));
-        }
-    }
+    auto last = last_execution_output(outputs);
+    REQUIRE(last.has_value());
+    REQUIRE(last->payload.contains("action"));
+    REQUIRE(last->payload.contains("suit"));
+    REQUIRE(last->payload.contains("price"));
 }
 
 // ===========================================================================
@@ -643,7 +543,6 @@ TEST_CASE("Execution perf: on_round_start < 0.5ms average [config: 4-player fres
 }
 
 // PERF-2: Full round pipeline (start + 50 mixed events + end) < 5ms total.
-// Config A: 4 players, balanced suit distribution.
 TEST_CASE("Execution perf: full pipeline < 5ms [config A — 4 player balanced]",
           "[execution][perf]") {
     ExecutionEvalModule mod;
@@ -664,7 +563,6 @@ TEST_CASE("Execution perf: full pipeline < 5ms [config A — 4 player balanced]"
 }
 
 // PERF-3: Full round pipeline < 5ms (limit raised to 6ms for WSL2).
-// Config B: 2 active players, heavy Spades directional crossing scenario.
 TEST_CASE("Execution perf: full pipeline < 5ms [config B — 2 player heavy Spades crosses]",
           "[execution][perf]") {
     ExecutionEvalModule mod;

@@ -40,6 +40,7 @@ const INITIAL_STATE: WsState = {
   currentOwnerUsername: '',
   evalPosteriorUpdate:    null,
   evalAccumulationSignal: null,
+  evalExecutionGuidance:  null,
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and
