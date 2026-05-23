@@ -692,6 +692,7 @@ add_executable(reconnect_integration_tests
     src/eval_runner.cpp
     src/bayesian_eval_module.cpp
     src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
