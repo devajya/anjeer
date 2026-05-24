@@ -42,6 +42,7 @@ private:
     std::array<engine::DeckSpec, 12>      deck_table_{};
     std::array<std::array<int, 4>, 4>     hands_{};      // [slot][suit_index]
     double                                time_remaining_s_{0.0};
+    double                                round_duration_approx_s_{0.0};
     int32_t                               points_per_card_{0};
 
     bool                                   deck_table_initialized_{false};

@@ -69,9 +69,10 @@ void BayesianEvalModule::init_from_snapshot(const GameStateSnapshot& snap) {
     if (!deck_table_initialized_)
         deck_table_ = snap.deck_table;  // test-compat fallback; production uses on_session_init
 
-    hands_            = snap.hands;
-    time_remaining_s_ = snap.time_remaining_s;
-    points_per_card_  = snap.points_per_card;
+    hands_                   = snap.hands;
+    time_remaining_s_        = snap.time_remaining_s;
+    round_duration_approx_s_ = snap.time_remaining_s;
+    points_per_card_         = snap.points_per_card;
 
     for (int slot = 0; slot < 4; ++slot) {
         if (!snap.slot_active[slot]) {
@@ -111,7 +112,8 @@ void BayesianEvalModule::apply_trade_heuristic(const EvalTradeEvent& ev) {
     const double TAU            = 60.0;   // seconds; controls midpoint of curve
     const double HEURISTIC_BOOST = 0.3;   // log-space nudge per trade
 
-    const double weight = time_remaining_s_ / (time_remaining_s_ + TAU);
+    const double t_remaining = std::max(0.0, round_duration_approx_s_ - ev.timestamp_ms / 1000.0);
+    const double weight = t_remaining / (t_remaining + TAU);
 
     const int buyer = ev.buyer_slot;
     if (buyer < 0 || buyer >= 4) return;
