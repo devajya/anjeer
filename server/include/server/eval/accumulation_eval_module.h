@@ -13,9 +13,10 @@ namespace anjeer::server::eval {
 // a round and classifies each player's accumulation behaviour into one of
 // three signal levels: Normal, Elevated, or High.
 //
-// Concentration score = max(|delta|) / (sum(|deltas|) + ε) for a slot.
-// Percentile-ranked against ewma_baseline_ per suit to normalise for round
-// activity; thresholds: < 0.65 = Normal, < 0.85 = Elevated, ≥ 0.85 = High.
+// confidence = purity * (1 - exp(-k * max_abs))
+//   purity   = max|delta| / (sum|deltas| + ε)  — directionality in [0,1]
+//   saturation = 1 - exp(-k * max_abs)          — evidence strength in [0,1)
+// Thresholds: < 0.65 = Normal, < 0.85 = Elevated, ≥ 0.85 = High.
 //
 // Emits eval.accumulation_signal (public, target_slot == -1) via cb_ after
 // every trade event.
@@ -31,14 +32,10 @@ public:
 
     // Test inspectors
     int32_t signed_delta(int slot, int suit) const { return signed_deltas_[slot][suit]; }
-    double ewma_baseline_for(int suit)      const { return ewma_baseline_[suit]; }
 
 private:
     // signed_deltas_[slot][suit] — cumulative net card flow this round (always integer ±1/trade)
     std::array<std::array<int32_t, 4>, 4> signed_deltas_{};
-    // ewma_baseline_[suit] — exponential moving average of absolute delta magnitude
-    std::array<double, 4>                ewma_baseline_{};
-    double                               ewma_alpha_{0.1};
     int                                  num_active_slots_{4};
     std::array<std::string, 4>           player_names_{};
 

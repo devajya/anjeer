@@ -150,7 +150,7 @@ TEST_CASE("Execution: passive EV formula correct", "[execution][T19]") {
 // ===========================================================================
 TEST_CASE("Execution: recommendation passive when passive_ev > 0",
           "[execution][T20]") {
-    // Scenario A — narrow spread + many trades → passive_ev dominates Hearts → action = "buy"
+    // Scenario A — narrow spread + many trades → passive_ev dominates Hearts → action = "passive"
     std::vector<EvalOutput> passive_outputs;
     {
         ExecutionEvalModule mod;
@@ -174,11 +174,11 @@ TEST_CASE("Execution: recommendation passive when passive_ev > 0",
         mod.on_round_end(snap);
     }
 
-    // Scenario A: hearts has positive passive_ev → action must be "buy"
+    // Scenario A: hearts has positive passive_ev → action must be "passive"
     auto last_passive = last_execution_output(passive_outputs);
     REQUIRE(last_passive.has_value());
     REQUIRE(!last_passive->payload.empty());
-    REQUIRE(last_passive->payload["action"].get<std::string>() == "buy");
+    REQUIRE(last_passive->payload["action"].get<std::string>() == "passive");
     REQUIRE(last_passive->payload["suit"].get<std::string>() == "hearts");
 
     // Scenario B: no market → action must be "hold"
@@ -366,7 +366,7 @@ TEST_CASE("Execution L1: output JSON has wire-protocol fields action/suit/price"
     REQUIRE(last->payload.contains("price"));
 
     const std::string action = last->payload["action"].get<std::string>();
-    REQUIRE((action == "buy" || action == "sell" || action == "hold"));
+    REQUIRE((action == "passive" || action == "aggressive" || action == "hold"));
 }
 
 // L1-10: One-sided bid book (no ask) → spread_width stays 0.

@@ -134,23 +134,6 @@ TEST_CASE("Accumulation: one-sided buying raises signal level", "[accumulation][
 }
 
 // ===========================================================================
-// T14 — EWMA baseline increases after sustained trade activity
-// ===========================================================================
-TEST_CASE("Accumulation: EWMA baseline increases after trade activity", "[accumulation][T14]") {
-    AccumulationEvalModule mod;
-    GameStateSnapshot snap = make_acc_snap();
-    mod.on_round_start(snap);
-
-    const double before = mod.ewma_baseline_for(suit_index(Suit::Spades));
-
-    drive_buys(mod, Suit::Spades, 5);
-    mod.on_round_end(snap);
-
-    const double after = mod.ewma_baseline_for(suit_index(Suit::Spades));
-    REQUIRE(after > before);
-}
-
-// ===========================================================================
 // T15 — Confidence field is clamped to [0, 1]
 // ===========================================================================
 TEST_CASE("Accumulation: confidence in [0, 1]", "[accumulation][T15]") {
@@ -248,48 +231,6 @@ TEST_CASE("Accumulation L1: repeated buys accumulate correctly", "[accumulation]
                  Catch::Matchers::WithinAbs(5.0, 1e-9));
     REQUIRE_THAT(mod.signed_delta(1, suit_index(Suit::Hearts)),
                  Catch::Matchers::WithinAbs(-5.0, 1e-9));
-}
-
-// L1-3: Exact EWMA recurrence — ewma_next = alpha * |sample| + (1 - alpha) * ewma_prev.
-// alpha = 0.1 (module default); after 1 Clubs trade: ewma = 0.1 * 1.0 = 0.1.
-TEST_CASE("Accumulation L1: EWMA follows exact recurrence after one trade", "[accumulation][L1]") {
-    AccumulationEvalModule mod;
-    GameStateSnapshot snap = make_acc_snap();
-    mod.on_round_start(snap);
-
-    mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 0));
-
-    REQUIRE_THAT(mod.ewma_baseline_for(suit_index(Suit::Clubs)),
-                 Catch::Matchers::WithinAbs(0.1, 1e-9));
-}
-
-// L1-4: Exact EWMA recurrence over two consecutive trades.
-// After trade 1: ewma = 0.1.  After trade 2: ewma = 0.1*1 + 0.9*0.1 = 0.19.
-TEST_CASE("Accumulation L1: EWMA recurrence correct over two trades", "[accumulation][L1]") {
-    AccumulationEvalModule mod;
-    GameStateSnapshot snap = make_acc_snap();
-    mod.on_round_start(snap);
-
-    mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 0));
-    mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 200));
-
-    REQUIRE_THAT(mod.ewma_baseline_for(suit_index(Suit::Clubs)),
-                 Catch::Matchers::WithinAbs(0.19, 1e-9));
-}
-
-// L1-5: EWMA is suit-local — Clubs trades must not update Spades baseline.
-TEST_CASE("Accumulation L1: EWMA is suit-isolated", "[accumulation][L1]") {
-    AccumulationEvalModule mod;
-    GameStateSnapshot snap = make_acc_snap();
-    mod.on_round_start(snap);
-
-    drive_buys(mod, Suit::Clubs, 3);
-
-    const double clubs_ewma  = mod.ewma_baseline_for(suit_index(Suit::Clubs));
-    const double spades_ewma = mod.ewma_baseline_for(suit_index(Suit::Spades));
-
-    REQUIRE(clubs_ewma > 0.0);
-    REQUIRE_THAT(spades_ewma, Catch::Matchers::WithinAbs(0.0, 1e-9));
 }
 
 // L1-6: Round reset clears signed deltas.
@@ -449,12 +390,6 @@ TEST_CASE("Accumulation L1: no NaN/Inf/negative under 1000-trade stress",
             total_abs_delta += std::abs(d);
         }
     REQUIRE(total_abs_delta > 0.0);
-
-    for (int s = 0; s < 4; ++s) {
-        const double b = mod.ewma_baseline_for(s);
-        REQUIRE(std::isfinite(b));
-        REQUIRE(b >= 0.0);
-    }
 
     REQUIRE(!outputs.empty());
     for (const auto& out : outputs) {

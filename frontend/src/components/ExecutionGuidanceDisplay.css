@@ -42,14 +42,14 @@
   flex-shrink: 0;
 }
 
-.execution-guidance__badge--buy {
+.execution-guidance__badge--passive {
   background: #1a3d1a;
   color: #4ade80;
 }
 
-.execution-guidance__badge--sell {
-  background: #3d1a1a;
-  color: #f87171;
+.execution-guidance__badge--aggressive {
+  background: #3d2a1a;
+  color: #fb923c;
 }
 
 .execution-guidance__badge--hold {

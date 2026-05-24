@@ -5,14 +5,14 @@ const SUIT_SYMBOLS: Record<string, string> = {
   clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠',
 }
 const SUIT_COLORS: Record<string, string> = {
-  clubs: '#2a7a2a', diamonds: '#1a5fc8', hearts: '#c0392b', spades: '#b0b0c8',
+  clubs: '#2a7a2a', diamonds: '#1a5fc8', hearts: '#c0392b', spades: '#e8e8e8',
 }
 const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades']
 
 const ACTION_CLASS: Record<string, string> = {
-  buy:  'execution-guidance__badge--buy',
-  sell: 'execution-guidance__badge--sell',
-  hold: 'execution-guidance__badge--hold',
+  passive:    'execution-guidance__badge--passive',
+  aggressive: 'execution-guidance__badge--aggressive',
+  hold:       'execution-guidance__badge--hold',
 }
 
 const REC_LABEL: Record<string, string> = {

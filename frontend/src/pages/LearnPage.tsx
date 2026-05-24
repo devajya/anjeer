@@ -43,11 +43,13 @@ export function LearnPage() {
             <h3>How to read the confidence levels</h3>
             <p>
               All three modules update continuously as trades happen. Numbers shown are
-              estimates, not ground truth. The Bayesian module conditions only on your own
-              hand; the accumulation module sees trade directions but not hands; the execution
-              module sees the order book but not intent. Each module is independently calibrated
-              — a high-confidence Bayesian posterior does not imply the execution module agrees
-              on which suit to trade.
+              estimates, not ground truth. The Bayesian module answers <em>what suit is likely
+              the goal suit</em>, inferred from your hand and the round's trade history. The
+              accumulation module answers <em>who is hoarding what</em>, based on observed card
+              flow. The execution module answers a completely separate question: <em>which suit
+              currently has the best spread or fill conditions in the order book</em> — it has
+              no knowledge of goal suits or intent. Each module is independently calibrated and
+              they can point at different suits without contradicting each other.
             </p>
             <p className="learn__caveat-player">
               <strong>Rule of thumb:</strong> Use all three panels together. If the Bayesian
@@ -500,11 +502,14 @@ export function LearnPage() {
                   current mid-price.
                 </p>
                 <p className="learn__caveat-player">
-                  <strong>In plain terms:</strong> The execution module doesn't know what your
-                  goal suit is. It evaluates all four suits using the same mid-price proxy. If
-                  your goal suit is highly likely, you should be willing to cross the spread at
-                  a larger cost than the module suggests — the Bayesian EV calculation accounts
-                  for this; the execution module does not.
+                  <strong>In plain terms:</strong> The execution module is about spread and
+                  fill — it ranks suits by how cheaply and reliably you can trade them right
+                  now, not by which suit you should be accumulating. The Bayesian panel is what
+                  tells you which suit is likely the goal given your hand and the trade history.
+                  If the execution module recommends diamonds but the Bayesian posterior points
+                  strongly at spades, that is not a contradiction — diamonds just happens to
+                  have better book conditions at this moment. Use the Bayesian signal to decide
+                  what to buy; use the execution signal to decide how and when.
                 </p>
               </div>
 

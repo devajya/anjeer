@@ -22,10 +22,6 @@ void AccumulationEvalModule::on_trade_event(const EvalTradeEvent& ev) {
     if (ev.buyer_slot  >= 0 && ev.buyer_slot  < cap) signed_deltas_[ev.buyer_slot][si]  += 1;
     if (ev.seller_slot >= 0 && ev.seller_slot < cap) signed_deltas_[ev.seller_slot][si] -= 1;
 
-    // Track absolute per-trade magnitude for baseline normalisation.
-    // Each trade contributes 1.0 of absolute flow to the dominant suit.
-    ewma_baseline_[si] = ewma_alpha_ * 1.0 + (1.0 - ewma_alpha_) * ewma_baseline_[si];
-
     compute_and_emit();
 }
 

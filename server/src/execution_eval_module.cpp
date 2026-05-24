@@ -150,7 +150,7 @@ void ExecutionEvalModule::compute_and_emit() {
     if (best_si >= 0) {
         const SuitResult& r = results[best_si];
         suit   = std::string(engine::suit_name(engine::kAllSuits[best_si]));
-        action = "buy";
+        action = r.rec; // execution quality: "passive" = quote favorably, "aggressive" = cross
         const auto& target_price = (r.rec == "passive") ? r.best_bid : r.best_ask;
         price = target_price ? json(*target_price) : json(nullptr);
     }
