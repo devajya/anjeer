@@ -199,6 +199,9 @@ void BayesianEvalModule::on_round_start(const GameStateSnapshot& snap) {
 }
 
 void BayesianEvalModule::on_trade_event(const EvalTradeEvent& ev) {
+    const int si = suit_index(ev.suit);
+    hands_[ev.buyer_slot][si]  = std::max(0, hands_[ev.buyer_slot][si]  + 1);
+    hands_[ev.seller_slot][si] = std::max(0, hands_[ev.seller_slot][si] - 1);
     apply_trade_heuristic(ev);
     emit_all(time_remaining_s_);
 }
