@@ -69,7 +69,8 @@ void BayesianEvalModule::init_from_snapshot(const GameStateSnapshot& snap) {
     if (!deck_table_initialized_)
         deck_table_ = snap.deck_table;  // test-compat fallback; production uses on_session_init
 
-    hands_                   = snap.hands;
+    server_hands_                   = snap.hands;
+    observed_deltas_         = {};
     time_remaining_s_        = snap.time_remaining_s;
     round_duration_approx_s_ = snap.time_remaining_s;
     points_per_card_         = snap.points_per_card;
@@ -109,21 +110,41 @@ void BayesianEvalModule::init_from_snapshot(const GameStateSnapshot& snap) {
 // a clear gradient that satisfies the T11 spread-ordering requirement.
 // ---------------------------------------------------------------------------
 void BayesianEvalModule::apply_trade_heuristic(const EvalTradeEvent& ev) {
-    const double TAU            = 60.0;   // seconds; controls midpoint of curve
-    const double HEURISTIC_BOOST = 0.3;   // log-space nudge per trade
+    constexpr double TAU                 = 60.0;  // seconds; controls decay midpoint
+    constexpr double HEURISTIC_BOOST     = 0.3;   // base log-space nudge per trade
+    constexpr double SELL_EVIDENCE_RATIO = 0.5;   // sell is weaker signal than buy by default
+    constexpr double MAX_NUDGE           = 0.25;  // clamp prevents posterior collapse
 
     const double t_remaining = std::max(0.0, round_duration_approx_s_ - ev.timestamp_ms / 1000.0);
     const double weight = t_remaining / (t_remaining + TAU);
+    const int si = suit_index(ev.suit);
 
+    // ── Buyer signal ──────────────────────────────────────────────────────────
     const int buyer = ev.buyer_slot;
-    if (buyer < 0 || buyer >= 4) return;
-
-    // Multiply matching configs by exp(weight * BOOST), then renormalize.
-    for (int i = 0; i < 12; ++i) {
-        if (deck_table_[i].goal_suit == ev.suit)
-            posteriors_[buyer][i] *= std::exp(weight * HEURISTIC_BOOST);
+    if (buyer >= 0 && buyer < 4) {
+        const double delta = std::clamp(weight * HEURISTIC_BOOST, 0.0, MAX_NUDGE);
+        for (int i = 0; i < 12; ++i)
+            if (deck_table_[i].goal_suit == ev.suit)
+                posteriors_[buyer][i] *= std::exp(delta);
+        normalize(posteriors_[buyer]);
     }
-    normalize(posteriors_[buyer]);
+
+    // ── Seller signal ─────────────────────────────────────────────────────────
+    // Strength is inverse of the seller's publicly observed accumulation in this
+    // suit (InfoTier::ObserverDerived). Selling from a large observed position is
+    // weak anti-goal evidence; selling from an observed zero position is strong.
+    // Uses observed_deltas_, never server_hands_, so no private data crosses tiers.
+    const int seller = ev.seller_slot;
+    if (seller >= 0 && seller < 4) {
+        const int obs_holding = std::max(0, observed_deltas_[seller][si]);
+        const double sell_strength = SELL_EVIDENCE_RATIO * HEURISTIC_BOOST
+                                   / (1.0 + static_cast<double>(obs_holding));
+        const double delta = std::clamp(weight * sell_strength, 0.0, MAX_NUDGE);
+        for (int i = 0; i < 12; ++i)
+            if (deck_table_[i].goal_suit == ev.suit)
+                posteriors_[seller][i] *= std::exp(-delta);
+        normalize(posteriors_[seller]);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +189,7 @@ void BayesianEvalModule::emit_all(double /*time_remaining_s*/) {
         double settlement_ev = 0.0;
         for (int i = 0; i < 12; ++i) {
             const int g = suit_index(deck_table_[i].goal_suit);
-            settlement_ev += posteriors_[slot][i] * hands_[slot][g] * points_per_card_;
+            settlement_ev += posteriors_[slot][i] * server_hands_[slot][g] * points_per_card_;
         }
         payload["settlement_ev"] = settlement_ev;
 
@@ -200,8 +221,10 @@ void BayesianEvalModule::on_round_start(const GameStateSnapshot& snap) {
 
 void BayesianEvalModule::on_trade_event(const EvalTradeEvent& ev) {
     const int si = suit_index(ev.suit);
-    hands_[ev.buyer_slot][si]  = std::max(0, hands_[ev.buyer_slot][si]  + 1);
-    hands_[ev.seller_slot][si] = std::max(0, hands_[ev.seller_slot][si] - 1);
+    server_hands_[ev.buyer_slot][si]  = std::max(0, server_hands_[ev.buyer_slot][si]  + 1);
+    server_hands_[ev.seller_slot][si] = std::max(0, server_hands_[ev.seller_slot][si] - 1);
+    observed_deltas_[ev.buyer_slot][si]  += 1;
+    observed_deltas_[ev.seller_slot][si] -= 1;
     apply_trade_heuristic(ev);
     emit_all(time_remaining_s_);
 }
@@ -211,7 +234,7 @@ void BayesianEvalModule::on_book_update(const EvalBookUpdate&) {
 }
 
 void BayesianEvalModule::on_round_end(const GameStateSnapshot& snap) {
-    hands_           = snap.hands;
+    server_hands_           = snap.hands;
     points_per_card_ = snap.points_per_card;
     emit_all(snap.time_remaining_s);
 }

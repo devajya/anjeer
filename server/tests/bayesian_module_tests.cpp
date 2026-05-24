@@ -603,6 +603,94 @@ TEST_CASE("Bayesian perf: on_round_end < 2ms (all-slot emit)", "[bayesian][perf]
     REQUIRE(avg_us < 2000.0);
 }
 
+// ===========================================================================
+// SELL-1 — Sell signal: selling suit S decreases seller's P(goal==S)
+// ===========================================================================
+// Setup: two-type deck; slot 1 has symmetric empty hand so hand-conditioning
+// gives a uniform prior. Slot 0 buys Clubs from slot 1.
+// After the trade, slot 1's mass on Clubs-goal configs must fall below 0.5.
+TEST_CASE("Bayesian: sell signal decreases seller posterior for sold suit", "[bayesian][sell]") {
+    BayesianEvalModule mod;
+    GameStateSnapshot snap = make_two_type_snap();
+    for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+
+    // Verify uniform prior for slot 1 before any trades
+    double clubs_before = 0.0;
+    for (int i = 0; i < 6; ++i) clubs_before += mod.posteriors_for(1)[i];
+    REQUIRE_THAT(clubs_before, Catch::Matchers::WithinAbs(0.5, 1e-9));
+
+    // slot 0 buys Clubs from slot 1 (slot 1 is the seller)
+    EvalTradeEvent sell_trade{0, 1, 100, Suit::Clubs, 0};
+    mod.on_trade_event(sell_trade);
+
+    double clubs_after = 0.0;
+    for (int i = 0; i < 6; ++i) clubs_after += mod.posteriors_for(1)[i];
+
+    // Seller's clubs-goal mass must decrease
+    REQUIRE(clubs_after < clubs_before);
+    // Still normalized
+    REQUIRE_THAT(sum12(mod.posteriors_for(1)), Catch::Matchers::WithinAbs(1.0, 1e-9));
+}
+
+// ===========================================================================
+// SELL-2 — Inventory-aware dampening: sell from large observed position
+//          produces a weaker signal than sell from zero observed position.
+// ===========================================================================
+// Scenario A: slot 1 sells Clubs immediately (observed delta = 0 → full strength).
+// Scenario B: slot 1 first accumulates Clubs publicly via several buys, then
+//             sells once (observed delta > 0 → dampened strength).
+// The drop in clubs-goal mass for the seller in A must exceed the drop in B.
+TEST_CASE("Bayesian: sell signal is dampened when seller has large observed inventory", "[bayesian][sell]") {
+    auto clubs_mass = [](const BayesianEvalModule& m, int slot) {
+        double mass = 0.0;
+        for (int i = 0; i < 6; ++i) mass += m.posteriors_for(slot)[i];
+        return mass;
+    };
+
+    // Scenario A: immediate sell with no prior observed accumulation
+    double drop_a = 0.0;
+    {
+        BayesianEvalModule mod;
+        GameStateSnapshot snap = make_two_type_snap();
+        for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+        snap.time_remaining_s = 120.0;
+        mod.on_round_start(snap);
+
+        const double before = clubs_mass(mod, 1);
+        EvalTradeEvent sell{0, 1, 100, Suit::Clubs, 0};
+        mod.on_trade_event(sell);
+        drop_a = before - clubs_mass(mod, 1);
+    }
+
+    // Scenario B: slot 1 publicly accumulates 4 clubs, then sells once
+    double drop_b = 0.0;
+    {
+        BayesianEvalModule mod;
+        GameStateSnapshot snap = make_two_type_snap();
+        for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+        snap.time_remaining_s = 120.0;
+        mod.on_round_start(snap);
+
+        // slot 1 buys 4 clubs publicly (builds observed_deltas_[1][clubs] = 4)
+        int64_t ts = 0;
+        for (int i = 0; i < 4; ++i) {
+            EvalTradeEvent buy{1, 0, 100, Suit::Clubs, ts};
+            mod.on_trade_event(buy);
+            ts += 100;
+        }
+
+        const double before = clubs_mass(mod, 1);
+        EvalTradeEvent sell{0, 1, 100, Suit::Clubs, ts};
+        mod.on_trade_event(sell);
+        drop_b = before - clubs_mass(mod, 1);
+    }
+
+    // Sell from zero observed inventory should produce a larger posterior drop
+    REQUIRE(drop_a > drop_b);
+}
+
 // PERF-3: Full round pipeline (round_start + 50 varied trades + round_end)
 //
 // Algorithm budget  : < 2 ms   (all ops are O(12 decks × 4 slots); measured ~0.3 ms on bare metal)

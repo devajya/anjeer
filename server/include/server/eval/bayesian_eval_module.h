@@ -2,6 +2,7 @@
 
 #include "server/eval/eval_module.h"
 #include "server/eval/eval_types.h"
+#include "server/eval/info_tier.h"
 #include "engine/game_snapshot.h"
 
 #include <array>
@@ -40,7 +41,8 @@ private:
     // posteriors_[slot][deck_idx] — normalised to sum 1.0 after each update
     std::array<std::array<double, 12>, 4> posteriors_{};
     std::array<engine::DeckSpec, 12>      deck_table_{};
-    std::array<std::array<int, 4>, 4>     hands_{};      // [slot][suit_index]
+    std::array<std::array<int, 4>, 4>     server_hands_{};    // [slot][suit] InfoTier::PrivateServer
+    std::array<std::array<int, 4>, 4>     observed_deltas_{}; // [slot][suit] InfoTier::ObserverDerived
     double                                time_remaining_s_{0.0};
     double                                round_duration_approx_s_{0.0};
     int32_t                               points_per_card_{0};
