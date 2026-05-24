@@ -622,10 +622,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({ ...s, queueState: { status: 'overflow', lobbyId: msg.lobby_id } }))
           break
         case 'queue_admitted': {
-          const lobbyId = pendingQueueLobbyRef.current ?? ''
-          logger.info('ws/recv', `queue_admitted slot=${msg.slot_index} lobby=${lobbyId}`)
+          logger.info('ws/recv', `queue_admitted slot=${msg.slot_index} lobby=${msg.lobby_id}`)
           pendingQueueLobbyRef.current = null
-          setState(s => ({ ...s, queueState: { status: 'admitted', lobbyId, slotIndex: msg.slot_index } }))
+          setState(s => ({ ...s, queueState: { status: 'admitted', lobbyId: msg.lobby_id, slotIndex: msg.slot_index } }))
           break
         }
 

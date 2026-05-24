@@ -980,7 +980,7 @@ void WsServer::drain_all_on_loop() {
                                 + q_ttl_s * 1000;
                             as.slot_tokens_[slot] = q_token;
                             entry.ws->send(nlohmann::json{
-                                {"type","queue_admitted"}, {"slot_index", slot}
+                                {"type","queue_admitted"}, {"slot_index", slot}, {"lobby_id", lobby_id}
                             }.dump(), uWS::OpCode::TEXT);
                             entry.ws->send(nlohmann::json{
                                 {"type",       "reconnect_token"},
@@ -1404,7 +1404,7 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     // queue_admitted first: any WS (useQueueSocket or useWebSocket) can use this
     // to detect slot assignment and navigate to the game page.
     ws->send(nlohmann::json{
-        {"type","queue_admitted"}, {"slot_index", slot}
+        {"type","queue_admitted"}, {"slot_index", slot}, {"lobby_id", lobby_id}
     }.dump(), uWS::OpCode::TEXT);
 
     // player_hello must arrive before game_state_snapshot so the client

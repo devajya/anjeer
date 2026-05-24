@@ -503,6 +503,7 @@ export interface QueueOverflowMessage {
 export interface QueueAdmittedMessage {
   type: 'queue_admitted'
   slot_index: number
+  lobby_id: string
 }
 
 /**
