@@ -6,12 +6,16 @@
 #include "server/config.h"
 #include "server/db.h"
 #include "server/logger.h"
+#include "server/eval/eval_module.h"
+#include "server/eval/eval_types.h"
 
 #include <readerwriterqueue.h>
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
 
+#include <atomic>
 #include <chrono>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
@@ -110,14 +114,17 @@ struct Harness {
     explicit Harness(ServerConfig c = make_cfg(),
                      std::vector<SlotInfo> slots = make_slots(2),
                      const std::string& session_id = "test-session",
-                     const std::string& lobby_id   = "test-lobby")
+                     const std::string& lobby_id   = "test-lobby",
+                     std::vector<std::unique_ptr<eval::EvalModule>> eval_mods = {})
         : server_log("logs/gs_test_server.txt")
         , engine_log("logs/gs_test_engine.txt")
         , cfg(std::move(c))
     {
+        GameSessionContext ctx{cfg, server_log, engine_log, rng, test_db()};
+        ctx.eval_modules = std::move(eval_mods);
         session = std::make_unique<GameSession>(
             session_id, lobby_id, std::move(slots),
-            GameSessionContext{cfg, server_log, engine_log, rng, test_db()},
+            std::move(ctx),
             inbound, outbound);
         session->start();
     }
@@ -198,6 +205,21 @@ struct Harness {
             if (outbound.try_dequeue(ev)) {
                 if (const auto* e = std::get_if<GameSpawnBot>(&ev))
                     if (e->slot == slot) return *e;
+            } else {
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<eval::EvalOutput> recv_eval_output(
+            std::chrono::milliseconds timeout = std::chrono::milliseconds(2000)) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            GameEvent ev;
+            if (outbound.try_dequeue(ev)) {
+                if (auto* e = std::get_if<GameEvalOutput>(&ev))
+                    return e->out;
             } else {
                 std::this_thread::sleep_for(10ms);
             }
@@ -547,4 +569,127 @@ TEST_CASE("G-T6: hand_for_slot returns zero hand before round starts",
     // Lobby phase — no game_state_
     const auto hand = h.session->hand_for_slot(0);
     for (int i = 0; i < 4; ++i) CHECK(hand.suit_counts[i] == 0);
+}
+
+// ─── Eval wiring tests ────────────────────────────────────────────────────────
+
+namespace {
+
+struct CountingModule : anjeer::server::eval::EvalModule {
+    std::atomic<int> round_starts{0};
+    std::atomic<int> trades{0};
+    std::atomic<int> book_updates{0};
+    std::atomic<int> round_ends{0};
+
+    void on_round_start(const anjeer::engine::GameStateSnapshot&) override { ++round_starts; }
+    void on_trade_event(const anjeer::server::eval::EvalTradeEvent&) override { ++trades; }
+    void on_book_update(const anjeer::server::eval::EvalBookUpdate&) override { ++book_updates; }
+    void on_round_end  (const anjeer::engine::GameStateSnapshot&) override { ++round_ends; }
+
+    void wait_for(std::atomic<int>& counter, int n,
+                  std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (counter.load() < n && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+};
+
+// Emits one private (slot 0) and one public (-1) EvalOutput on round start.
+struct EmittingModule : anjeer::server::eval::EvalModule {
+    void on_round_start(const anjeer::engine::GameStateSnapshot&) override {
+        emit({anjeer::server::eval::EvalOutput::Type::PosteriorUpdate, 0,
+              nlohmann::json{{"type", "eval.posterior_update"}}});
+        emit({anjeer::server::eval::EvalOutput::Type::AccumulationSignal, -1,
+              nlohmann::json{{"type", "eval.accumulation_signal"}}});
+    }
+    void on_trade_event(const anjeer::server::eval::EvalTradeEvent&) override {}
+    void on_book_update(const anjeer::server::eval::EvalBookUpdate&) override {}
+    void on_round_end  (const anjeer::engine::GameStateSnapshot&) override {}
+};
+
+} // namespace
+
+// G-E1: push_round_start fired exactly once when a round begins.
+TEST_CASE("G-E1: eval push_round_start fires once per round start", "[game_session][eval]") {
+    run_migrations();
+    auto* mod = new CountingModule;
+    std::vector<std::unique_ptr<anjeer::server::eval::EvalModule>> mods;
+    mods.push_back(std::unique_ptr<anjeer::server::eval::EvalModule>(mod));
+
+    Harness h(make_cfg(), make_slots(2), "eval-session-1", "eval-lobby-1", std::move(mods));
+    h.advance_to_round_active();
+
+    mod->wait_for(mod->round_starts, 1);
+    CHECK(mod->round_starts.load() == 1);
+}
+
+// G-E2: push_round_end fired once when the round ends.
+TEST_CASE("G-E2: eval push_round_end fires once per round end", "[game_session][eval]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.game.round_duration_seconds = 1;
+    cfg.game.inter_round_seconds    = 60;
+
+    auto* mod = new CountingModule;
+    std::vector<std::unique_ptr<anjeer::server::eval::EvalModule>> mods;
+    mods.push_back(std::unique_ptr<anjeer::server::eval::EvalModule>(mod));
+
+    Harness h(cfg, make_slots(2), "eval-session-2", "eval-lobby-2", std::move(mods));
+    h.advance_to_round_active();
+
+    // Wait for the round to time out (1s) and round_end to fire.
+    mod->wait_for(mod->round_ends, 1, 3000ms);
+    CHECK(mod->round_ends.load() == 1);
+    CHECK(mod->round_starts.load() == 1);
+}
+
+// G-E3: push_trade fired after each match in the book.
+TEST_CASE("G-E3: eval push_trade fires for each matched trade", "[game_session][eval]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.order_book.active_suits = {"clubs"};
+
+    auto* mod = new CountingModule;
+    std::vector<std::unique_ptr<anjeer::server::eval::EvalModule>> mods;
+    mods.push_back(std::unique_ptr<anjeer::server::eval::EvalModule>(mod));
+
+    Harness h(cfg, make_slots(2), "eval-session-3", "eval-lobby-3", std::move(mods));
+    h.advance_to_round_active();
+
+    // Slot 0 sells at 50, slot 1 buys at 50 → immediate match.
+    h.push(NetSubmit{0, "clubs", anjeer::engine::Side::Sell, 50});
+    h.push(NetSubmit{1, "clubs", anjeer::engine::Side::Buy,  50});
+
+    mod->wait_for(mod->trades, 1, 1000ms);
+    CHECK(mod->trades.load() >= 1);
+}
+
+// G-E4: EvalModule emits private + public outputs; verify GameEvalOutput target_slots.
+TEST_CASE("G-E4: eval output routed to correct target_slot in outbound queue",
+          "[game_session][eval]") {
+    run_migrations();
+    auto* mod = new EmittingModule;
+    std::vector<std::unique_ptr<anjeer::server::eval::EvalModule>> mods;
+    mods.push_back(std::unique_ptr<anjeer::server::eval::EvalModule>(mod));
+
+    Harness h(make_cfg(), make_slots(2), "eval-session-4", "eval-lobby-4", std::move(mods));
+    h.advance_to_round_active();
+
+    // EmittingModule emits on on_round_start: slot-0 private + broadcast (-1).
+    // The outputs flow: output_cb → eval_out_pending_ → drain_eval_output() → outbound.
+    auto out1 = h.recv_eval_output();
+    auto out2 = h.recv_eval_output();
+
+    REQUIRE(out1.has_value());
+    REQUIRE(out2.has_value());
+
+    std::unordered_map<int, anjeer::server::eval::EvalOutput> by_slot;
+    by_slot[out1->target_slot] = *out1;
+    by_slot[out2->target_slot] = *out2;
+
+    REQUIRE(by_slot.count(0));
+    CHECK(by_slot.at(0).payload.value("type", "") == "eval.posterior_update");
+
+    REQUIRE(by_slot.count(-1));
+    CHECK(by_slot.at(-1).payload.value("type", "") == "eval.accumulation_signal");
 }

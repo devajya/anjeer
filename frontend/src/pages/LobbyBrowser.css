@@ -65,11 +65,13 @@
   color: #888;
   font-size: 1.3rem;
   cursor: pointer;
-  padding: 0.25rem;
+  padding: 0.25rem 0.35rem;
   line-height: 1;
+  border-radius: 4px;
+  font-family: inherit;
 }
 
-.lp__hamburger:hover { color: #ccc; }
+.lp__hamburger:hover { color: #ccc; background: rgba(255,255,255,0.05); }
 
 /* ── Body / centering ────────────────────────────────────────────────────── */
 
@@ -337,14 +339,54 @@
 .lp__menu {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
-  min-width: 160px;
-  background: #1a1a1a;
-  border: 1px solid #2e2e2e;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  left: 0;
+  min-width: 210px;
+  background: #181818;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.55);
   z-index: 100;
   overflow: hidden;
+}
+
+/* Tab bar */
+.lp__menu-tabs {
+  display: flex;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.lp__menu-tab {
+  flex: 1;
+  padding: 0.55rem 0.5rem;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s;
+}
+
+.lp__menu-tab:hover { color: #aaa; }
+
+.lp__menu-tab--active {
+  color: #e0e0e0;
+  border-bottom-color: #5a9cf5;
+}
+
+/* Tab panel */
+.lp__menu-panel {
+  min-height: 48px;
+}
+
+/* Footer (Log Out) */
+.lp__menu-footer {
+  border-top: 1px solid #242424;
 }
 
 .lp__menu-item {
@@ -355,17 +397,18 @@
   border: none;
   color: #ccc;
   font-size: 0.875rem;
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .lp__menu-item:hover {
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.05);
   color: #fff;
 }
 
 .lp__menu-item--danger { color: #f87171; }
-.lp__menu-item--danger:hover { background: rgba(248,113,113,0.1); color: #fca5a5; }
+.lp__menu-item--danger:hover { background: rgba(248,113,113,0.08); color: #fca5a5; }
 
 /* ── Mode badge ───────────────────────────────────────────────────────────── */
 

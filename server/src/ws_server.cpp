@@ -1,6 +1,9 @@
 #include "server/ws_server.h"
 #include "server/crypto_util.h"
 #include "server/game_session_wire.h"
+#include "server/eval/bayesian_eval_module.h"
+#include "server/eval/accumulation_eval_module.h"
+#include "server/eval/execution_eval_module.h"
 
 #include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
@@ -718,6 +721,9 @@ void WsServer::create_session(const std::string& lobby_id) {
     }
 
     GameSessionContext gs_ctx{cfg_, server_log_, engine_log_, std::mt19937{rng_()}, db_pool_};
+    gs_ctx.eval_modules.push_back(std::make_unique<eval::BayesianEvalModule>());
+    gs_ctx.eval_modules.push_back(std::make_unique<eval::AccumulationEvalModule>());
+    gs_ctx.eval_modules.push_back(std::make_unique<eval::ExecutionEvalModule>());
 
     as.session = std::make_unique<GameSession>(
         session_id, lobby_id,
@@ -738,6 +744,38 @@ void WsServer::create_session(const std::string& lobby_id) {
     server_log_.info("create_session",
         "session " + session_id + " created for lobby " + lobby_id +
         " with " + std::to_string(slots.size()) + " players");
+}
+
+// ─── dispatch_eval_output ─────────────────────────────────────────────────
+void WsServer::dispatch_eval_output(ActiveSession& as, const eval::EvalOutput& out) {
+    // Inject wire-protocol discriminant fields so the frontend switch can route
+    // the message. The C++ eval modules build only the inner payload; the type
+    // tag and player_slot are owned by the transport layer here.
+    nlohmann::json wrapped = out.payload;
+    switch (out.type) {
+        case eval::EvalOutput::Type::PosteriorUpdate:
+            wrapped["type"] = "eval_posterior_update";
+            break;
+        case eval::EvalOutput::Type::AccumulationSignal:
+            wrapped["type"] = "eval_accumulation_signal";
+            break;
+        case eval::EvalOutput::Type::ExecutionGuidance:
+            wrapped["type"] = "eval_execution_guidance";
+            break;
+    }
+    wrapped["player_slot"] = out.target_slot;
+    const std::string payload = wrapped.dump();
+
+    if (out.target_slot == -1) {
+        for (auto& [slot, ws] : as.slot_to_ws_)
+            ws->send(payload, uWS::OpCode::TEXT);
+        for (auto& [sid, ws] : as.spectator_handles_)
+            ws->send(payload, uWS::OpCode::TEXT);
+    } else {
+        auto wh = as.slot_to_ws_.find(out.target_slot);
+        if (wh != as.slot_to_ws_.end())
+            wh->second->send(payload, uWS::OpCode::TEXT);
+    }
 }
 
 // ─── teardown_session ──────────────────────────────────────────────────────
@@ -861,6 +899,8 @@ void WsServer::drain_all_on_loop() {
                         if (expired_pid == as.current_owner_player_id_)
                             transfer_ownership(as, lobby_id);
                     }
+                } else if constexpr (std::is_same_v<T, GameEvalOutput>) {
+                    dispatch_eval_output(as, arg.out);
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.
                     // For each bot displaced: stop the BotAdapter, deactivate the slot in
@@ -940,7 +980,7 @@ void WsServer::drain_all_on_loop() {
                                 + q_ttl_s * 1000;
                             as.slot_tokens_[slot] = q_token;
                             entry.ws->send(nlohmann::json{
-                                {"type","queue_admitted"}, {"slot_index", slot}
+                                {"type","queue_admitted"}, {"slot_index", slot}, {"lobby_id", lobby_id}
                             }.dump(), uWS::OpCode::TEXT);
                             entry.ws->send(nlohmann::json{
                                 {"type",       "reconnect_token"},
@@ -1364,7 +1404,7 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     // queue_admitted first: any WS (useQueueSocket or useWebSocket) can use this
     // to detect slot assignment and navigate to the game page.
     ws->send(nlohmann::json{
-        {"type","queue_admitted"}, {"slot_index", slot}
+        {"type","queue_admitted"}, {"slot_index", slot}, {"lobby_id", lobby_id}
     }.dump(), uWS::OpCode::TEXT);
 
     // player_hello must arrive before game_state_snapshot so the client

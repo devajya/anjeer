@@ -341,6 +341,75 @@ export interface ScriptLogMessage {
   timestamp: number
 }
 
+// ── Slice 11: Eval framework signals ─────────────────────────────────────────
+
+/** One deck configuration entry inside EvalPosteriorUpdateMessage.configurations. */
+export interface EvalConfiguration {
+  deck_index: number
+  counts: [number, number, number, number]
+  goal_suit: string
+  probability: number
+}
+
+/**
+ * Bayesian posterior update for one player slot.
+ * AGENT-CTX: target_slot in EvalOutput maps to player_slot here (private unicast).
+ * The server must inject `type` and `player_slot` into the payload before sending;
+ * the C++ BayesianEvalModule emits the inner fields only — see Task 20 for the
+ * server-side dispatch fix that adds these wrapper fields.
+ */
+export interface EvalPosteriorUpdateMessage {
+  type: 'eval_posterior_update'
+  player_slot: number
+  /** All 12 deck configurations with their posterior probabilities. */
+  configurations: EvalConfiguration[]
+  /** Marginal probability per goal suit (sum to 1.0). */
+  goal_suit_marginals: Record<string, number>
+  /** Expected payout at round end given current hand and posteriors. */
+  settlement_ev: number
+  /** Marginal EV gain of acquiring one additional card per suit. */
+  delta_ev: Record<string, number>
+}
+
+export interface EvalPlayerSignal {
+  slot: number
+  player: string
+  signal: 'Normal' | 'Elevated' | 'High'
+  confidence: number
+  primary_suit: string
+}
+
+/**
+ * Per-round behavioral signal broadcast to all clients.
+ * players contains one entry per active slot.
+ */
+export interface EvalAccumulationSignalMessage {
+  type: 'eval_accumulation_signal'
+  players: EvalPlayerSignal[]
+}
+
+export interface EvalSuitGuidance {
+  fill_probability: number
+  passive_ev: number
+  trade_intensity: 'low' | 'moderate' | 'high'
+  spread_width: number
+  recommendation: 'passive' | 'aggressive' | 'hold'
+}
+
+/**
+ * Recommended trading action + per-suit execution stats, produced by the eval pipeline.
+ * action/suit/price give the single best pick; suits gives the full per-suit breakdown.
+ * price is null for 'hold' guidance or when no specific price is implied.
+ */
+export interface EvalExecutionGuidanceMessage {
+  type: 'eval_execution_guidance'
+  player_slot: number
+  action: 'buy' | 'sell' | 'hold'
+  suit: string
+  price: number | null
+  suits: Record<string, EvalSuitGuidance>
+}
+
 // ── Slice 10.5: auxiliary (non-exported — snapshot-only) ─────────────────────
 
 /** One resting order inside an order book snapshot. Not exported: snapshot use only. */
@@ -434,6 +503,7 @@ export interface QueueOverflowMessage {
 export interface QueueAdmittedMessage {
   type: 'queue_admitted'
   slot_index: number
+  lobby_id: string
 }
 
 /**
@@ -512,6 +582,10 @@ export type ServerMessage =
   | ReconnectWindowExpiredMessage
   | LobbyOwnerChangedMessage
   | LobbySettingsChangedMessage
+  // Slice 11
+  | EvalPosteriorUpdateMessage
+  | EvalAccumulationSignalMessage
+  | EvalExecutionGuidanceMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)

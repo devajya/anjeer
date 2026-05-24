@@ -31,23 +31,22 @@ static BotConfig cfg_default() {
     return c;
 }
 
-static BotGameSnapshot make_snapshot(
+static GameStateSnapshot make_snapshot(
     const std::array<int, 4>& hand,
     float time_remaining,
     int player_slot  = 0,
     int player_count = 4,
     int32_t balance  = 500)
 {
-    BotGameSnapshot s;
+    GameStateSnapshot s;
     s.hand             = hand;
     s.time_remaining_s = time_remaining;
     s.round_duration_s = 240.0f;
-    s.player_slot      = player_slot;
-    s.player_count     = player_count;
+    s.my_slot          = player_slot;
+    s.num_active_slots = player_count;
     s.points_per_card  = 10;
     s.round_active     = true;
     s.balance          = balance;
-    s.delta_table.assign(player_count, {0, 0, 0, 0});
     return s;
 }
 

@@ -89,7 +89,7 @@ private:
     moodycamel::ReaderWriterQueue<NetEvent>    action_queue_{64};
 
     // ── Accessed only from tick() ─────────────────────────────────────────
-    anjeer::engine::BotGameSnapshot snapshot_;
+    anjeer::engine::GameStateSnapshot snapshot_;
     sys_tp round_end_time_;
     bool   round_end_valid_ = false;
 

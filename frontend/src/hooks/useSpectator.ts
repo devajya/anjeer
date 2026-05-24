@@ -38,6 +38,9 @@ const INITIAL_STATE: WsState = {
   queueState:           { status: 'idle' },
   currentOwnerPlayerId: null,
   currentOwnerUsername: '',
+  evalPosteriorUpdate:    null,
+  evalAccumulationSignal: null,
+  evalExecutionGuidance:  null,
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and
@@ -190,6 +193,9 @@ export function useSpectator(lobbyId: string): WsState {
         case 'reconnect_window_expired':
         case 'lobby_owner_changed':
         case 'lobby_settings_changed':
+        case 'eval_posterior_update':
+        case 'eval_accumulation_signal':
+        case 'eval_execution_guidance':
           break
 
         default: {

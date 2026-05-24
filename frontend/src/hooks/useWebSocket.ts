@@ -183,6 +183,16 @@ export interface WsState {
   currentOwnerPlayerId: number | null
   /** Username of the current session owner. Set alongside currentOwnerPlayerId. */
   currentOwnerUsername: string
+  // ── Slice 11: Eval signals ────────────────────────────────────────────────
+  /**
+   * Latest Bayesian posterior update for this player slot. null until the first
+   * eval_posterior_update message arrives.
+   * AGENT-CTX: Overwritten on each new message (not accumulated); the eval
+   * pipeline sends a full posterior snapshot each time, not incremental deltas.
+   */
+  evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
+  evalAccumulationSignal: import('../types/messages').EvalAccumulationSignalMessage | null
+  evalExecutionGuidance: import('../types/messages').EvalExecutionGuidanceMessage | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -246,6 +256,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     queueState: { status: 'idle' },
     currentOwnerPlayerId: null,
     currentOwnerUsername: '',
+    evalPosteriorUpdate: null,
+    evalAccumulationSignal: null,
+    evalExecutionGuidance: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -609,10 +622,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({ ...s, queueState: { status: 'overflow', lobbyId: msg.lobby_id } }))
           break
         case 'queue_admitted': {
-          const lobbyId = pendingQueueLobbyRef.current ?? ''
-          logger.info('ws/recv', `queue_admitted slot=${msg.slot_index} lobby=${lobbyId}`)
+          logger.info('ws/recv', `queue_admitted slot=${msg.slot_index} lobby=${msg.lobby_id}`)
           pendingQueueLobbyRef.current = null
-          setState(s => ({ ...s, queueState: { status: 'admitted', lobbyId, slotIndex: msg.slot_index } }))
+          setState(s => ({ ...s, queueState: { status: 'admitted', lobbyId: msg.lobby_id, slotIndex: msg.slot_index } }))
           break
         }
 
@@ -643,6 +655,21 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           })
           break
         }
+
+        case 'eval_posterior_update':
+          logger.info('ws/recv', `eval_posterior_update slot=${msg.player_slot} configs=${msg.configurations?.length}`)
+          setState(s => ({ ...s, evalPosteriorUpdate: msg }))
+          break
+
+        case 'eval_accumulation_signal':
+          logger.info('ws/recv', `eval_accumulation_signal players=${msg.players?.length}`)
+          setState(s => ({ ...s, evalAccumulationSignal: msg }))
+          break
+
+        case 'eval_execution_guidance':
+          logger.info('ws/recv', `eval_execution_guidance slot=${msg.player_slot} action=${msg.action} suit=${msg.suit}`)
+          setState(s => ({ ...s, evalExecutionGuidance: msg.action ? msg : null }))
+          break
 
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new

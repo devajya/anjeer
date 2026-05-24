@@ -1,0 +1,118 @@
+.accumulation-display {
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.accumulation-display--empty {
+  justify-content: center;
+  align-items: center;
+  min-height: 60px;
+}
+
+.accumulation-display__placeholder {
+  color: #888;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.accumulation-display__heading {
+  margin: 4px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #aaa;
+}
+
+.accumulation-display__players {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.accumulation-display__card {
+  background: #1e1e2e;
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accumulation-display__card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.accumulation-display__player-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accumulation-display__badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.accumulation-display__badge--normal {
+  background: #333;
+  color: #999;
+}
+
+.accumulation-display__badge--elevated {
+  background: #3d2800;
+  color: #f59e0b;
+}
+
+.accumulation-display__badge--high {
+  background: #3d0000;
+  color: #ef4444;
+}
+
+.accumulation-display__card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.accumulation-display__suit-chip {
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.accumulation-display__bar-track {
+  flex: 1;
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.accumulation-display__bar-fill {
+  height: 100%;
+  background: #4a90d9;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.accumulation-display__conf-label {
+  font-size: 10px;
+  color: #777;
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: right;
+}

@@ -29,19 +29,25 @@
   color: #f0f0f0;
 }
 
-/* ── Two-column trading grid ──────────────────────────────────────────────────
-   Left  (300px): Trade feed — full height, scrollable
-   Right (1fr):   MarketOverview → SuitPanels → MyOrders
+/* ── Three-column trading grid ────────────────────────────────────────────────
+   Left   (300px): Trade feed — full height, scrollable
+   Center (1fr):   MarketOverview → SuitPanels → MyOrders
+   Right  (32px collapsed / 280px expanded): EvalPanel
 
    Seam: grid-template-columns is the only layout contract between the outer
    shell and the inner panels. Future panel resizing will modify only this
    property (or switch it to a CSS variable). Panel internals are unaffected. */
 .app__layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 300px 1fr 32px;
   gap: 0.65rem;
   flex: 1;
   min-height: 0;        /* allow grid to shrink below content size */
+  transition: grid-template-columns 0.2s ease;
+}
+
+.app__layout--eval-open {
+  grid-template-columns: 300px 1fr 280px;
 }
 
 /* ── Left column: Trade feed (flex: 1) + My Orders (fixed) ───────────────── */

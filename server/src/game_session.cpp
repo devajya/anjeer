@@ -1,6 +1,7 @@
 #include "server/game_session.h"
 #include "server/game_session_wire.h"
 #include "server/session_repo.h"
+#include "server/eval/eval_types.h"
 
 #include <nlohmann/json.hpp>
 
@@ -93,6 +94,21 @@ GameSession::GameSession(
         const auto s = engine::suit_from_string(suit_str);
         if (s) active_suits_[engine::suit_index(*s)] = true;
     }
+
+    eval_runner_ = std::make_unique<eval::EvalRunner>(
+        std::move(ctx.eval_modules),
+        [this](eval::EvalOutput out) {
+            std::lock_guard<std::mutex> lk(eval_out_mu_);
+            eval_out_pending_.push_back(std::move(out));
+        });
+
+    std::array<engine::DeckSpec, 12> deck_specs;
+    for (int i = 0; i < static_cast<int>(kDecks.size()); ++i) {
+        deck_specs[i].counts    = kDecks[i].distribution;
+        deck_specs[i].goal_suit = kDecks[i].goal_suit;
+    }
+    eval_runner_->init_session(deck_specs);
+    eval_runner_->start();
 }
 
 GameSession::~GameSession() {
@@ -106,6 +122,7 @@ void GameSession::start() {
 void GameSession::shutdown() {
     stop_.store(true, std::memory_order_relaxed);
     if (game_loop_thread_.joinable()) game_loop_thread_.join();
+    if (eval_runner_) eval_runner_->stop();
 }
 
 std::unordered_map<int,int> GameSession::slot_balances() const {
@@ -141,6 +158,7 @@ void GameSession::run() {
 
 void GameSession::tick() {
     process_inbound();
+    drain_eval_output();
 
     const auto now = std::chrono::steady_clock::now();
 
@@ -295,6 +313,8 @@ void GameSession::handle_submit(const NetSubmit& ev) {
     if (had_trade) {
         apply_post_trade_state(events);
         apply_global_wipe();
+    } else {
+        push_book_updates_to_eval(events);
     }
 }
 
@@ -313,6 +333,8 @@ void GameSession::handle_nudge(const NetNudge& ev) {
     if (had_trade) {
         apply_post_trade_state(events);
         apply_global_wipe();
+    } else {
+        push_book_updates_to_eval(events);
     }
 }
 
@@ -489,6 +511,11 @@ void GameSession::begin_round() {
             usernames, all_hand_totals, all_balances));
     }
 
+    recent_trades_.clear();
+    round_start_time_ = std::chrono::steady_clock::now();
+    eval_runner_->push_round_start(make_eval_snapshot());
+    engine_log_.info("eval", "[eval] round_start pushed round=" + std::to_string(round_number_));
+
     server_log_.info("round",
         "round=" + std::to_string(round_number_) +
         " goal=" + current_goal_suit_str() +
@@ -548,6 +575,9 @@ void GameSession::end_round() {
     }
 
     round_history_.push_back({round_number_, current_goal_suit_str(), wire_results});
+
+    eval_runner_->push_round_end(make_eval_snapshot());
+    engine_log_.info("eval", "[eval] round_end pushed round=" + std::to_string(round_number_));
 
     begin_inter_round(wire_results, current_goal_suit_str());
 }
@@ -688,6 +718,22 @@ bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderE
     return had_trade;
 }
 
+void GameSession::push_book_updates_to_eval(const std::vector<engine::OrderEvent>& events) {
+    for (const auto& ev : events) {
+        if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
+            const auto suit_opt = engine::suit_from_string(upd->suit);
+            if (!suit_opt) continue;
+            eval::EvalBookUpdate bu;
+            bu.suit          = *suit_opt;
+            bu.best_bid      = upd->best_bid;
+            bu.best_ask      = upd->best_ask;
+            bu.best_bid_slot = upd->best_bid_player_id;
+            bu.best_ask_slot = upd->best_ask_player_id;
+            eval_runner_->push_book_update(bu);
+        }
+    }
+}
+
 void GameSession::apply_post_trade_state(const std::vector<engine::OrderEvent>& events) {
     apply_card_transfers(events);
     apply_trade_settlements(events);
@@ -698,6 +744,31 @@ void GameSession::apply_post_trade_state(const std::vector<engine::OrderEvent>& 
         }
     }
     broadcast_delta_update();
+
+    const int64_t elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - round_start_time_).count();
+    for (const auto& ev : events) {
+        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
+            const auto suit_opt = engine::suit_from_string(t->suit);
+            if (!suit_opt) continue;
+            recent_trades_.push_back({t->buyer_id, t->seller_id, t->price, *suit_opt, elapsed_ms});
+            eval_runner_->push_trade(eval::EvalTradeEvent{
+                t->buyer_id, t->seller_id, t->price, *suit_opt, elapsed_ms});
+            engine_log_.info("eval", "[eval] trade pushed suit=" + t->suit +
+                " price=" + std::to_string(t->price));
+        }
+        if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
+            const auto suit_opt = engine::suit_from_string(upd->suit);
+            if (!suit_opt) continue;
+            eval::EvalBookUpdate bu;
+            bu.suit         = *suit_opt;
+            bu.best_bid     = upd->best_bid;
+            bu.best_ask     = upd->best_ask;
+            bu.best_bid_slot = upd->best_bid_player_id;
+            bu.best_ask_slot = upd->best_ask_player_id;
+            eval_runner_->push_book_update(bu);
+        }
+    }
 }
 
 void GameSession::apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx) {
@@ -956,6 +1027,65 @@ std::string GameSession::steady_to_iso(std::chrono::steady_clock::time_point tp)
     const auto delta      = tp - steady_now;
     return to_iso_string(sys_now +
         std::chrono::duration_cast<std::chrono::system_clock::duration>(delta));
+}
+
+// ─── Eval integration ─────────────────────────────────────────────────────────
+
+engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
+    engine::GameStateSnapshot snap;
+    snap.round_number    = round_number_;
+    snap.round_active    = (phase_ == SessionPhase::RoundActive);
+    snap.points_per_card = cfg_.scoring.points_per_card;
+
+    if (phase_ == SessionPhase::RoundActive) {
+        const auto remaining = round_deadline_ - std::chrono::steady_clock::now();
+        snap.time_remaining_s = std::max(0.0,
+            std::chrono::duration<double>(remaining).count());
+    }
+
+    if (current_deck_)
+        snap.current_deck_index = static_cast<int>(current_deck_ - kDecks.data());
+
+    const int n = std::min(static_cast<int>(slots_.size()), 4);
+    snap.num_active_slots = n;
+    for (int i = 0; i < n; ++i) {
+        snap.player_names[i] = slots_[i].username;
+        snap.balances[i]     = slots_[i].balance;
+        snap.slot_active[i]  = slots_[i].active;
+    }
+
+    if (game_state_) {
+        for (int i = 0; i < game_state_->player_count() && i < 4; ++i) {
+            const auto& h = game_state_->hand(i);
+            for (int s = 0; s < 4; ++s)
+                snap.hands[i][s] = h.suit_counts[s];
+        }
+    }
+
+    for (int i = 0; i < n && i < 4; ++i)
+        snap.deltas[i] = delta_table_[i];
+
+    for (auto suit : engine::kAllSuits) {
+        const int si = engine::suit_index(suit);
+        snap.books[si].best_bid  = books_[si].best_bid();
+        snap.books[si].best_ask  = books_[si].best_ask();
+        const auto bids = books_[si].bids_snapshot();
+        const auto asks = books_[si].asks_snapshot();
+        if (!bids.empty()) snap.books[si].best_bid_slot = bids.front().player_slot;
+        if (!asks.empty()) snap.books[si].best_ask_slot = asks.front().player_slot;
+    }
+
+    return snap;
+}
+
+void GameSession::drain_eval_output() {
+    std::vector<eval::EvalOutput> pending;
+    {
+        std::lock_guard<std::mutex> lk(eval_out_mu_);
+        pending.swap(eval_out_pending_);
+    }
+    for (auto& out : pending)
+        outbound_.enqueue(GameEvalOutput{std::move(out)});
 }
 
 // ─── T9: Reconnect / queue public API ────────────────────────────────────────

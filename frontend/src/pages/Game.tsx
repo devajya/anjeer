@@ -20,6 +20,7 @@ import { ShortcutHelp } from '../components/ShortcutHelp'
 import { SpectatorBadge } from '../components/SpectatorBadge'
 import { ReconnectOverlay } from '../components/ReconnectOverlay'
 import { StaleLobbyModal } from '../components/StaleLobbyModal'
+import { EvalPanel } from '../components/EvalPanel'
 import { slotColorSemi } from '../utils/playerColors'
 import '../App.css'
 
@@ -53,6 +54,9 @@ const { user, logout } = useAuth()
     roster, deltas, allBalances, allHandTotals, spectatorCount,
     reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueState,
     currentOwnerPlayerId, currentOwnerUsername,
+    evalPosteriorUpdate,
+    evalAccumulationSignal,
+    evalExecutionGuidance,
   } = useWebSocket('/ws')
 
   const {
@@ -83,6 +87,7 @@ const { user, logout } = useAuth()
   // focused; keyboard buy/sell/nudge are no-ops until a suit is focused.
   const [selectedSuit, setSelectedSuit] = useState<string | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [evalExpanded, setEvalExpanded] = useState(false)
 
   // Imperative refs to each active SuitPanel — used by keyboard shortcuts to
   // focus the bid/offer price input without submitting at market.
@@ -290,7 +295,7 @@ const { user, logout } = useAuth()
           )}
         </header>
 
-        <div className="app__layout">
+        <div className={`app__layout${evalExpanded ? ' app__layout--eval-open' : ''}`}>
 
           {/* ── LEFT: Trade feed + My Orders ── */}
           <div className="app__left-col">
@@ -372,6 +377,15 @@ const { user, logout } = useAuth()
             </div>
 
           </div>
+
+          {/* ── EVAL: Collapsible eval panel ── */}
+          <EvalPanel
+            onExpandedChange={setEvalExpanded}
+            posteriorUpdate={evalPosteriorUpdate}
+            accumulationSignal={evalAccumulationSignal}
+            executionGuidance={evalExecutionGuidance}
+          />
+
         </div>
       </main>
     </>

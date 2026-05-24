@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/engine.h"
+#include "server/eval/eval_types.h"
 
 #include <array>
 #include <cstdint>
@@ -103,9 +104,14 @@ struct GameReconnectExpired { int32_t slot; };
 // before the game-loop thread sends targeted round_start messages.
 struct GameRoundStarted {};
 
+// Eval output routed back through the SPSC outbound queue so WsServer can
+// deliver it to the correct WS handles on the event-loop thread.
+// target_slot == -1 → broadcast to all active + spectator handles.
+struct GameEvalOutput { eval::EvalOutput out; };
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
                                GameSpawnBot, GameReconnectExpired,
-                               GameRoundStarted>;
+                               GameRoundStarted, GameEvalOutput>;
 
 } // namespace anjeer::server

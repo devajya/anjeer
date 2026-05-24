@@ -31,6 +31,10 @@ add_executable(server
     src/game_slots_repo.cpp
     src/lobby_queue.cpp
     src/bot_manager_session.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -47,6 +51,110 @@ target_link_libraries(server PRIVATE
     crypto
     pthread
 )
+
+# ---------------------------------------------------------------------------
+# EvalRunner unit tests — no DB, no network; pure thread-pool + queue logic
+# ---------------------------------------------------------------------------
+add_executable(eval_runner_tests
+    tests/eval_runner_tests.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
+)
+
+target_include_directories(eval_runner_tests PRIVATE include)
+
+target_link_libraries(eval_runner_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+
+catch_discover_tests(eval_runner_tests)
+
+# ---------------------------------------------------------------------------
+# Bayesian eval module unit tests — no DB, no network; pure math + latency
+# ---------------------------------------------------------------------------
+add_executable(bayesian_module_tests
+    tests/bayesian_module_tests.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+)
+
+target_include_directories(bayesian_module_tests PRIVATE include)
+
+target_link_libraries(bayesian_module_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    pthread
+)
+
+catch_discover_tests(bayesian_module_tests)
+
+# ---------------------------------------------------------------------------
+# Accumulation eval module unit tests — no DB, no network; pure math + latency
+# ---------------------------------------------------------------------------
+add_executable(accumulation_module_tests
+    tests/accumulation_module_tests.cpp
+    src/accumulation_eval_module.cpp
+)
+
+target_include_directories(accumulation_module_tests PRIVATE include)
+
+target_link_libraries(accumulation_module_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    pthread
+)
+
+catch_discover_tests(accumulation_module_tests)
+
+# ---------------------------------------------------------------------------
+# Execution eval module unit tests — no DB, no network; pure math + latency
+# ---------------------------------------------------------------------------
+add_executable(execution_module_tests
+    tests/execution_module_tests.cpp
+    src/execution_eval_module.cpp
+)
+
+target_include_directories(execution_module_tests PRIVATE include)
+
+target_link_libraries(execution_module_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    pthread
+)
+
+catch_discover_tests(execution_module_tests)
+
+# ---------------------------------------------------------------------------
+# Eval integration tests — headless round simulation; all three modules + runner
+# ---------------------------------------------------------------------------
+add_executable(eval_integration_tests
+    tests/eval_integration_tests.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
+)
+
+target_include_directories(eval_integration_tests PRIVATE include)
+
+target_link_libraries(eval_integration_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+
+catch_discover_tests(eval_integration_tests)
 
 # ---------------------------------------------------------------------------
 # Unit tests (Catch2)
@@ -83,6 +191,10 @@ add_executable(ws_server_tests
     src/ws_server.cpp
     src/lobby_gateway.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
@@ -302,6 +414,10 @@ add_executable(game_session_tests
     src/lobby_repo.cpp
     src/session_repo.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
     src/game_session_wire.cpp
     src/logger.cpp
     src/event_bus.cpp
@@ -462,6 +578,9 @@ add_executable(bot_headless_tests
     src/config.cpp
     src/db.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/lobby_repo.cpp
@@ -593,6 +712,10 @@ add_executable(reconnect_integration_tests
     src/ws_server.cpp
     src/lobby_gateway.cpp
     src/game_session.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
     src/game_session_wire.cpp
     src/session_repo.cpp
     src/logger.cpp

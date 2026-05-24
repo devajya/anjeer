@@ -14,11 +14,11 @@ public:
     // Returns all intended actions for this tick, ranked by urgency (highest first).
     // BotAdapter submits up to max_concurrent_orders actions per tick.
     [[nodiscard]]
-    virtual std::vector<BotAction> decide(const BotGameSnapshot& snapshot) = 0;
+    virtual std::vector<BotAction> decide(const GameStateSnapshot& snapshot) = 0;
     virtual std::string_view name() const = 0;
     // Returns a one-line string of internal state for diagnostic logging.
     // Called by BotAdapter after every decide(); no I/O here.
-    virtual std::string debug_info(const BotGameSnapshot& snap) const = 0;
+    virtual std::string debug_info(const GameStateSnapshot& snap) const = 0;
 };
 
 // Factory — only entry point consumers use.

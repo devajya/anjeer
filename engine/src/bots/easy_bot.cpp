@@ -77,7 +77,7 @@ void EasyBot::handle(const BotOrderAckEvent& e) {
 
 // ── Taker scan ────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> EasyBot::taker_scan(const BotGameSnapshot& snap) const {
+std::vector<BotAction> EasyBot::taker_scan(const GameStateSnapshot& snap) const {
     float                    best_edge = 0.0f;
     std::optional<BotAction> best;
 
@@ -119,7 +119,7 @@ std::vector<BotAction> EasyBot::taker_scan(const BotGameSnapshot& snap) const {
 
 // ── Resting order review ──────────────────────────────────────────────────────
 
-std::vector<BotAction> EasyBot::review_pending(const BotGameSnapshot& snap) {
+std::vector<BotAction> EasyBot::review_pending(const GameStateSnapshot& snap) {
     std::vector<BotAction> actions;
     auto now = clock::now();
 
@@ -171,7 +171,7 @@ std::vector<BotAction> EasyBot::review_pending(const BotGameSnapshot& snap) {
 
 // ── Gap fill ─────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> EasyBot::gap_fill(const BotGameSnapshot& snap) const {
+std::vector<BotAction> EasyBot::gap_fill(const GameStateSnapshot& snap) const {
     int resting = 0;
     for (int s = 0; s < 4; ++s)
         for (int sd = 0; sd < 2; ++sd)
@@ -227,7 +227,7 @@ std::vector<BotAction> EasyBot::gap_fill(const BotGameSnapshot& snap) const {
 
 // ── decide() ──────────────────────────────────────────────────────────────────
 
-std::vector<BotAction> EasyBot::decide(const BotGameSnapshot& snap) {
+std::vector<BotAction> EasyBot::decide(const GameStateSnapshot& snap) {
     if (!snap.round_active) return {};
 
     auto taker = taker_scan(snap);
@@ -242,7 +242,7 @@ std::vector<BotAction> EasyBot::decide(const BotGameSnapshot& snap) {
 
 // ── Debug ─────────────────────────────────────────────────────────────────────
 
-std::string EasyBot::debug_info(const BotGameSnapshot& /*snap*/) const {
+std::string EasyBot::debug_info(const GameStateSnapshot& /*snap*/) const {
     static const char* sn[] = {"C", "D", "H", "S"};
     auto P = goal_posteriors(deck_weights_);
     int g  = 0;

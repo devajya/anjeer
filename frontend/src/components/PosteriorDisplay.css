@@ -1,0 +1,115 @@
+.posterior-display {
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.posterior-display--empty {
+  justify-content: center;
+  align-items: center;
+  min-height: 80px;
+}
+
+.posterior-display__placeholder {
+  color: #888;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.posterior-display__heading {
+  margin: 4px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #aaa;
+}
+
+.posterior-display__configs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.posterior-display__config {
+  background: #1e1e2e;
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.posterior-display__config-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.posterior-display__goal-suit {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.posterior-display__deck-label {
+  font-size: 11px;
+  color: #888;
+  flex: 1;
+}
+
+.posterior-display__prob {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.posterior-display__bar-track {
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.posterior-display__bar-fill {
+  height: 100%;
+  background: #4a90d9;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.posterior-display__counts {
+  display: flex;
+  gap: 8px;
+}
+
+.posterior-display__count-cell {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.posterior-display__marginals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.posterior-display__marginal-cell {
+  background: #1e1e2e;
+  border-radius: 4px;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.posterior-display__marginal-suit {
+  font-size: 14px;
+}
+
+.posterior-display__marginal-prob {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
