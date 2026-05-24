@@ -67,8 +67,10 @@ double ExecutionEvalModule::passive_ev_for(int suit_idx) const {
 }
 
 double ExecutionEvalModule::aggressive_buy_cost_for(int suit_idx) const {
-    const SuitStats& s  = suit_stats_[suit_idx];
-    const double fair   = s.best_bid ? static_cast<double>(*s.best_bid) : 0.0;
+    const SuitStats& s = suit_stats_[suit_idx];
+    const double fair  = (s.best_bid && s.best_ask)
+                         ? (*s.best_bid + *s.best_ask) / 2.0
+                         : s.best_bid ? static_cast<double>(*s.best_bid) : 0.0;
     return s.best_ask ? compute_execution_cost(*s.best_ask, fair) : 0.0;
 }
 
@@ -89,6 +91,7 @@ void ExecutionEvalModule::compute_and_emit() {
     struct SuitResult {
         std::string            rec;
         double                 passive_ev{0.0};
+        double                 aggressive_cost{0.0};
         double                 fp{0.0};
         std::optional<int32_t> best_bid;
         std::optional<int32_t> best_ask;
@@ -103,13 +106,15 @@ void ExecutionEvalModule::compute_and_emit() {
         r.best_bid = s.best_bid;
         r.best_ask = s.best_ask;
 
-        const double fair_value = s.best_bid ? static_cast<double>(*s.best_bid) : 0.0;
-        (void)compute_execution_cost(s.best_ask ? *s.best_ask : 0, fair_value); // kept for future use
-        r.passive_ev = r.fp * (s.spread_width / 2.0) - s.leakage_penalty;
+        const double fair_value = (s.best_bid && s.best_ask)
+                                  ? (*s.best_bid + *s.best_ask) / 2.0
+                                  : s.best_bid ? static_cast<double>(*s.best_bid) : 0.0;
+        r.aggressive_cost = s.best_ask ? compute_execution_cost(*s.best_ask, fair_value) : 0.0;
+        r.passive_ev      = r.fp * (s.spread_width / 2.0) - s.leakage_penalty;
 
         if (s.spread_width == 0 || (!s.best_bid && !s.best_ask))
             r.rec = "hold";
-        else if (r.passive_ev > 0.0)
+        else if (r.passive_ev >= -r.aggressive_cost)
             r.rec = "passive";
         else
             r.rec = "aggressive";

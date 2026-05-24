@@ -108,9 +108,9 @@ TEST_CASE("Execution: no market activity produces hold recommendation", "[execut
 }
 
 // ===========================================================================
-// T18 — aggressive_buy_cost = best_ask - proxy_fair_value (best_bid)
+// T18 — aggressive_buy_cost = best_ask - mid_price
 // ===========================================================================
-// best_ask=110, best_bid=100 → proxy fair value = 100, cost = 10.
+// best_ask=110, best_bid=100 → mid = 105, cost = ask(110) - mid(105) = 5.
 TEST_CASE("Execution: aggressive buy cost computed correctly", "[execution][T18]") {
     ExecutionEvalModule mod;
     GameStateSnapshot snap = make_exec_snap();
@@ -118,9 +118,9 @@ TEST_CASE("Execution: aggressive buy cost computed correctly", "[execution][T18]
     mod.on_book_update(make_book(Suit::Spades, 100, 110));
     mod.on_round_end(snap);
 
-    // proxy fair value ≈ best_bid(100); cost = ask(110) - fair_value(100) = 10
+    // fair value = mid = (100 + 110) / 2 = 105; cost = ask(110) - mid(105) = 5
     REQUIRE_THAT(mod.aggressive_buy_cost_for(suit_index(Suit::Spades)),
-                 Catch::Matchers::WithinAbs(10.0, 1e-6));
+                 Catch::Matchers::WithinAbs(5.0, 1e-6));
 }
 
 // ===========================================================================
