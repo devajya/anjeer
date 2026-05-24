@@ -12,10 +12,12 @@ namespace anjeer::server::eval {
 // Computes per-suit execution guidance: fill probability, aggressive vs passive
 // EV comparison, spread cost, and a trade recommendation for each suit.
 //
-// fill_probability = fill_rate_ewma × exp(-spread_width / k), clamped [0,1].
-// aggressive_buy_cost = best_ask - modeled_ev (approximated as best_bid pre-Bayesian).
+// fill_probability = clamp(trade_intensity / INTENSITY_SCALE, 0, 1) × exp(-spread/k).
+//   trade_intensity already time-decays via inter-trade interval EWMA, so
+//   fill_probability naturally falls when a suit goes quiet.
+// aggressive_buy_cost = best_ask - mid_price (half-spread premium).
 // passive_ev = fill_prob × (spread_width / 2.0) - leakage_penalty.
-// recommendation: "passive" if passive_ev > aggressive_buy_cost, else "aggressive";
+// recommendation: "passive" if passive_ev >= -aggressive_cost, else "aggressive";
 //   "hold" when spread == 0 or no market (no best_bid/best_ask).
 //
 // Emits eval.execution_guidance (public, target_slot == -1) via cb_ after
@@ -41,8 +43,7 @@ public:
 
 private:
     struct SuitStats {
-        double fill_rate{0.0};          // ewma of inverse inter-trade interval (fills/s)
-        double trade_intensity{0.0};    // ewma of trades per second
+        double trade_intensity{0.0};    // ewma of trades per second; time-decays via inter-trade interval
         int    spread_width{0};         // best_ask - best_bid; 0 means no two-sided market
         int    recent_trades{0};        // cumulative this round
         double leakage_penalty{0.0};    // cost proxy for directional crossing — private to module
@@ -56,8 +57,8 @@ private:
     engine::GameStateSnapshot last_snap_{};
     int                       num_active_slots_{4};
 
-    // fill_rate EWMA decay constant: e^(-spread/k) → k=5 balances wide-spread penalty
-    static constexpr double FILL_DECAY_K    = 5.0;
+    static constexpr double FILL_DECAY_K    = 5.0;   // spread penalty: e^(-spread/k)
+    static constexpr double INTENSITY_SCALE = 5.0;   // trades/s that maps to fill_rate = 1.0
     static constexpr double EWMA_ALPHA      = 0.1;
     static constexpr double LEAKAGE_STEP    = 0.5;  // added per directional cross
     static constexpr double LEAKAGE_DECAY   = 0.95; // applied per trade event

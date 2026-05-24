@@ -17,9 +17,6 @@ void ExecutionEvalModule::on_trade_event(const EvalTradeEvent& t) {
     const int  idx = engine::suit_index(t.suit);
     SuitStats& ss  = suit_stats_[idx];
 
-    // fill_rate: count-based EWMA (each trade contributes 1.0) → naturally in [0,1].
-    ss.fill_rate = EWMA_ALPHA * 1.0 + (1.0 - EWMA_ALPHA) * ss.fill_rate;
-
     // trade_intensity: rate-based EWMA in trades/s; 100 ms default for the first trade.
     const int64_t interval_ms = (ss.last_trade_ts_ms < 0)
                                 ? 100LL
@@ -76,8 +73,9 @@ double ExecutionEvalModule::aggressive_buy_cost_for(int suit_idx) const {
 
 double ExecutionEvalModule::estimate_fill_probability(const SuitStats& s) const {
     if (s.spread_width <= 0) return 0.0;
+    const double fill_rate = std::clamp(s.trade_intensity / INTENSITY_SCALE, 0.0, 1.0);
     return std::clamp(
-        s.fill_rate * std::exp(-static_cast<double>(s.spread_width) / FILL_DECAY_K),
+        fill_rate * std::exp(-static_cast<double>(s.spread_width) / FILL_DECAY_K),
         0.0, 1.0);
 }
 
