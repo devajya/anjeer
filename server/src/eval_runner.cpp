@@ -21,6 +21,11 @@ EvalRunner::~EvalRunner() {
     stop();
 }
 
+void EvalRunner::init_session(const std::array<engine::DeckSpec, 12>& deck_specs) {
+    for (auto& m : modules_)
+        m->on_session_init(deck_specs);
+}
+
 void EvalRunner::start() {
     running_.store(true, std::memory_order_release);
     worker_ = std::thread([this] { run_loop(); });

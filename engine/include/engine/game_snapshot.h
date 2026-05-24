@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace anjeer::engine {
 
@@ -65,8 +64,9 @@ struct GameStateSnapshot {
     std::array<bool, 4>              slot_active{};
     std::array<std::array<int, 4>, 4> deltas{};        // net card flow [slot][suit]
     std::array<BookSnapshot, 4>      books{};
-    std::vector<TradeRecord>         recent_trades;
     int                              round_number        = 0;
+    // deck_table is populated by tests that configure BayesianEvalModule directly.
+    // make_eval_snapshot() does not populate it; production uses EvalRunner::init_session().
     std::array<DeckSpec, 12>         deck_table{};
     int                              current_deck_index  = -1;
 };

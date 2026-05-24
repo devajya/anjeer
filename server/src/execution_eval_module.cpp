@@ -7,10 +7,6 @@
 
 namespace anjeer::server::eval {
 
-// AGENT-CTX: on_trade_event and on_book_update are no-ops until Task 18.
-// compute_and_emit() emits a zero-valued JSON skeleton (Task 17) so T17 passes
-// and the wiring is verified. Math helpers are filled in during Task 18.
-
 void ExecutionEvalModule::on_round_start(const engine::GameStateSnapshot& snap) {
     last_snap_ = snap;
     num_active_slots_ = snap.num_active_slots;
@@ -48,7 +44,6 @@ void ExecutionEvalModule::on_trade_event(const EvalTradeEvent& t) {
 }
 
 void ExecutionEvalModule::on_book_update(const EvalBookUpdate& bu) {
-    // AGENT-CTX: Book state cached here; EWMA updates deferred to Task 18.
     const int si = engine::suit_index(bu.suit);
     if (bu.best_bid && bu.best_ask)
         suit_stats_[si].spread_width = *bu.best_ask - *bu.best_bid;

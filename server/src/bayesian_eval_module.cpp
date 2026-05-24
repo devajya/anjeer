@@ -12,6 +12,15 @@ using namespace anjeer::engine;
 // Helpers
 // ---------------------------------------------------------------------------
 
+BayesianEvalModule::BayesianEvalModule() {
+    precompute_log_factorials();
+}
+
+void BayesianEvalModule::on_session_init(const std::array<DeckSpec, 12>& table) {
+    deck_table_            = table;
+    deck_table_initialized_ = true;
+}
+
 void BayesianEvalModule::precompute_log_factorials() {
     lf_[0] = 0.0;
     for (int i = 1; i <= 40; ++i)
@@ -57,9 +66,9 @@ void BayesianEvalModule::normalize(std::array<double, 12>& p) {
 // ---------------------------------------------------------------------------
 
 void BayesianEvalModule::init_from_snapshot(const GameStateSnapshot& snap) {
-    precompute_log_factorials();   // idempotent; required before lf_ is used
+    if (!deck_table_initialized_)
+        deck_table_ = snap.deck_table;  // test-compat fallback; production uses on_session_init
 
-    deck_table_       = snap.deck_table;
     hands_            = snap.hands;
     time_remaining_s_ = snap.time_remaining_s;
     points_per_card_  = snap.points_per_card;
@@ -73,7 +82,7 @@ void BayesianEvalModule::init_from_snapshot(const GameStateSnapshot& snap) {
         // Log-likelihoods for each deck config
         std::array<double, 12> log_w{};
         for (int i = 0; i < 12; ++i)
-            log_w[i] = hypergeometric_log_likelihood(snap.hands[slot], snap.deck_table[i]);
+            log_w[i] = hypergeometric_log_likelihood(snap.hands[slot], deck_table_[i]);
 
         // Log-sum-exp shift to prevent underflow when all likelihoods are small
         const double max_ll = *std::max_element(log_w.begin(), log_w.end());

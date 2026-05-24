@@ -101,6 +101,13 @@ GameSession::GameSession(
             std::lock_guard<std::mutex> lk(eval_out_mu_);
             eval_out_pending_.push_back(std::move(out));
         });
+
+    std::array<engine::DeckSpec, 12> deck_specs;
+    for (int i = 0; i < static_cast<int>(kDecks.size()); ++i) {
+        deck_specs[i].counts    = kDecks[i].distribution;
+        deck_specs[i].goal_suit = kDecks[i].goal_suit;
+    }
+    eval_runner_->init_session(deck_specs);
     eval_runner_->start();
 }
 
@@ -1036,11 +1043,6 @@ engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
             std::chrono::duration<double>(remaining).count());
     }
 
-    // Deck table: copy all 12 deck specs.
-    for (int i = 0; i < static_cast<int>(kDecks.size()); ++i) {
-        snap.deck_table[i].counts    = kDecks[i].distribution;
-        snap.deck_table[i].goal_suit = kDecks[i].goal_suit;
-    }
     if (current_deck_)
         snap.current_deck_index = static_cast<int>(current_deck_ - kDecks.data());
 
@@ -1073,7 +1075,6 @@ engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
         if (!asks.empty()) snap.books[si].best_ask_slot = asks.front().player_slot;
     }
 
-    snap.recent_trades = recent_trades_;
     return snap;
 }
 

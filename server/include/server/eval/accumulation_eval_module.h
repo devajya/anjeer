@@ -20,9 +20,6 @@ namespace anjeer::server::eval {
 // Emits eval.accumulation_signal (public, target_slot == -1) via cb_ after
 // every trade event.
 //
-// AGENT-CTX: on_* bodies are intentionally no-ops until Task 14.
-// set_output_cb() mirrors BayesianEvalModule pattern so tests can inject a
-// callback without requiring a constructor argument.
 class AccumulationEvalModule : public EvalModule {
 public:
     AccumulationEvalModule() = default;
@@ -32,16 +29,13 @@ public:
     void on_book_update(const EvalBookUpdate&)            override;
     void on_round_end  (const engine::GameStateSnapshot&) override;
 
-    // Mirrors BayesianEvalModule test-injection pattern; delegates to base emit().
-    void set_output_cb(EvalOutputCallback cb) { EvalModule::set_output_cb(std::move(cb)); }
-
     // Test inspectors
-    double signed_delta(int slot, int suit) const { return signed_deltas_[slot][suit]; }
+    int32_t signed_delta(int slot, int suit) const { return signed_deltas_[slot][suit]; }
     double ewma_baseline_for(int suit)      const { return ewma_baseline_[suit]; }
 
 private:
-    // signed_deltas_[slot][suit] — cumulative net card flow this round
-    std::array<std::array<double, 4>, 4> signed_deltas_{};
+    // signed_deltas_[slot][suit] — cumulative net card flow this round (always integer ±1/trade)
+    std::array<std::array<int32_t, 4>, 4> signed_deltas_{};
     // ewma_baseline_[suit] — exponential moving average of absolute delta magnitude
     std::array<double, 4>                ewma_baseline_{};
     double                               ewma_alpha_{0.1};

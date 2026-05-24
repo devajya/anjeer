@@ -21,9 +21,6 @@ namespace anjeer::server::eval {
 // Emits eval.execution_guidance (public, target_slot == -1) via cb_ after
 // every book_update and round_end event.
 //
-// AGENT-CTX: on_* bodies are intentionally no-ops until Task 18.
-// set_output_cb() mirrors AccumulationEvalModule pattern so tests can inject a
-// callback without requiring a constructor argument.
 class ExecutionEvalModule : public EvalModule {
 public:
     ExecutionEvalModule() = default;
@@ -32,8 +29,6 @@ public:
     void on_trade_event(const EvalTradeEvent&)            override;
     void on_book_update(const EvalBookUpdate&)            override;
     void on_round_end  (const engine::GameStateSnapshot&) override;
-
-    void set_output_cb(EvalOutputCallback cb) { EvalModule::set_output_cb(std::move(cb)); }
 
     // Test inspectors — expose per-suit internal state without coupling to JSON
     double fill_probability_for   (int suit_idx) const;

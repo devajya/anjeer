@@ -15,17 +15,11 @@
 
 namespace anjeer::server::eval {
 
-// AGENT-CTX: EvalRunner runs on a dedicated worker thread — push_* methods are
-// called from the game-loop thread; they are non-blocking and drop events when
-// the queue is at capacity to avoid back-pressure on the game loop. The worker
-// thread drains the queue and dispatches to all registered modules in order.
-// queue_capacity enforced via a separate atomic counter (ReaderWriterQueue grows
-// dynamically; the counter is the actual bound).
 class EvalRunner {
 public:
-    // AGENT-CTX: capacity 64 keeps moodycamel in the single-block path
-    // (ceilToPow2(65)=128 <= MAX_BLOCK_SIZE*2=1024), allocating ~109 KB.
-    // capacity=4096 would trigger 10×426 KB multi-block allocation that
+    // capacity=64: keeps moodycamel in the single-block path
+    // (ceilToPow2(65)=128 <= MAX_BLOCK_SIZE*2=1024, ~109 KB).
+    // capacity=4096 triggers 10×426 KB multi-block allocation that
     // fragments the heap and causes bad_alloc on subsequent JSON operations.
     EvalRunner(std::vector<std::unique_ptr<EvalModule>> modules,
                EvalOutputCallback                       output_cb,
@@ -34,6 +28,10 @@ public:
 
     void start();
     void stop();
+
+    // Calls on_session_init on all modules — invoke once after construction,
+    // before start(), to supply any static session data (e.g. the deck table).
+    void init_session(const std::array<engine::DeckSpec, 12>&);
 
     // Non-blocking: drops silently if queue is at capacity.
     void push_round_start(const engine::GameStateSnapshot&);

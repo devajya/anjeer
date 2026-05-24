@@ -12,6 +12,11 @@ public:
     // EvalRunner calls this once before the first on_* callback.
     void set_output_cb(EvalOutputCallback cb) { output_cb_ = std::move(cb); }
 
+    // Called once at session creation with the static deck table.
+    // Modules that need the deck table (BayesianEvalModule) store it here
+    // rather than re-copying it from every snapshot.
+    virtual void on_session_init(const std::array<engine::DeckSpec, 12>&) {}
+
     virtual void on_round_start(const engine::GameStateSnapshot&) = 0;
     virtual void on_trade_event(const EvalTradeEvent&)            = 0;
     virtual void on_book_update(const EvalBookUpdate&)            = 0;
