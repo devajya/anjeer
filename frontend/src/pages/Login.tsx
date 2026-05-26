@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import './Login.css'
 
@@ -13,24 +13,26 @@ const PROVIDERS = [
 export function Login() {
   const { user, loading } = useAuth()
 
-  // Block forward navigation to /login when the user is already authenticated.
   if (loading) return null
   if (user !== null) return <Navigate to="/lobby" replace />
 
   return (
-    <div className="login">
-      <h1 className="login__title">Anjeer</h1>
-      <p className="login__subtitle">Sign in to play</p>
-      <div className="login__providers">
-        {PROVIDERS.map(p => (
-          <button
-            key={p.id}
-            className="login__btn"
-            onClick={() => { window.location.href = `/auth/${p.id}` }}
-          >
-            {p.label}
-          </button>
-        ))}
+    <div className="login-page">
+      <div className="login__card">
+        <h1 className="login__title">Anjeer</h1>
+        <p className="login__subtitle">Sign in to play.</p>
+        <div className="login__providers">
+          {PROVIDERS.map(p => (
+            <button
+              key={p.id}
+              className="login__btn"
+              onClick={() => { window.location.href = `/auth/${p.id}` }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <Link to="/" className="login__back">← Back to home</Link>
       </div>
     </div>
   )

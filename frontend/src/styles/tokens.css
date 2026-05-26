@@ -1,0 +1,16 @@
+:root {
+  /* Palette */
+  --color-bg:         #0f0f0f;
+  --color-surface:    #1a1a1a;
+  --color-border:     #2e2e2e;
+  --color-text:       #f0f0f0;
+  --color-muted:      #888888;
+  --color-accent:     #c9a84c;
+  --color-invert-bg:  #f5f4f0;
+  --color-invert-text:#111111;
+
+  /* Typography */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-serif: 'EB Garamond', Georgia, serif;
+  --font-mono:  'IBM Plex Mono', 'Fira Mono', monospace;
+}
