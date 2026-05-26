@@ -1,124 +1,202 @@
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+
 .scroll-tracker-section {
   position: relative;
   min-height: 400vh;
   background: var(--color-invert-bg);
   color: var(--color-invert-text);
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
 }
 
-/* Pill track sits at the very top of the section, full width */
-.scroll-tracker-pill-track {
+.scroll-tracker-section--static {
+  min-height: unset;
+}
+
+.scroll-tracker-sticky {
   position: sticky;
   top: 0;
-  width: 100%;
-  height: 4px;
-  z-index: 10;
-  background: transparent;
+  height: 100vh;
+  overflow: hidden;
 }
 
-.scroll-tracker-pill {
+/* ── SVG frame border ────────────────────────────────────────────────────── */
+
+/* Full-viewport overlay; path is set by JS. */
+.scroll-tracker-frame-svg {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 48px;
-  height: 4px;
-  background: var(--color-accent);
-  border-radius: 2px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
-/* Inner content: sub-sections stacked vertically, each pinned while scrolling */
-.scroll-tracker-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+.scroll-tracker-frame-path {
+  fill: none;
+  stroke: var(--color-invert-text);
+  stroke-width: 1;
+  opacity: 0.25;
 }
 
-/* Each sub-section takes 100vh of scroll real estate */
-.scroll-tracker-subsection {
-  display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
-  align-items: center;
-  gap: 2rem;
-  min-height: 100vh;
-  padding: 4rem 6rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
+/* ── Indicator: pill that slides along the frame's top edge ─────────────── */
 
-.scroll-tracker-subsection:last-child {
-  border-bottom: none;
-}
-
-.scroll-tracker-svg-col {
+.scroll-tracker-indicator {
+  position: absolute;
+  width: 38px;
+  height: 16px;
+  background: var(--color-invert-text);
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-invert-text);
-  opacity: 0.8;
+  /* left + top set by JS */
+}
+
+.scroll-tracker-indicator-symbol {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-invert-bg);
+  user-select: none;
+}
+
+/* ── Illustration column — left of frame (0 → 38vw) ─────────────────────── */
+
+.scroll-tracker-illust-col {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 38vw;    /* matches F.left */
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scroll-tracker-illust {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: opacity;
 }
 
 .scroll-tracker-svg {
-  max-width: 200px;
-  max-height: 200px;
+  width: clamp(140px, 22vw, 280px);
+  height: clamp(140px, 22vw, 280px);
+  color: var(--color-invert-text);
+  opacity: 0.7;
+}
+
+/* ── Content column — inside frame, above the card notch ────────────────── */
+/* left: 38vw (F.left), top: 9vh (F.top), right: 34vw (100 - F.cardLeft*100),
+   bottom: 30vh (100 - F.cardTop*100)                                          */
+
+.scroll-tracker-content-col {
+  position: absolute;
+  left: 38vw;
+  top: 9vh;
+  right: 34vw;
+  bottom: 30vh;
 }
 
 .scroll-tracker-content {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  justify-content: center;
+  padding: 2rem 1.5rem 1.5rem 2.5rem;
+  will-change: opacity;
+}
+
+.scroll-tracker-eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: 1rem;
 }
 
 .scroll-tracker-headline {
   font-family: var(--font-serif);
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
   font-style: italic;
+  font-size: clamp(1.6rem, 3.5vw, 2.75rem);
   font-weight: 400;
+  line-height: 1.15;
   color: var(--color-invert-text);
-  margin: 0;
-  line-height: 1.2;
+  margin: 0 0 1rem;
 }
 
 .scroll-tracker-body {
   font-family: var(--font-sans);
-  font-size: 1rem;
-  color: var(--color-invert-text);
-  opacity: 0.65;
-  margin: 0;
+  font-size: 0.9rem;
   line-height: 1.7;
-  max-width: 40ch;
+  color: #555;
+  max-width: 36ch;
+  margin: 0;
+}
+
+/* ── Numbered card — inside the notch (bottom-right of frame) ───────────── */
+/* left: 66vw (F.cardLeft), top: 70vh (F.cardTop),
+   right: 4vw (100 - F.right*100), bottom: 9vh (100 - F.bottom*100)           */
+
+.scroll-tracker-card-col {
+  position: absolute;
+  left: 66vw;
+  top: 70vh;
+  right: 4vw;
+  bottom: 9vh;
 }
 
 .scroll-tracker-number-card {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  position: absolute;
+  inset: 0;
+  padding: 0.875rem 1rem;
+  will-change: opacity;
 }
 
 .scroll-tracker-number {
+  display: block;
   font-family: var(--font-mono);
-  font-size: clamp(3rem, 6vw, 5rem);
-  font-weight: 700;
-  color: var(--color-invert-text);
-  opacity: 0.08;
-  line-height: 1;
-  user-select: none;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  color: var(--color-muted);
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
-/* Mobile: single-column layout */
-@media (max-width: 768px) {
-  .scroll-tracker-subsection {
-    grid-template-columns: 1fr;
-    padding: 3rem 1.5rem;
-    min-height: auto;
-    gap: 1.5rem;
-    text-align: center;
-  }
+.scroll-tracker-card-body {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #666;
+  margin: 0;
+}
 
-  .scroll-tracker-number-card {
-    justify-content: center;
-  }
+/* ── Reduced-motion static grid fallback ─────────────────────────────────── */
 
-  .scroll-tracker-body {
-    max-width: 100%;
-  }
+.scroll-tracker-static-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 2rem;
+  padding: 4rem 2rem;
+}
+
+.scroll-tracker-static-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.scroll-tracker-static-svg {
+  margin-bottom: 0.5rem;
+}
+
+.scroll-tracker-static-svg .scroll-tracker-svg {
+  width: 100px;
+  height: 100px;
 }

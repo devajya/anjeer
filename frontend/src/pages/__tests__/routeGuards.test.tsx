@@ -12,6 +12,15 @@ import { ProtectedRoute } from '../../components/ProtectedRoute'
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('../../hooks/useAuth', () => ({ useAuth: vi.fn() }))
+
+// Stub heavy landing-page sections — routeGuards tests only care about routing,
+// not ExpandingPortal/ScrollTrackerSection internals.
+vi.mock('../../components/ExpandingPortal', () => ({
+  ExpandingPortal: () => <div data-testid="landing-page-content">landing page</div>,
+}))
+vi.mock('../../components/ScrollTrackerSection', () => ({
+  ScrollTrackerSection: () => null,
+}))
 vi.mock('../../hooks/useKeyBinds', () => ({ useKeyBinds: () => ({ binds: {}, loading: false }) }))
 vi.mock('../../hooks/useKeyboardShortcuts', () => ({ useKeyboardShortcuts: () => {} }))
 
@@ -128,14 +137,14 @@ describe('Route table — Slice 12 additions', () => {
     Object.keys(lsStore).forEach(k => delete lsStore[k])
   })
 
-  it('/ renders LandingPage stub without auth', () => {
+  it('/ renders LandingPage without auth', () => {
     setAuth(null, false)
     render(
       <MemoryRouter initialEntries={['/']}>
         <LandingPage />
       </MemoryRouter>,
     )
-    expect(screen.getByText('Landing Page Stub')).toBeInTheDocument()
+    expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
   })
 
   it('/ redirects authenticated user to /lobby (post-OAuth flow)', () => {
@@ -149,7 +158,7 @@ describe('Route table — Slice 12 additions', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('lobby page')).toBeInTheDocument()
-    expect(screen.queryByText('Landing Page Stub')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('landing-page-content')).not.toBeInTheDocument()
   })
 
   it('/auth renders Login component', () => {
@@ -172,7 +181,7 @@ describe('Route table — Slice 12 additions', () => {
         </Routes>
       </MemoryRouter>,
     )
-    expect(screen.getByText('Landing Page Stub')).toBeInTheDocument()
+    expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
   })
 
   it('ProtectedRoute redirects to /auth when user is null', () => {

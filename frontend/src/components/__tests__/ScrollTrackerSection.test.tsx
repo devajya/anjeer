@@ -3,36 +3,25 @@ import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { ScrollTrackerSection } from '../ScrollTrackerSection'
 
 // AGENT-CTX: GSAP and ScrollTrigger require a real browser scroll context.
-// In jsdom there is no layout engine, so gsap.to() and ScrollTrigger throw.
-// We mock the dynamic imports so the useEffect resolves without error.
+// Mock the dynamic imports so useEffect resolves without error in jsdom.
 vi.mock('gsap', () => ({
-  gsap: {
-    registerPlugin: vi.fn(),
-    to: vi.fn(),
-  },
+  gsap: { registerPlugin: vi.fn(), to: vi.fn() },
 }))
 
 vi.mock('gsap/ScrollTrigger', () => ({
   ScrollTrigger: {
+    create: vi.fn(() => ({ kill: vi.fn() })),
     getAll: vi.fn(() => []),
   },
 }))
 
 beforeAll(() => {
-  // matchMedia is not implemented in jsdom
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  })
+  // ResizeObserver not in jsdom
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
 })
 
 describe('ScrollTrackerSection', () => {
@@ -50,17 +39,19 @@ describe('ScrollTrackerSection', () => {
     expect(svgs).toHaveLength(4)
   })
 
-  it('pill element exists in DOM', () => {
+  it('indicator element exists in DOM', () => {
     const { container } = render(<ScrollTrackerSection reducedMotion={false} />)
-    const pill = container.querySelector('.scroll-tracker-pill')
-    expect(pill).toBeInTheDocument()
+    const indicator = container.querySelector('.scroll-tracker-indicator')
+    expect(indicator).toBeInTheDocument()
   })
 
-  it('when reducedMotion=true, pill has inline style left:0 and no GSAP init', () => {
+  it('when reducedMotion=true renders static grid without the animated indicator', () => {
     const { container } = render(<ScrollTrackerSection reducedMotion={true} />)
-    const pill = container.querySelector('.scroll-tracker-pill') as HTMLElement
-    expect(pill).toBeInTheDocument()
-    // Reduced motion sets explicit left:0 via inline style
-    expect(pill.style.left).toBe('0px')
+    // Static grid is present
+    expect(container.querySelector('.scroll-tracker-static-grid')).toBeInTheDocument()
+    // Animated indicator is NOT present (reduced-motion uses static path)
+    expect(container.querySelector('.scroll-tracker-indicator')).not.toBeInTheDocument()
+    // All 4 headlines still in DOM
+    expect(screen.getByText('Trade in your browser')).toBeInTheDocument()
   })
 })
