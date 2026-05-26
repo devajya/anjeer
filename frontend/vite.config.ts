@@ -29,7 +29,11 @@ export default defineConfig({
       // the uWS game server (:9001). Keep these separate — /api/log is a special
       // endpoint on the WS server and must continue to route to :9001.
       // In production, nginx handles this split at the reverse-proxy level.
-      '/auth': {
+      // AGENT-CTX: Regex key ^/auth/ (not bare /auth) so that the React route /auth
+      // is served by Vite while OAuth subpaths /auth/github, /auth/google, /auth/*/callback
+      // are still forwarded to the HTTP server. Bare /auth without trailing slash
+      // would intercept the React route and serve a 404 from the backend.
+      '^/auth/': {
         target: 'http://localhost:10000',
         changeOrigin: false,
       },

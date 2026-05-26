@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { AuthProvider } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login } from './pages/Login'
+import { LandingPage } from './pages/LandingPage'
 import { Game } from './pages/Game'
 import { LobbyBrowser } from './pages/LobbyBrowser'
 import { LobbyRoom } from './pages/LobbyRoom'
@@ -29,7 +30,8 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/auth" element={<Login />} />
         <Route
           path="/lobby"
           element={
@@ -96,11 +98,12 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        {/* AGENT-CTX: Catch-all redirects to /lobby so unauthenticated users
-            hit the lobby browser (ProtectedRoute will then send them to /login).
-            Previously /* rendered Game directly — changed in Slice 6 now that
-            the lobby is the entry point. */}
-        <Route path="*" element={<Navigate to="/lobby" replace />} />
+        {/* AGENT-CTX: Catch-all redirects to / (LandingPage) — unauthenticated
+            users see the landing page, then navigate to /auth to sign in.
+            Changed from /lobby in Slice 12 now that the landing page is the
+            public entry point. ProtectedRoute still redirects to /auth for
+            any authenticated-only path accessed without a session. */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
   )
