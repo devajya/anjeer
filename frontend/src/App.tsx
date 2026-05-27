@@ -1,5 +1,6 @@
-import { Routes, Route, Navigate, useSearchParams } from 'react-router-dom'
+import { Routes, Route, Navigate, useSearchParams, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { AuthProvider } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Login } from './pages/Login'
@@ -22,21 +23,37 @@ function GameRouteGuard({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
-// AGENT-CTX: App.tsx is the route map. Lobby pages sit between login and game.
-// Default route redirects to /lobby so new users land in the lobby browser.
-// /game is only reached via lobby_started navigation (LobbyRoom → /game?lobby_id=...).
-// BrowserRouter is in main.tsx, not here, so this tree is testable without a router.
-export default function App() {
+// Fade + slight upward slide for all non-game pages.
+// Game is excluded: it never unmounts mid-session and overlay components
+// (RoundEndModal, InterRoundScreen) handle their own entrance animations.
+function PageTransition({ children }: { children: ReactNode }) {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/auth" element={<Login />} />
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+// AGENT-CTX: useLocation must live inside BrowserRouter (in main.tsx).
+// AnimatedRoutes is separated from App so AuthProvider wraps it cleanly.
+// AnimatePresence key=pathname means each unique path gets its own animation cycle.
+function AnimatedRoutes() {
+  const location = useLocation()
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<PageTransition><LandingPage /></PageTransition>} />
+        <Route path="/auth" element={<PageTransition><Login /></PageTransition>} />
         <Route
           path="/lobby"
           element={
             <ProtectedRoute>
-              <LobbyBrowser />
+              <PageTransition><LobbyBrowser /></PageTransition>
             </ProtectedRoute>
           }
         />
@@ -44,10 +61,11 @@ export default function App() {
           path="/lobby/:code"
           element={
             <ProtectedRoute>
-              <LobbyRoom />
+              <PageTransition><LobbyRoom /></PageTransition>
             </ProtectedRoute>
           }
         />
+        {/* Game: no PageTransition — full real estate, game feel must not regress */}
         <Route
           path="/game"
           element={
@@ -62,7 +80,7 @@ export default function App() {
           path="/settings/keybinds"
           element={
             <ProtectedRoute>
-              <KeybindSettings />
+              <PageTransition><KeybindSettings /></PageTransition>
             </ProtectedRoute>
           }
         />
@@ -70,7 +88,7 @@ export default function App() {
           path="/api-keys"
           element={
             <ProtectedRoute>
-              <ApiKeySettings />
+              <PageTransition><ApiKeySettings /></PageTransition>
             </ProtectedRoute>
           }
         />
@@ -78,7 +96,7 @@ export default function App() {
           path="/spectate/:lobbyCode"
           element={
             <ProtectedRoute>
-              <SpectatorView />
+              <PageTransition><SpectatorView /></PageTransition>
             </ProtectedRoute>
           }
         />
@@ -86,7 +104,7 @@ export default function App() {
           path="/docs"
           element={
             <ProtectedRoute>
-              <DocsPage />
+              <PageTransition><DocsPage /></PageTransition>
             </ProtectedRoute>
           }
         />
@@ -94,7 +112,7 @@ export default function App() {
           path="/learn"
           element={
             <ProtectedRoute>
-              <LearnPage />
+              <PageTransition><LearnPage /></PageTransition>
             </ProtectedRoute>
           }
         />
@@ -105,6 +123,14 @@ export default function App() {
             any authenticated-only path accessed without a session. */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </AnimatePresence>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AnimatedRoutes />
     </AuthProvider>
   )
 }

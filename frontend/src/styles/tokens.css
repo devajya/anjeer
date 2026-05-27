@@ -1,15 +1,40 @@
 :root {
-  /* Palette */
-  --color-bg:         #0f0f0f;
-  --color-surface:    #1a1a1a;
-  --color-border:     #2e2e2e;
-  --color-text:       #f0f0f0;
-  --color-muted:      #888888;
-  --color-accent:     #c9a84c;
-  --color-invert-bg:  #f5f4f0;
-  --color-invert-text:#111111;
+  /* ── Surface hierarchy ───────────────────────────────── */
+  --color-bg:           #0f0f0f;
+  --color-surface:      #1a1a1a;
+  --color-surface-alt:  #141414;
+  --color-invert-bg:    #f5f4f0;
+  --color-invert-text:  #111111;
 
-  /* Typography */
+  /* ── Borders ─────────────────────────────────────────── */
+  --color-border:        #2e2e2e;
+  --color-border-subtle: #222222;
+
+  /* ── Text ────────────────────────────────────────────── */
+  --color-text:     #f0f0f0;
+  --color-muted:    #888888;
+  --color-text-dim: #444444;
+
+  /* ── Primary accent (gold) ───────────────────────────── */
+  --color-accent:     #c9a84c;
+  --color-accent-dim: rgba(201, 168, 76, 0.10);
+
+  /* ── Semantic — trading & status ─────────────────────── */
+  --color-success:     #4ade80;
+  --color-success-dim: rgba(74, 222, 128, 0.08);
+  --color-danger:      #f87171;
+  --color-danger-dim:  rgba(248, 113, 113, 0.08);
+  --color-warning:     #f59e0b;
+
+  /* ── Overlay ─────────────────────────────────────────── */
+  --color-overlay: rgba(0, 0, 0, 0.78);
+
+  /* ── Radii ───────────────────────────────────────────── */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  /* ── Typography ──────────────────────────────────────── */
   --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
   --font-serif: 'EB Garamond', Georgia, serif;
   --font-mono:  'IBM Plex Mono', 'Fira Mono', monospace;
