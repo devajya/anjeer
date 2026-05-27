@@ -3,8 +3,8 @@
 .scroll-tracker-section {
   position: relative;
   min-height: 400vh;
-  background: var(--color-invert-bg);
-  color: var(--color-invert-text);
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 .scroll-tracker-section--static {
@@ -20,7 +20,6 @@
 
 /* ── SVG frame border ────────────────────────────────────────────────────── */
 
-/* Full-viewport overlay; path is set by JS. */
 .scroll-tracker-frame-svg {
   position: absolute;
   inset: 0;
@@ -31,9 +30,9 @@
 
 .scroll-tracker-frame-path {
   fill: none;
-  stroke: var(--color-invert-text);
+  stroke: var(--color-text);
   stroke-width: 1;
-  opacity: 0.25;
+  opacity: 0.2;
 }
 
 /* ── Indicator: pill that slides along the frame's top edge ─────────────── */
@@ -42,19 +41,18 @@
   position: absolute;
   width: 38px;
   height: 16px;
-  background: var(--color-invert-text);
+  background: var(--color-text);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   will-change: transform;
-  /* left + top + transform set by JS */
 }
 
 .scroll-tracker-indicator-symbol {
   font-size: 9px;
   line-height: 1;
-  color: var(--color-invert-bg);
+  color: var(--color-bg);
   user-select: none;
 }
 
@@ -64,7 +62,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 38vw;    /* matches F.left */
+  width: 38vw;
   height: 100%;
   display: flex;
   align-items: center;
@@ -83,13 +81,11 @@
 .scroll-tracker-svg {
   width: clamp(160px, 28vw, 340px);
   height: clamp(160px, 28vw, 340px);
-  color: var(--color-invert-text);
-  opacity: 0.7;
+  color: var(--color-text);
+  opacity: 0.6;
 }
 
 /* ── Content column — inside frame, above the card notch ────────────────── */
-/* left: 38vw (F.left), top: 9vh (F.top), right: 34vw (100 - F.cardLeft*100),
-   bottom: 30vh (100 - F.cardTop*100)                                          */
 
 .scroll-tracker-content-col {
   position: absolute;
@@ -125,7 +121,7 @@
   font-size: clamp(1.6rem, 3.5vw, 2.75rem);
   font-weight: 400;
   line-height: 1.15;
-  color: var(--color-invert-text);
+  color: var(--color-text);
   margin: 0 0 1rem;
 }
 
@@ -133,14 +129,12 @@
   font-family: var(--font-sans);
   font-size: 0.9rem;
   line-height: 1.7;
-  color: var(--color-invert-muted);
+  color: var(--color-muted);
   max-width: 36ch;
   margin: 0;
 }
 
 /* ── Numbered card — inside the notch (bottom-right of frame) ───────────── */
-/* left: 66vw (F.cardLeft), top: 70vh (F.cardTop),
-   right: 4vw (100 - F.right*100), bottom: 9vh (100 - F.bottom*100)           */
 
 .scroll-tracker-card-col {
   position: absolute;
@@ -165,14 +159,14 @@
   color: var(--color-muted);
   margin-bottom: 0.5rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .scroll-tracker-card-body {
   font-family: var(--font-sans);
   font-size: var(--font-size-xs);
   line-height: 1.5;
-  color: var(--color-invert-muted);
+  color: var(--color-muted);
   margin: 0;
 }
 
@@ -190,7 +184,7 @@
   flex-direction: column;
   gap: 0.5rem;
   padding: 1.5rem;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .scroll-tracker-static-svg {

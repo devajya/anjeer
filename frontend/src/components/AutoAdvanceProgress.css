@@ -10,9 +10,9 @@
   height: 100vh;
   display: flex;
   align-items: stretch;
-  background: var(--color-bg);
+  background: var(--color-invert-bg);
   overflow: hidden;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .aap-left {
@@ -25,12 +25,12 @@
 
 .aap-block {
   padding: 1.5rem 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
   cursor: pointer;
 }
 
 .aap-block:last-child {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .aap-block-header {
@@ -51,31 +51,31 @@
 .aap-block-headline {
   font-family: var(--font-sans);
   font-size: 1rem;
-  color: var(--color-text);
+  color: var(--color-invert-text);
   font-weight: 500;
 }
 
 .aap-block-body {
   overflow: hidden;
   max-height: 0;
-  transition: max-height 0.35s ease;
+  transition: max-height 0.45s ease;
 }
 
 .aap-block--active .aap-block-body {
-  max-height: 200px;
+  max-height: 400px;
 }
 
 .aap-block-body p {
   font-family: var(--font-sans);
   font-size: 0.9rem;
-  color: var(--color-muted);
+  color: var(--color-invert-muted);
   line-height: 1.7;
   margin: 0.85rem 0 0.65rem;
 }
 
 .aap-progress-bar {
   height: 2px;
-  background: var(--color-border);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 1px;
   overflow: hidden;
   margin-top: 0.85rem;
@@ -95,9 +95,9 @@
 }
 
 .aap-canvas {
-  border: 1px solid var(--color-border);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 /* reducedMotion: revert to scrollable accordion, no sticky */

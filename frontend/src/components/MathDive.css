@@ -1,0 +1,197 @@
+/* ── Outer scroll container ───────────────────────────────────────────────── */
+
+.math-dive-outer {
+  height: 500vh;
+}
+
+/* ── Sticky viewport with CSS 3D perspective ─────────────────────────────── */
+
+.math-dive-sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  perspective: 900px;
+  perspective-origin: 50% 50%;
+  background: #04040a;
+}
+
+/* Vignette — deepens the void sensation at edges */
+.math-dive-sticky::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 70% at 50% 50%, transparent 35%, #04040a 100%);
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Subtle gold grid — creates tunnel depth between floors */
+.md-tunnel {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(201, 168, 76, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(201, 168, 76, 0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+  background-position: center center;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── 3D world — translateZ driven by GSAP ScrollTrigger ─────────────────── */
+
+.math-dive-world {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+/* ── Individual floors — each at a fixed Z in world space ───────────────── */
+
+.md-floor {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  z-index: 1;
+}
+
+/* ── Content panel — floats in the void ─────────────────────────────────── */
+
+.md-panel {
+  display: flex;
+  align-items: center;
+  gap: 3.5rem;
+  padding: 3rem 3.5rem;
+  border: 1px solid rgba(201, 168, 76, 0.2);
+  background: rgba(4, 4, 10, 0.94);
+  width: min(820px, 82vw);
+  position: relative;
+  z-index: 2;
+}
+
+/* Corner accent marks */
+.md-panel::before,
+.md-panel::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: rgba(201, 168, 76, 0.6);
+  border-style: solid;
+}
+
+.md-panel::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.md-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* ── Panel content ───────────────────────────────────────────────────────── */
+
+.md-panel-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.md-panel-right {
+  flex: 0 0 auto;
+}
+
+.md-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  opacity: 0.75;
+}
+
+.md-headline {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(1.3rem, 2.4vw, 2rem);
+  font-weight: 400;
+  color: var(--color-text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.md-equation {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  color: var(--color-accent);
+  margin: 0;
+  padding: 0.45rem 0 0.45rem 1rem;
+  border-left: 2px solid rgba(201, 168, 76, 0.4);
+  letter-spacing: 0.04em;
+}
+
+.md-body {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.75;
+  color: var(--color-muted);
+  margin: 0;
+  max-width: 40ch;
+}
+
+.md-canvas {
+  border: 1px solid rgba(201, 168, 76, 0.14);
+  background: rgba(201, 168, 76, 0.02);
+  display: block;
+}
+
+/* ── Reduced-motion static fallback ─────────────────────────────────────── */
+
+.math-dive-static {
+  background: #04040a;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 2rem;
+  padding: 5rem 3rem;
+}
+
+.math-dive-static-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 2rem;
+  border: 1px solid rgba(201, 168, 76, 0.15);
+}
+
+/* ── CTA button ──────────────────────────────────────────────────────────── */
+
+.md-cta-btn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.6rem 1.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: #04040a;
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  transition: background 0.2s, color 0.2s;
+  align-self: flex-start;
+}
+
+.md-cta-btn:hover {
+  background: transparent;
+  color: var(--color-accent);
+}

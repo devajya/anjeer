@@ -148,9 +148,9 @@ export function AutoAdvanceProgress({ reducedMotion }: AutoAdvanceProgressProps)
 
       ctx!.beginPath()
       ctx!.arc(POT_POSITION.x, POT_POSITION.y, 8, 0, Math.PI * 2)
-      ctx!.fillStyle = 'rgba(200,184,107,0.15)'
+      ctx!.fillStyle = 'rgba(200,184,107,0.22)'
       ctx!.fill()
-      ctx!.strokeStyle = 'rgba(200,184,107,0.45)'
+      ctx!.strokeStyle = 'rgba(200,184,107,0.65)'
       ctx!.lineWidth = 1
       ctx!.stroke()
 
@@ -159,7 +159,7 @@ export function AutoAdvanceProgress({ reducedMotion }: AutoAdvanceProgressProps)
         ctx!.arc(pos[i].x, pos[i].y, CHIP_R, 0, Math.PI * 2)
         ctx!.fillStyle = CHIP_COLORS[i]
         ctx!.fill()
-        ctx!.strokeStyle = 'rgba(255,255,255,0.25)'
+        ctx!.strokeStyle = 'rgba(0,0,0,0.15)'
         ctx!.lineWidth = 1.5
         ctx!.stroke()
       }
