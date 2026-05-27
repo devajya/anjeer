@@ -158,7 +158,7 @@ Bot difficulty tiers differ in _information model quality_, not just parameter t
 
 ## Evaluation Framework
 
-**Location:** `server/eval/` *(Slice 11 — in progress)*
+**Location:** `server/eval/`
 
 An in-process plugin architecture running on a dedicated thread. `EvalRunner` maintains a lock-free SPSC queue fed by the game loop and fans events out to registered `EvalModule` implementations.
 
@@ -200,15 +200,20 @@ React + TypeScript + Vite. State flows down from hooks; components are stateless
 | `useWebSocket` | Single WS connection, full message type dispatch, all game state |
 | `useKeyBinds` | Fetches per-player keybind overrides from REST; merges with defaults |
 | `useKeyboardShortcuts` | Global `keydown` listener; dispatches 11 trading actions via inverted combo map |
-| `useEvalMetrics` *(Slice 11)* | Subscribes to `eval.*` messages; exposes posterior, accumulation, guidance state |
+| `useEvalMetrics` | Subscribes to `eval.*` messages; exposes posterior, accumulation, guidance state |
 
 ### Pages & Components
 
 ```
-/login             OAuth buttons
+/                  Landing page (public)
+  ├─ ExpandingPortal        — GSAP scroll-pin hero, framer-motion layout spring, mouse parallax
+  ├─ AutoAdvanceProgress    — scroll-driven accordion; step-by-step game rules; canvas chip anim
+  ├─ ScrollTrackerSection   — 400vh sticky slideshow; SVG stepped-border frame; GSAP pill indicator
+  └─ MathDive               — CSS 3D camera dive (EV → Bayes → order book → CTA); GSAP ScrollTrigger
+/auth              OAuth buttons (Login)
 /lobby             Lobby browser — list, create, join by code, active tab
 /lobby/:code       Lobby room — roster, bot controls, start button
-/game/:code        Trading UI
+/game              Trading UI
   ├─ MarketOverview + DeltaTable   — hand counts + per-player net card flow
   ├─ SuitPanel (×4)                — order form + best bid/ask per suit
   ├─ MyOrders                      — resting orders + cancel
@@ -216,15 +221,20 @@ React + TypeScript + Vite. State flows down from hooks; components are stateless
   ├─ InterRoundScreen              — standings + vote-to-end + countdown
   ├─ RoundEndModal                 — goal reveal, payouts
   ├─ GameEndScreen                 — final standings + per-round breakdown
-  └─ EvalPanel (Slice 11)          — collapsible third column; posterior, signals, guidance
+  └─ EvalPanel                     — collapsible third column; posterior, signals, guidance
 /spectate/:lobbyId  Read-only spectator view with script log panel
 /settings/keybinds  Keybind customisation (GET/PUT /players/me/keybinds)
 /api-keys           API key CRUD
 /docs               Static API reference + script templates
+/learn              Grouped eval-module documentation
 ```
+
+`AppNav` — persistent top bar across all authenticated non-game routes; lives outside `AnimatePresence` so it never flashes during page transitions.
 
 ### Design Choices
 
+- **CSS design tokens** — all colors, typography, radii, and spacing defined as CSS custom properties in `src/styles/tokens.css`; no magic numbers in component CSS
+- **Route-level code splitting** — every page is `React.lazy()`; below-fold landing sections deferred behind a `Suspense` boundary; each route is its own chunk loaded on demand
 - `BrowserRouter` with lobby UUID passed via navigation state; falls back to REST lookup for direct URL navigation
 - `delta_update` is a full 4×4 snapshot replacement on every trade — no client-side accumulation
 - All 11 keyboard shortcuts are configurable per player and persisted to the DB
@@ -246,9 +256,9 @@ All messages are JSON with a `type` string discriminator. The single source of t
 | `all_balances` | All slot balances after every trade |
 | `hand_totals` | Total card count per slot after every trade |
 | `inter_round` | Standings, vote tallies, countdown |
-| `eval.posterior_update` | Private per-slot: deck posteriors, settlement EV *(Slice 11)* |
-| `eval.accumulation_signal` | Broadcast: per-player behavioral signals *(Slice 11)* |
-| `eval.execution_guidance` | Broadcast: per-suit execution recommendations *(Slice 11)* |
+| `eval.posterior_update` | Private per-slot: deck posteriors, settlement EV  |
+| `eval.accumulation_signal` | Broadcast: per-player behavioral signals  |
+| `eval.execution_guidance` | Broadcast: per-suit execution recommendations  |
 
 **Client → Server (selected):**
 
