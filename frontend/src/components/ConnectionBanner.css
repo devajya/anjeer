@@ -31,5 +31,5 @@
 }
 
 .connection-banner__timestamp {
-  font-family: monospace;
+  font-family: var(--font-mono);
 }

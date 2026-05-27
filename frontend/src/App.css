@@ -316,7 +316,7 @@
   overflow-y: auto;
   height: 180px;
   padding: 0.4rem 0.6rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   display: flex;
   flex-direction: column;
