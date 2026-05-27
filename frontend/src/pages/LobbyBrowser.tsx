@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -11,6 +11,7 @@ type Tab = 'starting' | 'active'
 
 export function LobbyBrowser() {
   const navigate              = useNavigate()
+  const location              = useLocation()
   const [searchParams]        = useSearchParams()
   const { user }              = useAuth()
   const [tab, setTab]         = useState<Tab>('starting')
@@ -52,6 +53,8 @@ export function LobbyBrowser() {
       setOverflowLobbyIds(prev => new Set([...prev, queueState.lobbyId]))
     }
     if (queueState.status === 'admitted') {
+      const leftGame = (location.state as { leftGame?: string } | null)?.leftGame
+      if (leftGame === queueState.lobbyId) { resetQueue(); return }
       navigate(`/game?lobby_id=${queueState.lobbyId}`)
       resetQueue()
     }

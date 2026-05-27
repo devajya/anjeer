@@ -288,7 +288,7 @@ const { user } = useAuth()
           {user && (
             <PlayerBadge
               username={user.username}
-              onLeave={() => navigate('/lobby')}
+              onLeave={() => navigate('/lobby', { state: { leftGame: lobbyId } })}
             />
           )}
         </header>
