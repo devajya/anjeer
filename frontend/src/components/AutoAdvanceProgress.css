@@ -1,0 +1,113 @@
+/* Outer section is tall so the sticky inner has scroll space to work with */
+.auto-advance-progress {
+  height: 400vh;
+}
+
+/* Sticky panel fills the full viewport — same pattern as ScrollTrackerSection */
+.aap-inner {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  align-items: stretch;
+  background: var(--color-bg);
+  overflow: hidden;
+  border-top: 1px solid var(--color-border);
+}
+
+.aap-left {
+  flex: 0 0 44%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 3rem 0 5rem;
+}
+
+.aap-block {
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.aap-block:last-child {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.aap-block-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.aap-block-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+
+.aap-block-headline {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.aap-block-body {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.35s ease;
+}
+
+.aap-block--active .aap-block-body {
+  max-height: 200px;
+}
+
+.aap-block-body p {
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  line-height: 1.7;
+  margin: 0.85rem 0 0.65rem;
+}
+
+.aap-progress-bar {
+  height: 2px;
+  background: var(--color-border);
+  border-radius: 1px;
+  overflow: hidden;
+  margin-top: 0.85rem;
+}
+
+.aap-progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 1px;
+}
+
+.aap-right {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.aap-canvas {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* reducedMotion: revert to scrollable accordion, no sticky */
+@media (prefers-reduced-motion: reduce) {
+  .auto-advance-progress {
+    height: auto;
+  }
+  .aap-inner {
+    position: static;
+    height: auto;
+    padding: 5rem 6rem;
+  }
+}

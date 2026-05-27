@@ -3,6 +3,7 @@ import { useReducedMotion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { ExpandingPortal } from '../components/ExpandingPortal'
+import { AutoAdvanceProgress } from '../components/AutoAdvanceProgress'
 import { ScrollTrackerSection } from '../components/ScrollTrackerSection'
 
 // AGENT-CTX: OAuth callback redirects to cors_origin (/) after setting cookies.
@@ -21,6 +22,7 @@ export function LandingPage() {
     <main style={{ background: 'var(--color-bg)', minHeight: '100vh' }}>
       <ExpandingPortal reducedMotion={prefersReducedMotion} isMobile={isMobile} />
       <ScrollTrackerSection reducedMotion={prefersReducedMotion} />
+      <AutoAdvanceProgress reducedMotion={prefersReducedMotion} />
     </main>
   )
 }
