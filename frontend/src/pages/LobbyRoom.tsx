@@ -381,7 +381,6 @@ export function LobbyRoom() {
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <header className="lr__header">
         <button className="lr__back" onClick={handleBack}>← Lobbies</button>
-        <span className="lr__brand">Anjeer</span>
         <div className="lr__header-right">
           {code && <span className="lr__code">{code}</span>}
         </div>

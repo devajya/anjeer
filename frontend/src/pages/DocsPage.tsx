@@ -1,13 +1,9 @@
-import { useNavigate } from 'react-router-dom'
 import './DocsPage.css'
 
 export function DocsPage() {
-  const navigate = useNavigate()
-
   return (
     <div className="docs">
       <header className="docs__header">
-        <button className="docs__back" onClick={() => navigate('/lobby')}>← Lobby</button>
         <h1 className="docs__title">Anjeer API Docs</h1>
       </header>
 

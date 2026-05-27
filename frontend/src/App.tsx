@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AuthProvider } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AppNav } from './components/AppNav'
 import { Login } from './pages/Login'
 import { LandingPage } from './pages/LandingPage'
 import { Game } from './pages/Game'
@@ -39,14 +40,24 @@ function PageTransition({ children }: { children: ReactNode }) {
   )
 }
 
-// AGENT-CTX: useLocation must live inside BrowserRouter (in main.tsx).
-// AnimatedRoutes is separated from App so AuthProvider wraps it cleanly.
+// Paths that show AppNav. Checked as prefix so /lobby/:code also matches.
+const NAV_PREFIXES = ['/lobby', '/docs', '/api-keys', '/settings', '/learn']
+
+// AGENT-CTX: AppNav sits outside AnimatePresence so it stays mounted and
+// doesn't flash during route transitions. The content wrapper shifts down
+// 48px with app-content--with-nav when the nav is visible.
 // AnimatePresence key=pathname means each unique path gets its own animation cycle.
 function AnimatedRoutes() {
   const location = useLocation()
+  const showNav  = NAV_PREFIXES.some(p =>
+    location.pathname === p || location.pathname.startsWith(p + '/'),
+  )
   return (
-    <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
+    <>
+      {showNav && <AppNav />}
+      <div className={showNav ? 'app-content app-content--with-nav' : 'app-content'}>
+        <AnimatePresence mode="wait">
+          <Routes location={location} key={location.pathname}>
         <Route path="/" element={<PageTransition><LandingPage /></PageTransition>} />
         <Route path="/auth" element={<PageTransition><Login /></PageTransition>} />
         <Route
@@ -122,8 +133,10 @@ function AnimatedRoutes() {
             public entry point. ProtectedRoute still redirects to /auth for
             any authenticated-only path accessed without a session. */}
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AnimatePresence>
+          </Routes>
+        </AnimatePresence>
+      </div>
+    </>
   )
 }
 

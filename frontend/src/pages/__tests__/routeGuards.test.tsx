@@ -147,18 +147,14 @@ describe('Route table — Slice 12 additions', () => {
     expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
   })
 
-  it('/ redirects authenticated user to /lobby (post-OAuth flow)', () => {
+  it('/ renders LandingPage for authenticated users (no redirect — server sends post-OAuth to /lobby)', () => {
     setAuth(AUTHED_USER, false)
     render(
       <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/lobby" element={<div>lobby page</div>} />
-        </Routes>
+        <LandingPage />
       </MemoryRouter>,
     )
-    expect(screen.getByText('lobby page')).toBeInTheDocument()
-    expect(screen.queryByTestId('landing-page-content')).not.toBeInTheDocument()
+    expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
   })
 
   it('/auth renders Login component', () => {

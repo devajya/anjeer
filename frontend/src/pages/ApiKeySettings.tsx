@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { GenerateKeyModal } from '../components/GenerateKeyModal'
 import type { ApiKeyView, ApiKeyCreateResponse } from '../types/messages'
 import './ApiKeySettings.css'
@@ -16,7 +15,6 @@ function keyStatus(key: ApiKeyView): 'active' | 'expired' | 'revoked' {
 }
 
 export function ApiKeySettings() {
-  const navigate = useNavigate()
   const [keys,       setKeys]      = useState<ApiKeyView[]>([])
   const [loading,    setLoading]   = useState(true)
   const [nameInput,  setNameInput] = useState('')
@@ -90,7 +88,6 @@ export function ApiKeySettings() {
   return (
     <div className="ak">
       <header className="ak__header">
-        <button className="ak__back" onClick={() => navigate('/lobby')}>← Back</button>
         <h1 className="ak__title">API Keys</h1>
       </header>
 
