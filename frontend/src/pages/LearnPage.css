@@ -55,7 +55,7 @@
 }
 
 .learn__toc a {
-  color: #8ab4f8;
+  color: var(--color-accent);
   text-decoration: none;
   font-size: 0.875rem;
 }
@@ -111,7 +111,7 @@
 }
 
 .learn__body a {
-  color: #8ab4f8;
+  color: var(--color-accent);
   text-decoration: none;
 }
 .learn__body a:hover { text-decoration: underline; }
@@ -126,11 +126,11 @@
 }
 
 .learn__howto {
-  background: rgba(138, 180, 248, 0.06);
-  border-left: 3px solid rgba(138, 180, 248, 0.4);
+  background: var(--color-accent-dim);
+  border-left: 3px solid var(--color-accent);
   border-radius: 0 6px 6px 0;
   padding: 0.6rem 0.9rem;
-  color: #c5d8f8 !important;
+  color: var(--color-text) !important;
 }
 
 /* ── Caveats ───────────────────────────────────────────────────────────────── */
@@ -200,9 +200,9 @@ details[open] > .learn__module-header::after {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #8ab4f8;
-  background: rgba(138, 180, 248, 0.1);
-  border: 1px solid rgba(138, 180, 248, 0.2);
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+  border: 1px solid var(--color-accent);
   border-radius: 4px;
   padding: 0.15em 0.5em;
   flex-shrink: 0;
@@ -245,7 +245,7 @@ details[open] > .learn__module-header::after {
 }
 
 .learn__module-body a {
-  color: #8ab4f8;
+  color: var(--color-accent);
   text-decoration: none;
 }
 .learn__module-body a:hover { text-decoration: underline; }

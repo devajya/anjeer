@@ -105,11 +105,11 @@
 }
 
 .ak__btn--generate {
-  background: #6366f1;
-  color: #fff;
+  background: var(--color-accent-btn);
+  color: #0c0c0c;
 }
 
-.ak__btn--generate:hover:not(:disabled) { background: #4f46e5; }
+.ak__btn--generate:hover:not(:disabled) { filter: brightness(1.1); }
 
 .ak__btn--generate:disabled {
   opacity: 0.4;

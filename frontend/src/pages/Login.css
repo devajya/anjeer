@@ -62,6 +62,7 @@
 
 .login__btn:hover {
   border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .login__back {
@@ -75,4 +76,6 @@
 
 .login__back:hover {
   color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent);
 }
