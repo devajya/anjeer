@@ -406,7 +406,7 @@
 /* Start = gold filled (largest CTA) */
 .lr__btn--primary {
   background: var(--color-accent-btn);
-  color: #0c0c0c;
+  color: var(--color-bg);
   border: none;
 }
 .lr__btn--primary:hover:not(:disabled) { filter: brightness(1.1); }

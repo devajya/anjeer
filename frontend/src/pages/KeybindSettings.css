@@ -15,30 +15,30 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 0.875rem;
-  color: #888;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
   padding: 0.25rem 0;
   line-height: 1;
 }
 
 .keybinds__back:hover {
-  color: #ddd;
+  color: var(--color-text);
 }
 
 .keybinds__title {
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: var(--font-weight-semi);
   margin: 0;
 }
 
 .keybinds__hint {
-  font-size: 0.8rem;
-  color: #777;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
   margin: 0 0 1rem;
 }
 
 .keybinds__loading {
-  color: #888;
+  color: var(--color-muted);
 }
 
 .keybinds__table {
@@ -49,11 +49,11 @@
 .keybinds__table thead th {
   text-align: left;
   padding: 0.4rem 0.75rem;
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #666;
-  border-bottom: 1px solid #2a2a2a;
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .keybinds__col-action { width: 65%; }
@@ -61,7 +61,7 @@
 
 .keybinds__row {
   cursor: pointer;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid var(--color-surface);
   outline: none;
 }
 
@@ -82,25 +82,25 @@
 .keybinds__action,
 .keybinds__key {
   padding: 0.6rem 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .keybinds__kbd {
   display: inline-block;
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-bottom-width: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.1rem 0.45rem;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: #ccc;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
 }
 
 .keybinds__capture {
   color: var(--color-accent);
   font-style: italic;
-  font-size: 0.825rem;
+  font-size: var(--font-size-sm);
 }
 
 .keybinds__footer {
@@ -113,11 +113,11 @@
 .keybinds__save {
   padding: 0.45rem 1.25rem;
   background: var(--color-accent-btn);
-  color: #0c0c0c;
+  color: var(--color-bg);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   transition: filter 120ms;
 }
@@ -132,11 +132,11 @@
 }
 
 .keybinds__saved-msg {
-  color: #4ade80;
-  font-size: 0.875rem;
+  color: var(--color-success);
+  font-size: var(--font-size-sm);
 }
 
 .keybinds__error-msg {
-  color: #f87171;
-  font-size: 0.875rem;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
 }

@@ -27,7 +27,7 @@
 /* ── Title ────────────────────────────────────────────────────────────────── */
 .irs__title {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.25rem;
   color: var(--color-text);
   text-align: center;
 }
@@ -38,7 +38,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  font-size: 1.1rem;
+  font-size: var(--font-size-lg);
   color: var(--color-muted);
 }
 
@@ -59,7 +59,7 @@
 .irs__standings {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
 }
 
 .irs__standings th {
@@ -82,7 +82,7 @@
 
 .irs__away {
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-xs);
 }
 
 /* ── Vote section ─────────────────────────────────────────────────────────── */
@@ -106,7 +106,7 @@
   gap: 0.4rem;
   align-items: center;
   color: var(--color-muted);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
 }
 
 .vote-tally__count {
@@ -120,7 +120,7 @@
   background: transparent;
   color: var(--color-accent);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   transition: background 0.15s;
   white-space: nowrap;
 }
@@ -138,7 +138,7 @@
 /* ── Status / countdown ───────────────────────────────────────────────────── */
 .irs__status {
   text-align: center;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   color: var(--color-muted);
   min-height: 1.4em;
 }

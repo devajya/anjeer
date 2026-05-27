@@ -38,8 +38,8 @@
 }
 
 .ges__section-title {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-muted);
@@ -109,7 +109,7 @@
 .ges__suit-icon--spades   { color: var(--suit-spades); }
 
 .ges__round-suit {
-  font-size: 0.8rem;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
 }
 

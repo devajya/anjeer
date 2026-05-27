@@ -34,7 +34,7 @@
 }
 
 .se__message {
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text);
   margin: 0;
   line-height: 1.5;

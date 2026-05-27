@@ -3,8 +3,8 @@
 }
 
 .my-orders__title {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-muted);
@@ -30,7 +30,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-xs);
   padding: 0.3rem 0.5rem;
   border-radius: var(--radius-sm);
   background: var(--color-surface);
@@ -38,8 +38,8 @@
 }
 
 .my-orders__side {
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   min-width: 2.5rem;
@@ -47,8 +47,8 @@
 }
 
 /* Keep green/red for buy/sell — trading context, not branding */
-.my-orders__side--buy  { background: #14532d; color: #4ade80; }
-.my-orders__side--sell { background: #450a0a; color: #f87171; }
+.my-orders__side--buy  { background: #14532d; color: var(--color-success); }
+.my-orders__side--sell { background: #450a0a; color: var(--color-danger); }
 
 .my-orders__suit {
   color: var(--color-muted);
@@ -63,7 +63,7 @@
 
 .my-orders__id {
   color: var(--color-text-dim);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
 }
 
 .my-orders__cancel {
@@ -72,7 +72,7 @@
   color: var(--color-danger);
   border-radius: var(--radius-sm);
   padding: 0.1rem 0.35rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   transition: background 0.1s;
   line-height: 1;

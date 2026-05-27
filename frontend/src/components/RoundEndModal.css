@@ -74,7 +74,7 @@
 .round-end-modal__standings {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
 }
 
 .round-end-modal__standings th,
@@ -86,10 +86,10 @@
 
 .round-end-modal__standings th {
   color: var(--color-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
+  font-weight: var(--font-weight-semi);
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 /* AGENT-CTX: Own row is highlighted with a left border accent + subtle
@@ -114,7 +114,7 @@
   background: transparent;
   color: var(--color-muted);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   transition: background 0.15s, color 0.15s;
 }
 

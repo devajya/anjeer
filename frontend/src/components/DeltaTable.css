@@ -7,7 +7,7 @@
 .delta-table__grid {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   table-layout: fixed;
 }
 
@@ -41,7 +41,7 @@
 
 .delta-table__me-badge {
   display: inline-block;
-  font-size: 0.6rem;
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-accent, #7c6af7);
@@ -64,7 +64,7 @@
   text-align: center;
   padding: 0.25rem 0.2rem;
   font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
 }
 
 .delta-table__cell--me {

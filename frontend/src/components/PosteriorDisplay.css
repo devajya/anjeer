@@ -13,16 +13,16 @@
 
 .posterior-display__placeholder {
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-style: italic;
 }
 
 .posterior-display__heading {
   margin: 4px 0 2px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   color: var(--color-muted);
 }
 
@@ -53,14 +53,14 @@
 }
 
 .posterior-display__deck-label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-muted);
   flex: 1;
 }
 
 .posterior-display__prob {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   color: var(--color-text);
 }
 
@@ -84,8 +84,8 @@
 }
 
 .posterior-display__count-cell {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
 }
 
 .posterior-display__marginals {
@@ -109,8 +109,8 @@
 }
 
 .posterior-display__marginal-prob {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
   color: var(--color-text);
 }
 

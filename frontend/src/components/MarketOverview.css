@@ -8,7 +8,7 @@
 .mo__empty {
   color: var(--color-muted);
   font-style: italic;
-  font-size: 0.82rem;
+  font-size: var(--font-size-xs);
   padding-top: 0.4rem;
 }
 
@@ -52,8 +52,8 @@
 }
 
 .mo__card-name {
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   color: var(--color-text);
   text-shadow: 0 1px 3px rgba(0,0,0,0.6);
   white-space: nowrap;
@@ -96,8 +96,8 @@
 }
 
 .mo__stat-val {
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
@@ -158,8 +158,8 @@
 }
 
 .mo__delta {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }

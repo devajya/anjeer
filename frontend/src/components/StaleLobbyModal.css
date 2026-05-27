@@ -31,7 +31,7 @@
 .stale-modal__message {
   margin: 0;
   color: var(--color-muted);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
 }
 
 .stale-modal__redirect {
@@ -48,8 +48,8 @@
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   transition: opacity 0.12s;
 }
 

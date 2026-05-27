@@ -132,7 +132,7 @@
   font-family: var(--font-sans);
   font-size: 0.9rem;
   line-height: 1.7;
-  color: #555;
+  color: var(--color-invert-muted);
   max-width: 36ch;
   margin: 0;
 }
@@ -169,9 +169,9 @@
 
 .scroll-tracker-card-body {
   font-family: var(--font-sans);
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
-  color: #666;
+  color: var(--color-invert-muted);
   margin: 0;
 }
 

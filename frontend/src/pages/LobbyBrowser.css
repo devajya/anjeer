@@ -61,7 +61,7 @@
 
 /* Active tab: grey pill chip — avoids visual conflict with AppNav gold underline */
 .lp__tab--active {
-  background: #2e2e2e;
+  background: var(--color-border);
   color: var(--color-text);
   font-weight: var(--font-weight-semi);
   border-radius: var(--radius-md);
@@ -189,7 +189,7 @@
 /* Join = gold filled */
 .lp__btn--join {
   background: var(--color-accent-btn);
-  color: #0c0c0c;
+  color: var(--color-bg);
   border: none;
 }
 
@@ -207,7 +207,7 @@
 /* Create = gold filled */
 .lp__btn--create {
   background: var(--color-accent-btn);
-  color: #0c0c0c;
+  color: var(--color-bg);
   border: none;
 }
 

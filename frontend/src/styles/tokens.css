@@ -59,4 +59,15 @@
   --font-weight-medium: 500;
   --font-weight-semi:   600;
   --font-weight-bold:   700;
+
+  /* ── Semantic aliases ─────────────────────────────────── */
+  --color-text-primary: var(--color-text);          /* landing page hero text */
+  --color-text-muted:   var(--color-muted);         /* secondary labels       */
+  --color-text-faint:   var(--color-text-dim);      /* zero-state values      */
+  --color-border-faint: var(--color-border-subtle); /* hairline row dividers  */
+  --color-pos:          var(--color-success);       /* positive delta / buy   */
+  --color-neg:          var(--color-danger);        /* negative delta / sell  */
+
+  /* ── Inverted-surface text (light bg sections) ─────────── */
+  --color-invert-muted: #555555;
 }
