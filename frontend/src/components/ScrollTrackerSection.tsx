@@ -18,6 +18,36 @@ const F = {
 
 const INDICATOR_W = 38
 const INDICATOR_H = 16
+
+// ── Path-walking utilities ──────────────────────────────────────────────────
+
+interface Segment { x1: number; y1: number; x2: number; y2: number; len: number; angle: number }
+
+function buildSegments(fl: number, ft: number, fr: number, fb: number, fcl: number, fct: number, W: number): Segment[] {
+  // Open path: left screen edge → stepped frame shape → right screen edge
+  const pts: [number, number][] = [
+    [0, ft], [fl, ft], [fl, fb], [fcl, fb], [fcl, fct], [fr, fct], [fr, ft], [W, ft],
+  ]
+  return pts.slice(0, -1).map((p, i) => {
+    const [x1, y1] = p
+    const [x2, y2] = pts[i + 1]
+    return { x1, y1, x2, y2, len: Math.hypot(x2 - x1, y2 - y1), angle: Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI }
+  })
+}
+
+function getPointOnPath(segs: Segment[], progress: number): { x: number; y: number; angle: number } {
+  const total = segs.reduce((s, seg) => s + seg.len, 0)
+  let target = progress * total
+  for (const seg of segs) {
+    if (target <= seg.len) {
+      const t = target / seg.len
+      return { x: seg.x1 + t * (seg.x2 - seg.x1), y: seg.y1 + t * (seg.y2 - seg.y1), angle: seg.angle }
+    }
+    target -= seg.len
+  }
+  const last = segs[segs.length - 1]
+  return { x: last.x2, y: last.y2, angle: last.angle }
+}
 const SUITS = ['♠', '♣', '♥', '♦'] as const
 const N = 4
 const FADE_WIDTH = 0.07
@@ -71,37 +101,80 @@ function TerminalSVG() {
   )
 }
 
-function EyeSVG() {
+function SpectatorSVG() {
   return (
     <svg width="200" height="200" viewBox="0 0 200 200" fill="none" aria-hidden="true" className="scroll-tracker-svg">
-      <path d="M20 100 C60 50 140 50 180 100 C140 150 60 150 20 100Z" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="100" cy="100" r="28" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="100" cy="100" r="14" fill="currentColor" opacity="0.25" />
-      <circle cx="100" cy="100" r="6" fill="currentColor" opacity="0.6" />
-      <line x1="100" y1="60" x2="100" y2="45" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-      <line x1="100" y1="140" x2="100" y2="155" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-      <line x1="60" y1="100" x2="45" y2="100" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-      <line x1="140" y1="100" x2="155" y2="100" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+      {/* Window chrome */}
+      <rect x="20" y="30" width="160" height="140" rx="4" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="20" y1="52" x2="180" y2="52" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="35" cy="41" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="50" cy="41" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="65" cy="41" r="4" stroke="currentColor" strokeWidth="1.5" />
+      {/* LIVE pill */}
+      <rect x="142" y="35" width="26" height="12" rx="6" fill="currentColor" opacity="0.18" />
+      <text x="155" y="44" fontFamily="monospace" fontSize="7" fill="currentColor" opacity="0.7" textAnchor="middle">LIVE</text>
+      {/* Column headers */}
+      <text x="56" y="68" fontFamily="monospace" fontSize="8" fill="currentColor" opacity="0.45" textAnchor="middle">BID</text>
+      <text x="144" y="68" fontFamily="monospace" fontSize="8" fill="currentColor" opacity="0.45" textAnchor="middle">ASK</text>
+      {/* Center divider */}
+      <line x1="100" y1="58" x2="100" y2="162" stroke="currentColor" strokeWidth="0.75" opacity="0.2" />
+      {/* Bid bars — right-aligned to x=97, best bid widest */}
+      <rect x="47" y="74"  width="50" height="7" rx="1" fill="currentColor" opacity="0.55" />
+      <rect x="53" y="85"  width="44" height="7" rx="1" fill="currentColor" opacity="0.4" />
+      <rect x="61" y="96"  width="36" height="7" rx="1" fill="currentColor" opacity="0.28" />
+      <rect x="69" y="107" width="28" height="7" rx="1" fill="currentColor" opacity="0.18" />
+      <rect x="75" y="118" width="22" height="7" rx="1" fill="currentColor" opacity="0.1" />
+      {/* Ask bars — left-aligned from x=103 */}
+      <rect x="103" y="74"  width="50" height="7" rx="1" fill="currentColor" opacity="0.55" />
+      <rect x="103" y="85"  width="44" height="7" rx="1" fill="currentColor" opacity="0.4" />
+      <rect x="103" y="96"  width="36" height="7" rx="1" fill="currentColor" opacity="0.28" />
+      <rect x="103" y="107" width="28" height="7" rx="1" fill="currentColor" opacity="0.18" />
+      <rect x="103" y="118" width="22" height="7" rx="1" fill="currentColor" opacity="0.1" />
+      {/* Spread label */}
+      <text x="100" y="142" fontFamily="monospace" fontSize="7" fill="currentColor" opacity="0.35" textAnchor="middle">spread: 1</text>
+      {/* Bottom status bar */}
+      <line x1="20" y1="152" x2="180" y2="152" stroke="currentColor" strokeWidth="0.75" opacity="0.2" />
+      <text x="32" y="161" fontFamily="monospace" fontSize="7" fill="currentColor" opacity="0.35">read-only</text>
     </svg>
   )
 }
 
-function RobotSVG() {
+function BotsSVG() {
   return (
     <svg width="200" height="200" viewBox="0 0 200 200" fill="none" aria-hidden="true" className="scroll-tracker-svg">
-      <rect x="65" y="55" width="70" height="60" rx="6" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="80" y="70" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="104" y="70" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="100" y1="55" x2="100" y2="42" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="100" cy="38" r="5" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="80" y1="92" x2="112" y2="92" stroke="currentColor" strokeWidth="1" opacity="0.5" />
-      <rect x="70" y="115" width="60" height="45" rx="4" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="65" y1="125" x2="50" y2="125" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="50" y1="125" x2="50" y2="148" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="135" y1="125" x2="150" y2="125" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="150" y1="125" x2="150" y2="148" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="80" y1="160" x2="80" y2="178" stroke="currentColor" strokeWidth="1.5" />
-      <line x1="120" y1="160" x2="120" y2="178" stroke="currentColor" strokeWidth="1.5" />
+      {/* Window chrome */}
+      <rect x="20" y="30" width="160" height="140" rx="4" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="20" y1="52" x2="180" y2="52" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="35" cy="41" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="50" cy="41" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="65" cy="41" r="4" stroke="currentColor" strokeWidth="1.5" />
+      {/* EASY row */}
+      <rect x="32" y="64" width="136" height="22" rx="2" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      <circle cx="46" cy="75" r="5" fill="currentColor" opacity="0.25" />
+      <text x="58" y="79" fontFamily="monospace" fontSize="9" fill="currentColor" opacity="0.6">EASY</text>
+      <rect x="120" y="69" width="12" height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="134" y="69" width="12" height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="148" y="69" width="8"  height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="120" y="75" width="8"  height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="130" y="75" width="14" height="4" rx="1" fill="currentColor" opacity="0.2" />
+      {/* MEDIUM row */}
+      <rect x="32" y="96" width="136" height="22" rx="2" stroke="currentColor" strokeWidth="1.5" opacity="0.7" />
+      <circle cx="46" cy="107" r="5" fill="currentColor" opacity="0.55" />
+      <text x="58" y="111" fontFamily="monospace" fontSize="9" fill="currentColor" opacity="0.85">MEDIUM</text>
+      <rect x="120" y="101" width="12" height="4" rx="1" fill="currentColor" opacity="0.45" />
+      <rect x="134" y="101" width="8"  height="4" rx="1" fill="currentColor" opacity="0.45" />
+      <rect x="144" y="101" width="14" height="4" rx="1" fill="currentColor" opacity="0.45" />
+      <rect x="120" y="107" width="14" height="4" rx="1" fill="currentColor" opacity="0.45" />
+      <rect x="136" y="107" width="10" height="4" rx="1" fill="currentColor" opacity="0.45" />
+      {/* HARD row */}
+      <rect x="32" y="128" width="136" height="22" rx="2" stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      <circle cx="46" cy="139" r="5" fill="currentColor" opacity="0.25" />
+      <text x="58" y="143" fontFamily="monospace" fontSize="9" fill="currentColor" opacity="0.6">HARD</text>
+      <rect x="120" y="133" width="14" height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="136" y="133" width="10" height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="148" y="133" width="8"  height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="120" y="139" width="10" height="4" rx="1" fill="currentColor" opacity="0.2" />
+      <rect x="132" y="139" width="14" height="4" rx="1" fill="currentColor" opacity="0.2" />
     </svg>
   )
 }
@@ -126,14 +199,14 @@ const SUB_SECTIONS = [
     eyebrow: 'Read-only access',
     headline: 'Spectate any game',
     body: 'Watch live order flow, delta tables, and eval signals from any seat without touching a hand.',
-    svg: <EyeSVG />,
+    svg: <SpectatorSVG />,
   },
   {
     number: '04',
     eyebrow: 'Always a full table',
     headline: 'Play against bots',
     body: 'Three difficulty tiers — Easy, Medium, Hard. Bots fill empty seats so games always run.',
-    svg: <RobotSVG />,
+    svg: <BotsSVG />,
   },
 ]
 
@@ -148,6 +221,7 @@ export function ScrollTrackerSection({ reducedMotion }: ScrollTrackerSectionProp
   const illustRefs  = useRef<(HTMLDivElement | null)[]>([])
   const contentRefs = useRef<(HTMLDivElement | null)[]>([])
   const cardRefs    = useRef<(HTMLDivElement | null)[]>([])
+  const segsRef     = useRef<Segment[]>([])
 
   useEffect(() => {
     if (reducedMotion) return
@@ -157,7 +231,7 @@ export function ScrollTrackerSection({ reducedMotion }: ScrollTrackerSectionProp
       group.current.forEach((el, i) => { if (el) el.style.opacity = i === 0 ? '1' : '0' })
     })
 
-    // Build the stepped frame path and indicator start position from live viewport dims.
+    // Build the stepped frame path and recompute path segments from live viewport dims.
     // Called on mount and on every resize.
     function buildFrame() {
       const W = window.innerWidth
@@ -166,22 +240,23 @@ export function ScrollTrackerSection({ reducedMotion }: ScrollTrackerSectionProp
       const fr = W * F.right, fb = H * F.bottom
       const fcl = W * F.cardLeft, fct = H * F.cardTop
 
-      // Stepped border: full frame with rectangular notch cut from bottom-right for the card
-      const d = `M ${fl},${ft} L ${fr},${ft} L ${fr},${fct} L ${fcl},${fct} L ${fcl},${fb} L ${fl},${fb} Z`
+      const d = `M 0,${ft} L ${fl},${ft} L ${fl},${fb} L ${fcl},${fb} L ${fcl},${fct} L ${fr},${fct} L ${fr},${ft} L ${W},${ft}`
       framePathRef.current?.setAttribute('d', d)
 
-      // Place indicator at progress=0 (left edge of top border)
-      if (indicatorRef.current) {
-        indicatorRef.current.style.left = `${fl}px`
-        indicatorRef.current.style.top  = `${ft - INDICATOR_H / 2}px`
-      }
+      segsRef.current = buildSegments(fl, ft, fr, fb, fcl, fct, W)
 
-      return { fl, ft, fr }
+      // Place indicator at progress=0
+      const pt = getPointOnPath(segsRef.current, 0)
+      if (indicatorRef.current) {
+        indicatorRef.current.style.left      = `${pt.x - INDICATOR_W / 2}px`
+        indicatorRef.current.style.top       = `${pt.y - INDICATOR_H / 2}px`
+        indicatorRef.current.style.transform = `rotate(${pt.angle}deg)`
+      }
     }
 
-    let dims = buildFrame()
+    buildFrame()
 
-    const ro = new ResizeObserver(() => { dims = buildFrame() })
+    const ro = new ResizeObserver(() => buildFrame())
     if (stickyRef.current) ro.observe(stickyRef.current)
 
     let st: { kill(): void } | null = null
@@ -197,18 +272,18 @@ export function ScrollTrackerSection({ reducedMotion }: ScrollTrackerSectionProp
           end: 'bottom bottom',
           scrub: 0.4,
           onUpdate: ({ progress }: { progress: number }) => {
-            const { fl, ft, fr } = dims
-
-            // Slide indicator along the top border, left → right
-            const travel = fr - fl - INDICATOR_W
+            // Walk indicator along the full stepped frame path
+            const pt = getPointOnPath(segsRef.current, progress)
             if (indicatorRef.current) {
-              indicatorRef.current.style.left = `${fl + progress * travel}px`
-              indicatorRef.current.style.top  = `${ft - INDICATOR_H / 2}px`
+              indicatorRef.current.style.left      = `${pt.x - INDICATOR_W / 2}px`
+              indicatorRef.current.style.top       = `${pt.y - INDICATOR_H / 2}px`
+              indicatorRef.current.style.transform = `rotate(${pt.angle}deg)`
             }
 
-            // Suit symbol switches at each state boundary
+            // Counter-rotate symbol so it stays upright
             if (symbolRef.current) {
               symbolRef.current.textContent = SUITS[Math.min(N - 1, Math.floor(progress * N))]
+              symbolRef.current.style.transform = `rotate(${-pt.angle}deg)`
             }
 
             // Cross-fade all three element groups

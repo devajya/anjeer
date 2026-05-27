@@ -47,7 +47,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* left + top set by JS */
+  will-change: transform;
+  /* left + top + transform set by JS */
 }
 
 .scroll-tracker-indicator-symbol {
@@ -80,8 +81,8 @@
 }
 
 .scroll-tracker-svg {
-  width: clamp(140px, 22vw, 280px);
-  height: clamp(140px, 22vw, 280px);
+  width: clamp(160px, 28vw, 340px);
+  height: clamp(160px, 28vw, 340px);
   color: var(--color-invert-text);
   opacity: 0.7;
 }
