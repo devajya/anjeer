@@ -15,10 +15,9 @@ export default defineConfig({
         // Split heavy 3D/animation vendors so the game UI bundle stays lean.
         // three + R3F are only needed on the landing page Section B.
         manualChunks: {
-          'vendor-three':   ['three', '@react-three/fiber'],
-          'vendor-motion':  ['framer-motion'],
-          'vendor-gsap':    ['gsap'],
-          'vendor-react':   ['react', 'react-dom', 'react-router-dom'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-gsap':   ['gsap'],
+          'vendor-react':  ['react', 'react-dom', 'react-router-dom'],
         },
       },
     },

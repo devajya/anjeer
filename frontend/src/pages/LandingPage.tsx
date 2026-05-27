@@ -1,9 +1,13 @@
+import { lazy, Suspense } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { ExpandingPortal } from '../components/ExpandingPortal'
-import { AutoAdvanceProgress } from '../components/AutoAdvanceProgress'
-import { ScrollTrackerSection } from '../components/ScrollTrackerSection'
-import { MathDive } from '../components/MathDive'
+
+// Below-fold sections loaded on demand — none are visible on initial render.
+// ExpandingPortal stays static: it is the above-fold hero section.
+const AutoAdvanceProgress  = lazy(() => import('../components/AutoAdvanceProgress').then(m => ({ default: m.AutoAdvanceProgress })))
+const ScrollTrackerSection = lazy(() => import('../components/ScrollTrackerSection').then(m => ({ default: m.ScrollTrackerSection })))
+const MathDive             = lazy(() => import('../components/MathDive').then(m => ({ default: m.MathDive })))
 
 // AGENT-CTX: Post-OAuth the server now redirects to /lobby directly, so
 // LandingPage no longer needs to bounce authenticated users. Authenticated
@@ -15,9 +19,11 @@ export function LandingPage() {
   return (
     <main style={{ background: 'var(--color-bg)', minHeight: '100vh' }}>
       <ExpandingPortal reducedMotion={prefersReducedMotion} isMobile={isMobile} />
-      <AutoAdvanceProgress reducedMotion={prefersReducedMotion} />
-      <ScrollTrackerSection reducedMotion={prefersReducedMotion} />
-      <MathDive reducedMotion={prefersReducedMotion} />
+      <Suspense fallback={null}>
+        <AutoAdvanceProgress reducedMotion={prefersReducedMotion} />
+        <ScrollTrackerSection reducedMotion={prefersReducedMotion} />
+        <MathDive reducedMotion={prefersReducedMotion} />
+      </Suspense>
     </main>
   )
 }
