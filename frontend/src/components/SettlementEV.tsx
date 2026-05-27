@@ -4,9 +4,6 @@ import './SettlementEV.css'
 const SUIT_SYMBOLS: Record<string, string> = {
   clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠',
 }
-const SUIT_COLORS: Record<string, string> = {
-  clubs: '#2a7a2a', diamonds: '#1a5fc8', hearts: '#c0392b', spades: '#1a1a2e',
-}
 const SUITS = ['clubs', 'diamonds', 'hearts', 'spades']
 
 interface Props {
@@ -38,10 +35,7 @@ export function SettlementEV({ posteriorUpdate }: Props) {
           const positive = val >= 0
           return (
             <div key={s} className="settlement-ev__delta-cell">
-              <span
-                className="settlement-ev__suit"
-                style={{ color: SUIT_COLORS[s] }}
-              >
+              <span className={`settlement-ev__suit settlement-ev__suit--${s}`}>
                 {SUIT_SYMBOLS[s]}
               </span>
               <span

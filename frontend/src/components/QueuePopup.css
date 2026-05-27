@@ -5,33 +5,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--color-overlay);
   z-index: 200;
 }
 
 /* ── Card ────────────────────────────────────────────────────────────────── */
 .qp__card {
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 1.75rem 2rem;
   width: min(380px, 90vw);
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  animation: qp-card-enter 0.22s ease both;
-}
-
-@keyframes qp-card-enter {
-  from { opacity: 0; transform: scale(0.96) translateY(6px); }
-  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ── Title with live indicator ──────────────────────────────────────────── */
 .qp__title {
   font-size: 1.05rem;
   font-weight: 700;
-  color: #f0f0f0;
+  color: var(--color-text);
   margin: 0;
   display: flex;
   align-items: center;
@@ -44,7 +39,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #78b4ff;
+  background: var(--color-accent);
   animation: qp-pulse 2s ease-in-out infinite;
   flex-shrink: 0;
 }
@@ -56,12 +51,21 @@
 
 .qp__summary {
   font-size: 0.9rem;
-  color: #aaa;
+  color: var(--color-muted);
   margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  flex-wrap: wrap;
 }
 
-.qp__summary strong {
-  color: #f0f0f0;
+/* Position number — rendered via AnimatePresence in TSX */
+.qp__position-num {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  display: inline-block;
 }
 
 /* ── Position track ─────────────────────────────────────────────────────── */
@@ -69,7 +73,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  /* Overflow hidden clips any entry animating in from outside */
   overflow: hidden;
 }
 
@@ -78,10 +81,9 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.35rem 0.5rem;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  color: #bbb;
-  /* FLIP transition is applied inline via JS; this is a fallback */
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
   will-change: transform;
 }
 
@@ -96,8 +98,8 @@
 }
 
 .qp__entry--self {
-  background: rgba(255, 255, 255, 0.07);
-  color: #f0f0f0;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
   font-weight: 600;
 }
 
@@ -107,20 +109,21 @@
 }
 
 @keyframes qp-advance {
-  0%   { background: rgba(120, 180, 255, 0.07); }
-  35%  { background: rgba(120, 180, 255, 0.22); }
-  100% { background: rgba(255, 255, 255, 0.07); }
+  0%   { background: var(--color-accent-dim); }
+  35%  { background: rgba(201, 168, 76, 0.22); }
+  100% { background: var(--color-accent-dim); }
 }
 
 .qp__entry-pos {
-  color: #666;
+  color: var(--color-text-dim);
   font-size: 0.8rem;
   min-width: 2rem;
   text-align: right;
+  font-family: var(--font-mono);
 }
 
 .qp__entry--self .qp__entry-pos {
-  color: #f0f0f0;
+  color: var(--color-accent);
 }
 
 .qp__entry-name {
@@ -130,7 +133,7 @@
 /* Arrow badge that appears briefly when self advances */
 .qp__entry-badge {
   font-size: 0.75rem;
-  color: #78b4ff;
+  color: var(--color-accent);
   animation: qp-badge 0.65s ease both;
 }
 
@@ -143,7 +146,7 @@
 
 .qp__truncation {
   font-size: 0.78rem;
-  color: #555;
+  color: var(--color-text-dim);
   padding: 0.15rem 0.5rem;
   letter-spacing: 0.05em;
 }
@@ -158,26 +161,31 @@
 .qp__btn {
   flex: 1;
   padding: 0.55rem 1rem;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.875rem;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s;
-}
-
-.qp__btn:hover {
-  opacity: 0.85;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .qp__btn--leave {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ddd;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+
+.qp__btn--leave:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background: var(--color-danger-dim);
 }
 
 .qp__btn--spectate {
-  background: rgba(120, 180, 255, 0.15);
-  color: #78b4ff;
-  border: 1px solid rgba(120, 180, 255, 0.25);
+  background: var(--color-accent-btn);
+  color: var(--color-surface);
+  border: none;
+}
+
+.qp__btn--spectate:hover {
+  opacity: 0.85;
 }

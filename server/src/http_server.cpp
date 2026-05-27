@@ -249,7 +249,7 @@ void HttpServer::register_auth_routes(App& app)
             res.add_header("Set-Cookie", make_access_cookie (tokens.access_token));
             res.add_header("Set-Cookie", make_refresh_cookie(tokens.refresh_token));
             res.code = 302;
-            res.add_header("Location", config_.cors_origin);
+            res.add_header("Location", config_.cors_origin + "/lobby");
 
             http_log_.info("callback",
                            "login: player " + std::to_string(player.id) +

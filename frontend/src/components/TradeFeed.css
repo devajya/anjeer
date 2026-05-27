@@ -4,33 +4,33 @@
 }
 
 .trade-feed__empty {
-  color: #555;
-  font-size: 0.82rem;
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
   padding: 0.75rem;
 }
 
 .trade-feed__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: var(--font-size-xs);
   table-layout: fixed;
 }
 
 .trade-feed__header {
-  border-bottom: 1px solid var(--color-border, #333);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .trade-feed__th {
   padding: 0.3rem 0.6rem;
-  font-size: 0.68rem;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-muted, #888);
+  letter-spacing: 0.07em;
+  color: var(--color-muted);
   text-align: left;
   position: sticky;
   top: 0;
-  background: #111;
+  background: var(--color-surface-alt);
   z-index: 1;
 }
 
@@ -39,25 +39,25 @@
   text-align: center;
 }
 
-.trade-feed__th--buyer  { width: 32%; }
-.trade-feed__th--suit   { width: 12%; }
-.trade-feed__th--seller { width: 32%; }
+.trade-feed__th--buyer  { width: 31%; }
+.trade-feed__th--suit   { width: 14%; }
+.trade-feed__th--seller { width: 31%; }
 .trade-feed__th--price  { width: 24%; }
 
 .trade-feed__row {
-  border-bottom: 1px solid var(--color-border-faint, #1e1e1e);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 /* AGENT-CTX: Highlight rows where the local player was a party to the trade.
-   Uses a warm tint distinct from the DeltaTable accent so the two panels
-   don't visually bleed together. */
+   Uses accent-dim (gold tint) so mine-rows read as distinct from the
+   DeltaTable success/danger coloring without introducing a new token. */
 .trade-feed__row--mine {
-  background: #1e1e0e;
+  background: var(--color-accent-dim);
 }
 
 .trade-feed__td {
   padding: 0.22rem 0.6rem;
-  color: var(--color-text, #e0e0e0);
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -66,20 +66,20 @@
 .trade-feed__td--suit {
   text-align: center;
   font-size: 1rem;
-  color: var(--color-text-muted, #aaa);
+  color: var(--color-muted);
 }
 
 .trade-feed__td--price {
   text-align: center;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--color-text, #e0e0e0);
+  color: var(--color-text);
 }
 
 .trade-feed__td--buyer,
 .trade-feed__td--seller {
-  color: var(--color-text-muted, #ccc);
-  font-size: 0.78rem;
+  color: var(--color-muted);
+  font-size: var(--font-size-xs);
 }
 
 .trade-feed__th--seller,

@@ -9,13 +9,13 @@
 }
 
 .modal-box {
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
-  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   min-width: 380px;
   max-width: 90vw;
-  color: #e0e0e0;
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -23,61 +23,61 @@
 
 .modal-title {
   margin: 0;
-  font-size: 1.2rem;
-  color: #f0f0f0;
+  font-size: 1.25rem;
+  color: var(--color-text);
 }
 
 .modal-subtitle {
   margin: 0;
-  font-size: 0.9rem;
-  color: #aaa;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 
 .modal-key-box {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: #111;
-  border: 1px solid #444;
-  border-radius: 4px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   padding: 0.75rem;
 }
 
 .modal-key-text {
   flex: 1;
-  font-family: monospace;
-  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
   word-break: break-all;
-  color: #7ec8e3;
+  color: var(--color-accent);
 }
 
 .modal-copy-btn {
-  background: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 4px;
-  color: #e0e0e0;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
   padding: 0.25rem 0.75rem;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.modal-copy-btn:hover { background: #3a3a3a; }
+.modal-copy-btn:hover { background: var(--color-border); }
 
 .modal-warning {
   margin: 0;
-  font-size: 0.8rem;
-  color: #e2a93a;
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
 }
 
 .modal-close-btn {
   align-self: flex-end;
-  background: #2e6fda;
+  background: var(--color-accent-btn);
   border: none;
-  border-radius: 4px;
-  color: #fff;
+  border-radius: var(--radius-md);
+  color: var(--color-bg);
   padding: 0.5rem 1.5rem;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
 }
 
-.modal-close-btn:hover { background: #2560c0; }
+.modal-close-btn:hover { filter: brightness(1.1); }

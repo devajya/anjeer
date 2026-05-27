@@ -4,74 +4,8 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #0f0f0f;
+  background: var(--color-bg);
 }
-
-/* ── Header ──────────────────────────────────────────────────────────────── */
-
-.lp__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.lp__header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.lp__avatar {
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #ccc;
-  letter-spacing: 0;
-  flex-shrink: 0;
-}
-
-.lp__trophy {
-  color: #888;
-  font-size: 1.1rem;
-  line-height: 1;
-}
-
-.lp__header-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.lp__brand {
-  font-size: 1.35rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #f0f0f0;
-  text-transform: uppercase;
-}
-
-.lp__hamburger {
-  background: none;
-  border: none;
-  color: #888;
-  font-size: 1.3rem;
-  cursor: pointer;
-  padding: 0.25rem 0.35rem;
-  line-height: 1;
-  border-radius: 4px;
-  font-family: inherit;
-}
-
-.lp__hamburger:hover { color: #ccc; background: rgba(255,255,255,0.05); }
 
 /* ── Body / centering ────────────────────────────────────────────────────── */
 
@@ -84,15 +18,13 @@
 
 /* ── Main panel ──────────────────────────────────────────────────────────── */
 
-/* AGENT-CTX: Translucent panel sits on the dark page background.
-   bg-white/6 + border gives depth without a heavy card feel. */
 .lp__panel {
   width: 100%;
-  max-width: 680px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 20px;
-  padding: 0.5rem;
+  max-width: 860px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0 0.75rem 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -104,47 +36,49 @@
 .lp__tabs {
   display: flex;
   gap: 0.25rem;
-  padding: 0.35rem;
+  padding: 0.75rem 0.35rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .lp__tab {
   flex: 1;
-  padding: 0.55rem 1rem;
+  padding: 0.45rem 1rem;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: #666;
-  font-size: 0.875rem;
-  font-weight: 600;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s, background 0.15s;
   white-space: nowrap;
 }
 
 .lp__tab:hover:not(.lp__tab--active) {
-  color: #aaa;
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
 }
 
-/* AGENT-CTX: Active tab is white-pill on dark, mirroring the reference mockup.
-   Dark text (#111) on the white pill gives strong contrast. */
+/* Active tab: grey pill chip — avoids visual conflict with AppNav gold underline */
 .lp__tab--active {
-  background: rgba(255, 255, 255, 0.93);
-  color: #111;
+  background: var(--color-border);
+  color: var(--color-text);
+  font-weight: var(--font-weight-semi);
+  border-radius: var(--radius-md);
 }
 
-/* Create Lobby shortcut in the tab row — pill on the right */
-.lp__tab-create {
+/* Create Lobby area on the right of the tab row */
+.lp__create-area {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   margin-left: auto;
-  flex: 0 0 auto;
-  font-size: 0.8rem;
-  padding: 0.45rem 0.9rem;
 }
 
 /* ── Tab content area ────────────────────────────────────────────────────── */
 
 .lp__content {
-  padding: 0.5rem 0.35rem 0.75rem;
+  padding: 0.75rem 0.35rem 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -153,9 +87,9 @@
 /* ── Lobby / game cards ──────────────────────────────────────────────────── */
 
 .lp__card {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 1rem 1.1rem;
   display: flex;
   align-items: center;
@@ -165,7 +99,7 @@
 }
 
 .lp__card:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-surface-alt);
 }
 
 .lp__card-left {
@@ -182,19 +116,21 @@
 }
 
 .lp__card-title {
-  font-size: 0.975rem;
-  font-weight: 700;
-  color: #f0f0f0;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
 }
 
-/* Green code badge — matches lr__code in LobbyRoom.css */
+/* Gold code badge — aligns with LobbyRoom code pill */
 .lp__card-code {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: rgba(74, 222, 128, 0.9);
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
   padding: 0.1rem 0.45rem;
   letter-spacing: 0.07em;
 }
@@ -203,13 +139,14 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.8rem;
-  color: #888;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 
 .lp__card-meta-icon {
   opacity: 0.6;
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   flex-shrink: 0;
 }
 
@@ -217,14 +154,13 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.8rem;
-  color: #aaa;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
 }
 
-/* AGENT-CTX: Player usernames use the project's translucent-green accent —
-   same rgba(34,197,94,...) used in ConnectionBanner.css. */
 .lp__card-username {
-  color: rgba(74, 222, 128, 0.9);
+  color: var(--color-accent);
 }
 
 .lp__card-right {
@@ -239,8 +175,9 @@
   padding: 0.4rem 1rem;
   border-radius: 999px;
   border: none;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -249,10 +186,11 @@
   white-space: nowrap;
 }
 
-/* Join = project green */
+/* Join = gold filled */
 .lp__btn--join {
-  background: rgba(34, 197, 94, 0.85);
-  color: #050505;
+  background: var(--color-accent-btn);
+  color: var(--color-bg);
+  border: none;
 }
 
 .lp__btn--join:hover {
@@ -260,16 +198,17 @@
 }
 
 .lp__btn--join:disabled {
-  background: rgba(255, 255, 255, 0.1);
-  color: #555;
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
   cursor: default;
   filter: none;
 }
 
-/* Secondary / "Create" in new-tab */
+/* Create = gold filled */
 .lp__btn--create {
-  background: rgba(34, 197, 94, 0.85);
-  color: #050505;
+  background: var(--color-accent-btn);
+  color: var(--color-bg);
+  border: none;
 }
 
 .lp__btn--create:hover {
@@ -281,37 +220,52 @@
   cursor: default;
 }
 
+/* Spectate = ghost */
+.lp__btn--spectate {
+  background: transparent;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+
+.lp__btn--spectate:hover {
+  color: var(--color-text);
+  border-color: var(--color-muted);
+}
+
 /* ── Join-by-code strip ──────────────────────────────────────────────────── */
 
 .lp__join-strip {
   display: flex;
   gap: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
   margin-top: 0.25rem;
 }
 
 .lp__join-input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   padding: 0.45rem 0.75rem;
-  font-size: 0.825rem;
-  color: #f0f0f0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .lp__join-input::placeholder {
-  color: #555;
+  color: var(--color-muted);
   text-transform: none;
   letter-spacing: 0;
 }
 
 .lp__join-input:focus {
-  border-color: rgba(34, 197, 94, 0.4);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-dim);
 }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
@@ -319,141 +273,33 @@
 .lp__empty {
   text-align: center;
   padding: 2.5rem 1rem;
-  color: #555;
-  font-size: 0.875rem;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
 }
 
 /* ── Error / alert ───────────────────────────────────────────────────────── */
 
 .lp__alert {
-  font-size: 0.8rem;
-  color: rgba(248, 113, 113, 0.9);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
   padding: 0.5rem 0.5rem 0;
 }
-
-/* ── Hamburger menu dropdown ────────────────────────────────────────────── */
-.lp__menu-wrap {
-  position: relative;
-}
-
-.lp__menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 210px;
-  background: #181818;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.55);
-  z-index: 100;
-  overflow: hidden;
-}
-
-/* Tab bar */
-.lp__menu-tabs {
-  display: flex;
-  border-bottom: 1px solid #2a2a2a;
-}
-
-.lp__menu-tab {
-  flex: 1;
-  padding: 0.55rem 0.5rem;
-  background: none;
-  border: none;
-  color: #666;
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  cursor: pointer;
-  font-family: inherit;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.15s;
-}
-
-.lp__menu-tab:hover { color: #aaa; }
-
-.lp__menu-tab--active {
-  color: #e0e0e0;
-  border-bottom-color: #5a9cf5;
-}
-
-/* Tab panel */
-.lp__menu-panel {
-  min-height: 48px;
-}
-
-/* Footer (Log Out) */
-.lp__menu-footer {
-  border-top: 1px solid #242424;
-}
-
-.lp__menu-item {
-  display: block;
-  width: 100%;
-  padding: 0.65rem 1rem;
-  background: none;
-  border: none;
-  color: #ccc;
-  font-size: 0.875rem;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.lp__menu-item:hover {
-  background: rgba(255,255,255,0.05);
-  color: #fff;
-}
-
-.lp__menu-item--danger { color: #f87171; }
-.lp__menu-item--danger:hover { background: rgba(248,113,113,0.08); color: #fca5a5; }
 
 /* ── Mode badge ───────────────────────────────────────────────────────────── */
 
 .lp__mode-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
   padding: 0.1rem 0.4rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   letter-spacing: 0.05em;
   flex-shrink: 0;
-}
-
-.lp__mode-badge--ui  { background: #1e3a5f; color: #7ec8e3; }
-.lp__mode-badge--api { background: #3a1e5f; color: #c67ee3; }
-
-/* ── Create-lobby area (toggle + button row) ──────────────────────────────── */
-
-.lp__create-area {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
-}
-
-.lp__mode-toggle {
-  display: flex;
-  border: 1px solid #3a3a3a;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.lp__mode-btn {
-  background: #1a1a1a;
-  border: none;
-  color: #888;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.3rem 0.6rem;
-  cursor: pointer;
-  letter-spacing: 0.04em;
-}
-
-.lp__mode-btn--active {
-  background: #2e6fda;
-  color: #fff;
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
 }
 
 /* ── Active-tab card action area (Spectate + Join side-by-side) ──────────── */
@@ -463,74 +309,4 @@
   align-items: center;
   gap: 0.75rem;
   flex-shrink: 0;
-}
-
-/* ── Spectate button ──────────────────────────────────────────────────────── */
-
-.lp__btn--spectate {
-  background: #1e3a5f;
-  color: #7ec8e3;
-  border: 1px solid #2a5a8f;
-}
-
-.lp__btn--spectate:hover {
-  background: #254b78;
-}
-
-/* ── Create form (spawn bots toggle + difficulty) ────────────────────────── */
-
-.lp__create-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  background: #1a1a1a;
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  min-width: 240px;
-}
-
-.lp__create-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: #ccc;
-  cursor: pointer;
-}
-
-.lp__create-toggle input[type="checkbox"] {
-  accent-color: #2e6fda;
-}
-
-.lp__create-difficulty {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding-left: 1.4rem;
-}
-
-.lp__create-difficulty-label {
-  font-size: 0.78rem;
-  color: #888;
-  width: 100%;
-}
-
-.lp__create-diff-opt {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.82rem;
-  color: #ccc;
-  cursor: pointer;
-}
-
-.lp__create-diff-opt input[type="radio"] {
-  accent-color: #2e6fda;
-}
-
-.lp__create-actions {
-  display: flex;
-  gap: 0.4rem;
 }

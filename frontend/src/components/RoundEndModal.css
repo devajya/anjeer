@@ -3,7 +3,7 @@
 .round-end-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -16,23 +16,24 @@
 /* ─── Modal card ────────────────────────────────────────────────────────────── */
 
 .round-end-modal {
-  background: #1e1e1e;
-  border: 1px solid #3a3a3a;
-  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   min-width: 360px;
   max-width: 90vw;
-  color: #e0e0e0;
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .round-end-modal__title {
   font-size: 1.25rem;
   font-weight: 700;
   margin: 0;
-  color: #f0f0f0;
+  color: var(--color-text);
 }
 
 /* ─── Goal suit reveal ─────────────────────────────────────────────────────── */
@@ -52,15 +53,10 @@
 /* AGENT-CTX: Red/black colouring mirrors the canonical card-suit convention.
    Applied via data class so the icon colour is driven by CSS, not inline style,
    making it easy to override for accessibility (e.g. colour-blind mode). */
-.round-end-modal__suit-icon--hearts,
-.round-end-modal__suit-icon--diamonds {
-  color: #e05a5a;
-}
-
-.round-end-modal__suit-icon--clubs,
-.round-end-modal__suit-icon--spades {
-  color: #e0e0e0;
-}
+.round-end-modal__suit-icon--hearts   { color: var(--suit-hearts); }
+.round-end-modal__suit-icon--diamonds { color: var(--suit-diamonds); }
+.round-end-modal__suit-icon--clubs    { color: var(--suit-clubs); }
+.round-end-modal__suit-icon--spades   { color: var(--suit-spades); }
 
 /* ─── Own summary ───────────────────────────────────────────────────────────── */
 
@@ -68,8 +64,8 @@
   display: flex;
   gap: 1.5rem;
   font-size: 0.95rem;
-  background: #2a2a2a;
-  border-radius: 4px;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
   padding: 0.6rem 0.8rem;
 }
 
@@ -78,33 +74,33 @@
 .round-end-modal__standings {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
 }
 
 .round-end-modal__standings th,
 .round-end-modal__standings td {
   padding: 0.4rem 0.6rem;
   text-align: left;
-  border-bottom: 1px solid #2e2e2e;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .round-end-modal__standings th {
-  color: #888;
-  font-weight: 600;
-  font-size: 0.8rem;
+  color: var(--color-muted);
+  font-weight: var(--font-weight-semi);
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 /* AGENT-CTX: Own row is highlighted with a left border accent + subtle
    background. Avoids bold text change which would shift column widths. */
 .round-end-modal__row--own {
-  background: rgba(100, 160, 255, 0.08);
-  border-left: 3px solid #6494e8;
+  background: var(--color-accent-dim);
+  border-left: 3px solid var(--color-accent);
 }
 
 .round-end-modal__away {
-  color: #888;
+  color: var(--color-muted);
   font-size: 0.85em;
 }
 
@@ -113,15 +109,16 @@
 .round-end-modal__dismiss {
   align-self: flex-end;
   padding: 0.4rem 1rem;
-  border: 1px solid #555;
-  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: #c0c0c0;
+  color: var(--color-muted);
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
+  transition: background 0.15s, color 0.15s;
 }
 
 .round-end-modal__dismiss:hover {
-  background: #2e2e2e;
-  color: #f0f0f0;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
 }

@@ -1,0 +1,73 @@
+:root {
+  /* ── Surface hierarchy ───────────────────────────────── */
+  --color-bg:           #0f0f0f;
+  --color-surface:      #1a1a1a;
+  --color-surface-alt:  #141414;
+  --color-invert-bg:    #f5f4f0;
+  --color-invert-text:  #111111;
+
+  /* ── Borders ─────────────────────────────────────────── */
+  --color-border:        #2e2e2e;
+  --color-border-subtle: #222222;
+
+  /* ── Text ────────────────────────────────────────────── */
+  --color-text:     #f0f0f0;
+  --color-muted:    #888888;
+  --color-text-dim: #444444;
+
+  /* ── Primary accent (gold) ───────────────────────────── */
+  --color-accent:     #c9a84c;
+  --color-accent-dim: rgba(201, 168, 76, 0.10);
+  --color-accent-btn: rgba(201, 168, 76, 0.68); /* filled CTA buttons — softer than full accent */
+
+  /* ── Semantic — trading & status ─────────────────────── */
+  --color-success:     #4ade80;
+  --color-success-dim: rgba(74, 222, 128, 0.08);
+  --color-danger:      #f87171;
+  --color-danger-dim:  rgba(248, 113, 113, 0.08);
+  --color-warning:     #f59e0b;
+
+  /* ── Suit colors ─────────────────────────────────────── */
+  --suit-hearts:   #e06c75;  /* muted red  */
+  --suit-diamonds: #7aace0;  /* slate blue */
+  --suit-clubs:    #5ebd7a;  /* soft green */
+  --suit-spades:   #f0f0f0;  /* off-white  */
+
+  /* ── Overlay ─────────────────────────────────────────── */
+  --color-overlay: rgba(0, 0, 0, 0.78);
+
+  /* ── Radii ───────────────────────────────────────────── */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  /* ── Typography — families ───────────────────────────── */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-serif: 'EB Garamond', Georgia, serif;
+  --font-mono:  'IBM Plex Mono', 'Fira Mono', monospace;
+
+  /* ── Typography — size scale ─────────────────────────── */
+  --font-size-xs:   0.75rem;   /* 12px — labels, badges, metadata */
+  --font-size-sm:   0.875rem;  /* 14px — secondary body, table rows */
+  --font-size-base: 1rem;      /* 16px — primary body */
+  --font-size-lg:   1.125rem;  /* 18px — subheadings */
+  --font-size-xl:   1.375rem;  /* 22px — section headings */
+  --font-size-2xl:  1.75rem;   /* 28px — page titles, wordmark */
+
+  /* ── Typography — weight scale ───────────────────────── */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semi:   600;
+  --font-weight-bold:   700;
+
+  /* ── Semantic aliases ─────────────────────────────────── */
+  --color-text-primary: var(--color-text);          /* landing page hero text */
+  --color-text-muted:   var(--color-muted);         /* secondary labels       */
+  --color-text-faint:   var(--color-text-dim);      /* zero-state values      */
+  --color-border-faint: var(--color-border-subtle); /* hairline row dividers  */
+  --color-pos:          var(--color-success);       /* positive delta / buy   */
+  --color-neg:          var(--color-danger);        /* negative delta / sell  */
+
+  /* ── Inverted-surface text (light bg sections) ─────────── */
+  --color-invert-muted: #555555;
+}

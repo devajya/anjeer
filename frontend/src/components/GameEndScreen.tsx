@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import type { GameEndedMessage } from '../types/messages'
 import './GameEndScreen.css'
 
@@ -24,7 +25,12 @@ export function GameEndScreen({ gameEnded, playerSlot }: GameEndScreenProps) {
       aria-modal="true"
       aria-label="Game over"
     >
-      <div className="ges__card">
+      <motion.div
+        className="ges__card"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+      >
         <h2 className="ges__title">Game Over</h2>
 
         {/* ── Final standings ── */}
@@ -111,7 +117,7 @@ export function GameEndScreen({ gameEnded, playerSlot }: GameEndScreenProps) {
         <button className="ges__return-btn" onClick={() => navigate('/lobby')}>
           Return to Lobby
         </button>
-      </div>
+      </motion.div>
     </div>
   )
 }

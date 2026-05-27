@@ -4,9 +4,6 @@ import './AccumulationDisplay.css'
 const SUIT_SYMBOLS: Record<string, string> = {
   clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠',
 }
-const SUIT_COLORS: Record<string, string> = {
-  clubs: '#2a7a2a', diamonds: '#1a5fc8', hearts: '#c0392b', spades: '#b0b0c8',
-}
 
 const SIGNAL_BADGE_CLASS: Record<EvalPlayerSignal['signal'], string> = {
   Normal:   'accumulation-display__badge--normal',
@@ -48,8 +45,7 @@ export function AccumulationDisplay({ accumulationSignal }: Props) {
             </div>
             <div className="accumulation-display__card-row">
               <span
-                className="accumulation-display__suit-chip"
-                style={{ color: SUIT_COLORS[p.primary_suit] ?? '#aaa' }}
+                className={`accumulation-display__suit-chip accumulation-display__suit--${p.primary_suit}`}
                 title={p.primary_suit}
                 data-testid={`accumulation-suit-${p.slot}`}
               >

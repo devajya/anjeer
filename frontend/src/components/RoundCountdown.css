@@ -1,47 +1,64 @@
 .round-countdown {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
   letter-spacing: 0.02em;
-  padding: 0.4rem 0.8rem;
-  border-radius: 4px;
-  background: #1a1a2e;
-  border: 1px solid #4a4a8a;
-  color: #c0c0f0;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  white-space: nowrap;
 }
 
 .round-countdown__count {
-  font-size: 1.4rem;
-  color: #a0a0ff;
-  margin: 0 0.2rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+  margin: 0 0.15rem;
 }
 
 /* Active-round countdown (post-deal) */
 .round-countdown--active {
-  border-color: #4a7a4a;
-  color: #b0d8b0;
+  border-color: var(--color-accent);
+  color: var(--color-text);
 }
 
 .round-countdown__time {
-  font-size: 1.4rem;
-  font-family: 'Courier New', Courier, monospace;
-  color: #80e080;
-  margin: 0 0.2rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  margin: 0 0.15rem;
   letter-spacing: 0.05em;
 }
 
 /* Final 30 s — goes red with a gentle pulse */
 .round-countdown--expiring {
-  border-color: #8a3a3a;
-  color: #f0b0b0;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
   animation: expiring-pulse 1s ease-in-out infinite;
 }
 
 .round-countdown--expiring .round-countdown__time {
-  color: #ff7070;
+  color: var(--color-danger);
 }
 
 @keyframes expiring-pulse {
   0%,
   100% { opacity: 1; }
   50%  { opacity: 0.65; }
+}
+
+/* Last 10 s — rapid strobe */
+.round-countdown--urgent {
+  animation: urgent-pulse 0.35s ease-in-out infinite;
+}
+
+.round-countdown--urgent .round-countdown__time {
+  animation: urgent-pulse 0.35s ease-in-out infinite;
+}
+
+@keyframes urgent-pulse {
+  0%,
+  100% { opacity: 1; }
+  50%  { opacity: 0.4; }
 }

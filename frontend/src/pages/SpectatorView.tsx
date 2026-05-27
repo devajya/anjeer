@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { useSpectator } from '../hooks/useSpectator'
-import { ConnectionBanner } from '../components/ConnectionBanner'
 import { RoundCountdown } from '../components/RoundCountdown'
 import { MarketOverview } from '../components/MarketOverview'
 import { SuitPanel } from '../components/SuitPanel'
@@ -23,7 +22,6 @@ const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 export function SpectatorView() {
   const { lobbyCode } = useParams<{ lobbyCode: string }>()
   const {
-    connected,
     books,
     trades,
     startsAt,
@@ -76,7 +74,6 @@ export function SpectatorView() {
         <header className="app__header">
           <h1 className="app__title">Anjeer <span className="app__spectator-label">Spectating</span></h1>
           <SpectatorBadge count={spectatorCount} />
-          <ConnectionBanner connected={connected} />
           <RoundCountdown startsAt={startsAt} roundEndAt={roundEndAt} />
         </header>
 

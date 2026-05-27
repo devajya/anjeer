@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useKeyBinds } from '../hooks/useKeyBinds'
 import './KeybindSettings.css'
 
@@ -34,7 +33,6 @@ function serializeKeyEvent(e: KeyboardEvent): string {
 }
 
 export function KeybindSettings() {
-  const navigate = useNavigate()
   const { binds, loading, update } = useKeyBinds()
 
   // AGENT-CTX: localBinds is an in-progress edit copy — not synced to server until
@@ -90,9 +88,6 @@ export function KeybindSettings() {
   return (
     <div className="keybinds">
       <header className="keybinds__header">
-        <button className="keybinds__back" onClick={() => navigate('/lobby')}>
-          ← Back
-        </button>
         <h1 className="keybinds__title">Key Bindings</h1>
       </header>
 

@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
+import './styles/tokens.css'
 import './index.css'
 
 // AGENT-CTX: BrowserRouter is at the root so the full component tree including

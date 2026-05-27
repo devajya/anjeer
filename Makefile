@@ -218,3 +218,6 @@ reset-lobby-db:
 fmt:
 	find engine server -name '*.cpp' -o -name '*.h' | xargs clang-format -i
 	npm run format --prefix frontend 2>/dev/null || true
+
+lighthouse: ## Run Lighthouse CI against landing page (run with dev server already up)
+	npx lhci autorun

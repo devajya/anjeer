@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { motion } from 'framer-motion'
 import type { InterRoundMessage } from '../types/messages'
 import './InterRoundScreen.css'
 
@@ -86,7 +87,12 @@ export function InterRoundScreen({
       aria-modal="true"
       aria-label="Round results"
     >
-      <div className="irs__card">
+      <motion.div
+        className="irs__card"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+      >
         <h2 className="irs__title">Round {interRound.round_number} Finished</h2>
 
         {/* ── Goal suit reveal ── */}
@@ -161,7 +167,7 @@ export function InterRoundScreen({
             <span className="irs__status--starting">Starting next round…</span>
           ) : null}
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

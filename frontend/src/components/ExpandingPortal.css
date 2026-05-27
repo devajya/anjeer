@@ -1,0 +1,239 @@
+/* Section shell */
+.ep-section {
+  position: relative;
+  background: var(--color-bg);
+}
+
+/* Scroll-pin variant: 200vh gives scroll room for the expand trigger */
+.ep-section--scroll {
+  min-height: 200vh;
+}
+
+.ep-section--static {
+  min-height: 100vh;
+}
+
+/* Sticky wrapper pins the card at viewport top while user scrolls the section */
+.ep-sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Card */
+.ep-card {
+  position: relative;
+  background: var(--color-surface);
+  overflow: hidden;
+  will-change: transform;
+}
+
+.ep-card--collapsed {
+  width: 480px;
+  height: 320px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.ep-card--expanded {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+  background: var(--color-bg);
+}
+
+/* Tilt wrapper — owns 3D perspective rotation, separate from the framer-motion
+   layout div so the two transform stacks don't interfere. The CSS transition
+   adds damping between rAF mouse updates so the tilt feels fluid. */
+.ep-tilt {
+  position: absolute;
+  inset: 0;
+  transform-origin: center center;
+  transition: transform 0.12s ease-out;
+}
+
+/* Corner bracket SVGs */
+.ep-corner {
+  position: absolute;
+  color: var(--color-muted);
+  z-index: 10;
+}
+.ep-corner--tl { top: 10px; left: 10px; }
+.ep-corner--tr { top: 10px; right: 10px; }
+.ep-corner--bl { bottom: 10px; left: 10px; }
+.ep-corner--br { bottom: 10px; right: 10px; }
+
+/* Collapsed suit preview — 2×2 grid */
+.ep-suits-preview {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  place-items: center;
+}
+
+.ep-suit-preview-symbol {
+  font-size: 52px;
+  opacity: 0.12;
+  user-select: none;
+}
+
+.ep-suit--heart,
+.ep-suit--diamond {
+  color: #c0392b;
+}
+
+/* Scroll hint — shown in collapsed state */
+.ep-scroll-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-muted);
+}
+
+.ep-scroll-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ep-scroll-chevron {
+  animation: ep-chevron-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ep-chevron-pulse {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50%       { transform: translateY(4px); opacity: 1; }
+}
+
+/* Expanded parallax layers */
+.ep-layer {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/* Staggered fade-in for layers — only applied when motion is enabled */
+@keyframes ep-layer-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.ep-layer--fade.ep-layer--0 {
+  opacity: 0;
+  animation: ep-layer-fade-in 0.5s ease forwards;
+  animation-delay: 0.3s;
+}
+
+.ep-layer--fade.ep-layer--1 {
+  opacity: 0;
+  animation: ep-layer-fade-in 0.5s ease forwards;
+  animation-delay: 0.55s;
+}
+
+.ep-layer--fade.ep-layer--2 {
+  opacity: 0;
+  animation: ep-layer-fade-in 0.5s ease forwards;
+  animation-delay: 0.8s;
+}
+
+/* Layer 0: subtle dot grid */
+.ep-layer--0 {
+  background-image: radial-gradient(circle, var(--color-border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.45;
+}
+
+/* Layer 1: large suit symbols */
+.ep-layer--1 {
+  pointer-events: none;
+}
+
+.ep-suit-large {
+  position: absolute;
+  font-size: 120px;
+  opacity: 0.055;
+  user-select: none;
+  line-height: 1;
+}
+
+.ep-suit-large--0 { top: 8%;    left: 8%; }
+.ep-suit-large--1 { top: 8%;    right: 8%; }
+.ep-suit-large--2 { bottom: 8%; left: 8%; }
+.ep-suit-large--3 { bottom: 8%; right: 8%; }
+
+.ep-suit-large--2,
+.ep-suit-large--3 {
+  color: #c0392b;
+}
+
+/* Layer 2: text content — centred column */
+.ep-layer--2 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  pointer-events: none;
+}
+
+.ep-eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: 1.25rem;
+}
+
+.ep-headline {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(3rem, 10vw, 7rem);
+  font-weight: 400;
+  color: var(--color-text);
+  margin: 0 0 1.5rem;
+  line-height: 1;
+}
+
+.ep-body {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  color: var(--color-muted);
+  max-width: 480px;
+  line-height: 1.75;
+  margin: 0 0 2.5rem;
+}
+
+.ep-cta {
+  pointer-events: auto;
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  padding: 0.625rem 1.75rem;
+  border-radius: 2px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.ep-cta:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

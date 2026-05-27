@@ -1,7 +1,7 @@
 .ak {
   min-height: 100vh;
-  background: #0f0f0f;
-  color: #f0f0f0;
+  background: var(--color-bg);
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
 }
@@ -19,20 +19,20 @@
 .ak__back {
   background: none;
   border: none;
-  color: #888;
-  font-size: 0.875rem;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
   cursor: pointer;
   padding: 0.25rem 0;
   line-height: 1;
 }
 
-.ak__back:hover { color: #ddd; }
+.ak__back:hover { color: var(--color-text); }
 
 .ak__title {
   font-size: 1.2rem;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   margin: 0;
-  color: #f0f0f0;
+  color: var(--color-text);
 }
 
 /* ── Body ───────────────────────────────────────────────────────────────────── */
@@ -57,11 +57,11 @@
 }
 
 .ak__section-label {
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #666;
+  letter-spacing: 0.07em;
+  color: var(--color-muted);
 }
 
 .ak__generate-row {
@@ -73,16 +73,16 @@
   flex: 1;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 0.55rem 0.875rem;
-  color: #f0f0f0;
-  font-size: 0.875rem;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
   outline: none;
   transition: border-color 120ms;
   min-width: 0;
 }
 
-.ak__name-input::placeholder { color: #555; }
+.ak__name-input::placeholder { color: var(--color-text-dim); }
 
 .ak__name-input:focus {
   border-color: rgba(99, 102, 241, 0.5);
@@ -96,20 +96,20 @@
 .ak__btn {
   padding: 0.55rem 1.125rem;
   border: none;
-  border-radius: 8px;
-  font-size: 0.875rem;
-  font-weight: 600;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   cursor: pointer;
   white-space: nowrap;
   transition: background 120ms, opacity 120ms;
 }
 
 .ak__btn--generate {
-  background: #6366f1;
-  color: #fff;
+  background: var(--color-accent-btn);
+  color: var(--color-bg);
 }
 
-.ak__btn--generate:hover:not(:disabled) { background: #4f46e5; }
+.ak__btn--generate:hover:not(:disabled) { filter: brightness(1.1); }
 
 .ak__btn--generate:disabled {
   opacity: 0.4;
@@ -119,11 +119,11 @@
 .ak__btn--revoke {
   padding: 0.35rem 0.875rem;
   background: rgba(248, 113, 113, 0.12);
-  color: #f87171;
+  color: var(--color-danger);
   border: 1px solid rgba(248, 113, 113, 0.25);
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: background 120ms;
   flex-shrink: 0;
@@ -132,14 +132,14 @@
 .ak__btn--revoke:hover { background: rgba(248, 113, 113, 0.22); }
 
 .ak__limit-note {
-  font-size: 0.78rem;
-  color: #666;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
   margin: 0;
 }
 
 .ak__error {
-  font-size: 0.825rem;
-  color: #f87171;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
   margin: 0;
 }
 
@@ -161,7 +161,6 @@
   gap: 0.5rem;
   max-height: 420px;
   overflow-y: auto;
-  /* subtle scrollbar */
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
@@ -178,7 +177,7 @@
   padding: 0.875rem 1rem;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: background 0.12s;
 }
 
@@ -194,9 +193,9 @@
 }
 
 .ak__card-name {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #e0e0e0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -206,41 +205,41 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.78rem;
-  color: #777;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
 }
 
 .ak__badge {
   display: inline-block;
   padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  font-size: 0.68rem;
-  font-weight: 700;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .ak__badge--active {
   background: rgba(74, 222, 128, 0.12);
-  color: #4ade80;
+  color: var(--color-success);
   border: 1px solid rgba(74, 222, 128, 0.2);
 }
 
 .ak__badge--expired {
   background: rgba(255, 255, 255, 0.06);
-  color: #666;
+  color: var(--color-muted);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .ak__badge--revoked {
   background: rgba(248, 113, 113, 0.1);
-  color: #f87171;
+  color: var(--color-danger);
   border: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 .ak__empty {
-  font-size: 0.875rem;
-  color: #555;
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
   margin: 0;
   padding: 0.5rem 0;
 }

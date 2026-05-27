@@ -14,6 +14,7 @@ cmake-build-*/
 /readings/
 /build/
 /build-tsan/
+/blender/
 
 # ── Logs: track the folder (via .gitkeep) but ignore all log files ─────────
 logs/*

@@ -6,9 +6,9 @@
 }
 
 .mo__empty {
-  color: #555;
+  color: var(--color-muted);
   font-style: italic;
-  font-size: 0.82rem;
+  font-size: var(--font-size-xs);
   padding-top: 0.4rem;
 }
 
@@ -19,12 +19,12 @@
   height: 100%;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .mo__cards::-webkit-scrollbar       { height: 4px; }
 .mo__cards::-webkit-scrollbar-track  { background: transparent; }
-.mo__cards::-webkit-scrollbar-thumb  { background: #333; border-radius: 2px; }
+.mo__cards::-webkit-scrollbar-thumb  { background: var(--color-border); border-radius: 2px; }
 
 /* ── Player card ── */
 .mo__card {
@@ -34,11 +34,11 @@
   flex-direction: column;
   border-radius: 7px;
   overflow: hidden;
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--color-border);
 }
 
 .mo__card--me {
-  border-color: #444;
+  border-color: var(--color-border);
 }
 
 /* ── Card header: single row with name + stats ── */
@@ -52,9 +52,9 @@
 }
 
 .mo__card-name {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
   text-shadow: 0 1px 3px rgba(0,0,0,0.6);
   white-space: nowrap;
   overflow: hidden;
@@ -87,25 +87,25 @@
 }
 
 .mo__stat-icon--cards {
-  color: #93c5fd;
+  color: var(--color-muted);
 }
 
 .mo__stat-icon--cash {
-  color: #fbbf24;
+  color: var(--color-accent);
   font-weight: 700;
 }
 
 .mo__stat-val {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
 
 /* ── Card body: suit rows ── */
 .mo__card-body {
   flex: 1;
-  background: #111;
+  background: var(--color-surface-alt);
   display: flex;
   flex-direction: column;
   justify-content: space-evenly;
@@ -125,8 +125,8 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #1e1e1e;
-  border: 1px solid #333;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -135,10 +135,10 @@
   user-select: none;
 }
 
-.mo__suit-circle--hearts   { color: #f87171; }
-.mo__suit-circle--diamonds { color: #f87171; }
-.mo__suit-circle--clubs    { color: #c8c8c8; }
-.mo__suit-circle--spades   { color: #c8c8c8; }
+.mo__suit-circle--hearts   { color: var(--suit-hearts); }
+.mo__suit-circle--diamonds { color: var(--suit-diamonds); }
+.mo__suit-circle--clubs    { color: var(--suit-clubs); }
+.mo__suit-circle--spades   { color: var(--suit-spades); }
 
 /* ── Right-side values: count + delta ── */
 .mo__card-values {
@@ -152,17 +152,17 @@
 .mo__card-count {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #e8e8e8;
+  color: var(--color-text);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .mo__delta {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
-.mo__delta--pos { color: #4caf7d; }
-.mo__delta--neg { color: #e05c5c; }
+.mo__delta--pos { color: var(--color-success); }
+.mo__delta--neg { color: var(--color-danger); }

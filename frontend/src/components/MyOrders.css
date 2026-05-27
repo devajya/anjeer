@@ -3,17 +3,17 @@
 }
 
 .my-orders__title {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #888;
+  color: var(--color-muted);
   margin-bottom: 0.5rem;
 }
 
 .my-orders__empty {
-  color: #555;
-  font-size: 0.875rem;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
   margin: 0;
 }
 
@@ -30,51 +30,52 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-xs);
   padding: 0.3rem 0.5rem;
-  border-radius: 4px;
-  background: #161616;
-  border: 1px solid #222;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .my-orders__side {
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   min-width: 2.5rem;
   text-align: center;
 }
 
-.my-orders__side--buy  { background: #14532d; color: #4ade80; }
-.my-orders__side--sell { background: #450a0a; color: #f87171; }
+/* Keep green/red for buy/sell — trading context, not branding */
+.my-orders__side--buy  { background: #14532d; color: var(--color-success); }
+.my-orders__side--sell { background: #450a0a; color: var(--color-danger); }
 
 .my-orders__suit {
-  color: #aaa;
+  color: var(--color-muted);
   font-weight: 600;
 }
 
 .my-orders__price {
-  color: #e0e0e0;
+  color: var(--color-text);
   font-variant-numeric: tabular-nums;
   flex: 1;
 }
 
 .my-orders__id {
-  color: #444;
-  font-size: 0.7rem;
+  color: var(--color-text-dim);
+  font-size: var(--font-size-xs);
 }
 
 .my-orders__cancel {
   background: none;
-  border: 1px solid #450a0a;
-  color: #f87171;
-  border-radius: 3px;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+  border-radius: var(--radius-sm);
   padding: 0.1rem 0.35rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   transition: background 0.1s;
   line-height: 1;
 }
 
-.my-orders__cancel:hover { background: #200a0a; }
+.my-orders__cancel:hover { background: var(--color-danger-dim); }

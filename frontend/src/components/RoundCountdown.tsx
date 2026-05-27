@@ -70,9 +70,10 @@ export function RoundCountdown({ startsAt, roundEndAt }: RoundCountdownProps) {
     // Slice 8 forbids animations during active trading; this is a timer widget
     // in the header, not part of the trading interface.
     const expiring = secondsLeft <= 30
+    const urgent   = secondsLeft <= 10
     return (
       <div
-        className={`round-countdown round-countdown--active${expiring ? ' round-countdown--expiring' : ''}`}
+        className={`round-countdown round-countdown--active${expiring ? ' round-countdown--expiring' : ''}${urgent ? ' round-countdown--urgent' : ''}`}
         role="timer"
         aria-live="polite"
       >

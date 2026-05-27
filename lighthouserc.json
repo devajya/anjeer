@@ -1,0 +1,17 @@
+{
+  "ci": {
+    "collect": {
+      "url": ["http://localhost:4173/"],
+      "startServerCommand": "cd frontend && npm run build && npm run preview",
+      "numberOfRuns": 1,
+      "settings": {
+        "chromeFlags": "--no-sandbox --disable-gpu"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": ["error", { "minScore": 0.85 }]
+      }
+    }
+  }
+}

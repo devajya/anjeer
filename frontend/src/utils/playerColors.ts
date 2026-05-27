@@ -1,23 +1,24 @@
-// Slot-indexed identity colours: yellow, grey, purple, cyan, midnight.
+// Slot-indexed identity colours: sand, slate, terracotta, seafoam, mauve.
 // Deliberately excludes red and green, which are reserved for sell/buy indicators.
+// Chosen for legibility on dark backgrounds (#0f0f0f) and cohesion with the gold accent theme.
 // Semi variants are rgba at 50% opacity — used for gradients and tinted backgrounds.
 
-export const SLOT_COLORS     = ['#fbbf24', '#9ca3af', '#a78bfa', '#22d3ee', '#3b82f6'] as const
+export const SLOT_COLORS     = ['#e8b86d', '#8ba7d4', '#c4876e', '#7dbcb5', '#b09ec0'] as const
 export const SLOT_COLORS_SEMI = [
-  'rgba(251, 191,  36, 0.50)',
-  'rgba(156, 163, 175, 0.50)',
-  'rgba(167, 139, 250, 0.50)',
-  'rgba( 34, 211, 238, 0.50)',
-  'rgba( 59, 130, 246, 0.50)',
+  'rgba(232, 184, 109, 0.50)',
+  'rgba(139, 167, 212, 0.50)',
+  'rgba(196, 135, 110, 0.50)',
+  'rgba(125, 188, 181, 0.50)',
+  'rgba(176, 158, 192, 0.50)',
 ] as const
 
 // Dim variants for table header backgrounds (~13% opacity)
 export const SLOT_COLORS_DIM = [
-  'rgba(251, 191,  36, 0.13)',
-  'rgba(156, 163, 175, 0.13)',
-  'rgba(167, 139, 250, 0.13)',
-  'rgba( 34, 211, 238, 0.13)',
-  'rgba( 59, 130, 246, 0.13)',
+  'rgba(232, 184, 109, 0.13)',
+  'rgba(139, 167, 212, 0.13)',
+  'rgba(196, 135, 110, 0.13)',
+  'rgba(125, 188, 181, 0.13)',
+  'rgba(176, 158, 192, 0.13)',
 ] as const
 
 export function slotColor(slot: number): string {

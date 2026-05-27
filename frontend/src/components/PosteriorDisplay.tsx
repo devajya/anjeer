@@ -4,9 +4,6 @@ import './PosteriorDisplay.css'
 const SUIT_SYMBOLS: Record<string, string> = {
   clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠',
 }
-const SUIT_COLORS: Record<string, string> = {
-  clubs: '#2a7a2a', diamonds: '#1a5fc8', hearts: '#c0392b', spades: '#1a1a2e',
-}
 
 interface Props {
   posteriorUpdate: EvalPosteriorUpdateMessage | null
@@ -41,10 +38,7 @@ export function PosteriorDisplay({ posteriorUpdate }: Props) {
             data-testid={`posterior-config-${cfg.deck_index}`}
           >
             <div className="posterior-display__config-header">
-              <span
-                className="posterior-display__goal-suit"
-                style={{ color: SUIT_COLORS[cfg.goal_suit] }}
-              >
+              <span className={`posterior-display__goal-suit posterior-display__suit--${cfg.goal_suit}`}>
                 {SUIT_SYMBOLS[cfg.goal_suit] ?? cfg.goal_suit}
               </span>
               <span className="posterior-display__deck-label">deck {cfg.deck_index}</span>
@@ -63,8 +57,7 @@ export function PosteriorDisplay({ posteriorUpdate }: Props) {
               {suits.map((s, i) => (
                 <span
                   key={s}
-                  className="posterior-display__count-cell"
-                  style={{ color: SUIT_COLORS[s] }}
+                  className={`posterior-display__count-cell posterior-display__suit--${s}`}
                   title={s}
                 >
                   {SUIT_SYMBOLS[s]}{cfg.counts[i]}
@@ -79,10 +72,7 @@ export function PosteriorDisplay({ posteriorUpdate }: Props) {
       <div className="posterior-display__marginals" data-testid="posterior-marginals">
         {suits.map(s => (
           <div key={s} className="posterior-display__marginal-cell">
-            <span
-              className="posterior-display__marginal-suit"
-              style={{ color: SUIT_COLORS[s] }}
-            >
+            <span className={`posterior-display__marginal-suit posterior-display__suit--${s}`}>
               {SUIT_SYMBOLS[s]}
             </span>
             <span className="posterior-display__marginal-prob" data-testid={`marginal-${s}`}>

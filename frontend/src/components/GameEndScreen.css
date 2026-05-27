@@ -1,7 +1,7 @@
 .ges__backdrop {
   position: fixed;
   inset: 0;
-  background: #0d0f14;
+  background: var(--color-bg);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -11,21 +11,22 @@
 }
 
 .ges__card {
-  background: #181c24;
-  border: 1px solid #2a2f3d;
-  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   width: 100%;
   max-width: 640px;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .ges__title {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #e8eaf0;
+  color: var(--color-text);
   text-align: center;
   margin: 0;
 }
@@ -37,32 +38,32 @@
 }
 
 .ges__section-title {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #8892a4;
+  color: var(--color-muted);
   margin: 0;
 }
 
 .ges__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
-  color: #c8cdd8;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
 }
 
 .ges__table th {
   text-align: left;
   padding: 0.375rem 0.5rem;
-  color: #8892a4;
+  color: var(--color-muted);
   font-weight: 500;
-  border-bottom: 1px solid #2a2f3d;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .ges__table td {
   padding: 0.375rem 0.5rem;
-  border-bottom: 1px solid #1e2330;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .ges__table--compact td,
@@ -71,16 +72,16 @@
 }
 
 .ges__row--own td {
-  color: #e8eaf0;
+  color: var(--color-accent);
   font-weight: 600;
 }
 
-.ges__net--pos { color: #4caf7d; }
-.ges__net--neg { color: #e05c5c; }
+.ges__net--pos { color: var(--color-success); }
+.ges__net--neg { color: var(--color-danger); }
 
 .ges__away {
-  font-size: 0.75rem;
-  color: #8892a4;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
 }
 
 .ges__round {
@@ -93,36 +94,36 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.875rem;
-  color: #c8cdd8;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
 }
 
 .ges__round-num {
   font-weight: 600;
-  color: #e8eaf0;
+  color: var(--color-text);
 }
 
-.ges__suit-icon--hearts,
-.ges__suit-icon--diamonds { color: #e05c5c; }
-.ges__suit-icon--clubs,
-.ges__suit-icon--spades   { color: #c8cdd8; }
+.ges__suit-icon--hearts   { color: var(--suit-hearts); }
+.ges__suit-icon--diamonds { color: var(--suit-diamonds); }
+.ges__suit-icon--clubs    { color: var(--suit-clubs); }
+.ges__suit-icon--spades   { color: var(--suit-spades); }
 
 .ges__round-suit {
-  font-size: 0.8rem;
-  color: #8892a4;
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
 }
 
 .ges__return-btn {
   align-self: center;
   padding: 0.625rem 1.5rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--color-accent-btn);
+  color: var(--color-surface);
   border: none;
-  border-radius: 6px;
-  font-size: 0.875rem;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: opacity 0.15s;
 }
 
-.ges__return-btn:hover { background: #1d4ed8; }
+.ges__return-btn:hover { opacity: 0.85; }

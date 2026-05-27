@@ -2,14 +2,25 @@
 // convention (co-located with the pages under test), not the spec's src/tests/ path.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Login } from '../Login'
+import { LandingPage } from '../LandingPage'
 import { LobbyRoom } from '../LobbyRoom'
 import { Game } from '../Game'
+import { ProtectedRoute } from '../../components/ProtectedRoute'
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('../../hooks/useAuth', () => ({ useAuth: vi.fn() }))
+
+// Stub heavy landing-page sections — routeGuards tests only care about routing,
+// not ExpandingPortal/ScrollTrackerSection internals.
+vi.mock('../../components/ExpandingPortal', () => ({
+  ExpandingPortal: () => <div data-testid="landing-page-content">landing page</div>,
+}))
+vi.mock('../../components/ScrollTrackerSection', () => ({
+  ScrollTrackerSection: () => null,
+}))
 vi.mock('../../hooks/useKeyBinds', () => ({ useKeyBinds: () => ({ binds: {}, loading: false }) }))
 vi.mock('../../hooks/useKeyboardShortcuts', () => ({ useKeyboardShortcuts: () => {} }))
 
@@ -94,23 +105,23 @@ describe('Login page — auth guard', () => {
     Object.keys(lsStore).forEach(k => delete lsStore[k])
   })
 
-  it('redirects /login to /lobby when valid non-expired JWT is in cookie', () => {
+  it('redirects /auth to /lobby when valid non-expired JWT is in cookie', () => {
     setAuth(AUTHED_USER)
     render(
-      <MemoryRouter initialEntries={['/login']}>
+      <MemoryRouter initialEntries={['/auth']}>
         <Login />
       </MemoryRouter>,
     )
     // Login renders null during loading and <Navigate> when authed;
-    // the MemoryRouter stays at /login but Navigate issues a replace — component
+    // the MemoryRouter stays at /auth but Navigate issues a replace — component
     // renders nothing (Navigate has no visual output). Verify no login form.
     expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument()
   })
 
-  it('renders /login when no JWT present', () => {
+  it('renders /auth when no JWT present', () => {
     setAuth(null)
     render(
-      <MemoryRouter initialEntries={['/login']}>
+      <MemoryRouter initialEntries={['/auth']}>
         <Login />
       </MemoryRouter>,
     )
@@ -118,7 +129,80 @@ describe('Login page — auth guard', () => {
   })
 })
 
-// ── 2. StaleLobbyModal on stale lobby ────────────────────────────────────────
+// ── 2. Route table — new Slice 12 routes ─────────────────────────────────────
+
+describe('Route table — Slice 12 additions', () => {
+  beforeEach(() => {
+    wsState = {}
+    Object.keys(lsStore).forEach(k => delete lsStore[k])
+  })
+
+  it('/ renders LandingPage without auth', () => {
+    setAuth(null, false)
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <LandingPage />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
+  })
+
+  it('/ renders LandingPage for authenticated users (no redirect — server sends post-OAuth to /lobby)', () => {
+    setAuth(AUTHED_USER, false)
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <LandingPage />
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
+  })
+
+  it('/auth renders Login component', () => {
+    setAuth(null)
+    render(
+      <MemoryRouter initialEntries={['/auth']}>
+        <Login />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/sign in/i)).toBeInTheDocument()
+  })
+
+  it('catch-all redirects to / (not /lobby)', () => {
+    setAuth(null, false)
+    render(
+      <MemoryRouter initialEntries={['/unknown-path-xyz']}>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByTestId('landing-page-content')).toBeInTheDocument()
+  })
+
+  it('ProtectedRoute redirects to /auth when user is null', () => {
+    setAuth(null, false)
+    render(
+      <MemoryRouter initialEntries={['/lobby']}>
+        <Routes>
+          <Route path="/auth" element={<div>auth page</div>} />
+          <Route
+            path="/lobby"
+            element={
+              <ProtectedRoute>
+                <div>protected content</div>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('auth page')).toBeInTheDocument()
+    expect(screen.queryByText('protected content')).not.toBeInTheDocument()
+  })
+})
+
+// ── 4. StaleLobbyModal on stale lobby ────────────────────────────────────────
 
 describe('LobbyRoom — stale lobby modal', () => {
   beforeEach(() => {
@@ -159,7 +243,7 @@ describe('LobbyRoom — stale lobby modal', () => {
   })
 })
 
-// ── 3. Direct game URL edge cases ────────────────────────────────────────────
+// ── 5. Direct game URL edge cases ────────────────────────────────────────────
 
 describe('Game page — direct URL checks', () => {
   beforeEach(() => {

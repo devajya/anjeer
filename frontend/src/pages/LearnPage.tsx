@@ -1,13 +1,9 @@
-import { useNavigate } from 'react-router-dom'
 import './LearnPage.css'
 
 export function LearnPage() {
-  const navigate = useNavigate()
-
   return (
     <div className="learn">
       <header className="learn__header">
-        <button className="learn__back" onClick={() => navigate('/lobby')}>← Lobby</button>
         <h1 className="learn__title">Understanding Your Eval Statistics</h1>
       </header>
 
