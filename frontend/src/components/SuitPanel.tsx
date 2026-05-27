@@ -4,19 +4,18 @@ import type { ErrorMessage, ClientCommand } from '../types/messages'
 import { useOrderForm } from '../hooks/useOrderForm'
 import './SuitPanel.css'
 
-// AGENT-CTX: Fixed player colour palette — 8 slots, hues chosen to be visually
-// distinct and readable on a dark background. Keyed by player_id (1-indexed).
-// When the server sends best_bid_player / best_ask_player in a future slice,
-// look up the id here and pass it as `bidPlayerColor` / `askPlayerColor` props.
+// AGENT-CTX: Fixed player colour palette — 8 slots, keyed by player_id (1-indexed).
+// Hues chosen to be visually distinct on dark backgrounds and cohesive with the
+// gold accent theme. Avoids red/green (reserved for sell/buy indicators).
 export const PLAYER_COLORS: Record<number, string> = {
-  1: '#1e40af', // blue
-  2: '#7c3aed', // violet
-  3: '#b45309', // amber
-  4: '#0f766e', // teal
-  5: '#be185d', // pink
-  6: '#1d4ed8', // indigo
-  7: '#65a30d', // lime
-  8: '#c2410c', // orange
+  1: '#e8b86d', // sand
+  2: '#8ba7d4', // slate blue
+  3: '#c4876e', // terracotta
+  4: '#7dbcb5', // seafoam
+  5: '#b09ec0', // mauve
+  6: '#d4956a', // warm amber
+  7: '#7aafc2', // steel blue
+  8: '#c49ab0', // dusty rose
 }
 
 export interface SuitPanelHandle {

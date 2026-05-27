@@ -1,7 +1,7 @@
 .se__backdrop {
   position: fixed;
   inset: 0;
-  background: #0d0f14;
+  background: var(--color-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10,10 +10,11 @@
      InterRoundScreen to ensure the error is always topmost. */
 }
 
+/* Keeps red-tinted card — crash modal should feel alarming */
 .se__card {
-  background: #1c1214;
+  background: var(--color-surface);
   border: 1px solid #5c2020;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 2rem 2.5rem;
   max-width: 480px;
   width: 100%;
@@ -22,18 +23,19 @@
   align-items: center;
   gap: 1.25rem;
   text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .se__title {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #e05c5c;
+  color: var(--color-danger);
   margin: 0;
 }
 
 .se__message {
   font-size: 0.9rem;
-  color: #c8cdd8;
+  color: var(--color-text);
   margin: 0;
   line-height: 1.5;
 }
@@ -41,10 +43,10 @@
 .se__return-btn {
   padding: 0.625rem 1.5rem;
   background: #3a1010;
-  color: #e05c5c;
+  color: var(--color-danger);
   border: 1px solid #5c2020;
-  border-radius: 6px;
-  font-size: 0.875rem;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;

@@ -27,6 +27,12 @@
   --color-danger-dim:  rgba(248, 113, 113, 0.08);
   --color-warning:     #f59e0b;
 
+  /* ── Suit colors ─────────────────────────────────────── */
+  --suit-hearts:   #e06c75;  /* muted red  */
+  --suit-diamonds: #7aace0;  /* slate blue */
+  --suit-clubs:    #5ebd7a;  /* soft green */
+  --suit-spades:   #f0f0f0;  /* off-white  */
+
   /* ── Overlay ─────────────────────────────────────────── */
   --color-overlay: rgba(0, 0, 0, 0.78);
 

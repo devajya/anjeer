@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { useKeyBinds } from '../hooks/useKeyBinds'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useReconnect } from '../hooks/useReconnect'
-import { ConnectionBanner } from '../components/ConnectionBanner'
 import { RoundCountdown } from '../components/RoundCountdown'
 import { MarketOverview } from '../components/MarketOverview'
 import { SuitPanel, type SuitPanelHandle } from '../components/SuitPanel'
@@ -30,7 +29,8 @@ import '../App.css'
 const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 
 export function Game() {
-const { user, logout } = useAuth()
+const { user } = useAuth()
+  const navigate = useNavigate()
   const { binds } = useKeyBinds()
   const [searchParams] = useSearchParams()
   const lobbyId = searchParams.get('lobby_id') ?? ''
@@ -87,7 +87,7 @@ const { user, logout } = useAuth()
   // focused; keyboard buy/sell/nudge are no-ops until a suit is focused.
   const [selectedSuit, setSelectedSuit] = useState<string | null>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
-  const [evalExpanded, setEvalExpanded] = useState(false)
+  const [evalExpanded, setEvalExpanded] = useState(true)
 
   // Imperative refs to each active SuitPanel — used by keyboard shortcuts to
   // focus the bid/offer price input without submitting at market.
@@ -276,7 +276,6 @@ const { user, logout } = useAuth()
       <main className="app">
         <header className="app__header">
           <h1 className="app__title">Anjeer</h1>
-          <ConnectionBanner connected={connected} />
           <RoundCountdown startsAt={startsAt} roundEndAt={roundEndAt} />
           {waitingForStart && !startsAt && !roundEndAt && (
             <div className="app__lobby">
@@ -289,8 +288,7 @@ const { user, logout } = useAuth()
           {user && (
             <PlayerBadge
               username={user.username}
-              balance={displayBalance}
-              onLogout={logout}
+              onLeave={() => navigate('/lobby')}
             />
           )}
         </header>

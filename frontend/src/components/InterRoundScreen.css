@@ -2,7 +2,7 @@
 .irs__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.72);
+  background: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11,9 +11,9 @@
 
 /* ── Card ─────────────────────────────────────────────────────────────────── */
 .irs__card {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4a;
-  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   width: min(560px, 92vw);
   display: flex;
@@ -21,13 +21,14 @@
   gap: 1.25rem;
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 /* ── Title ────────────────────────────────────────────────────────────────── */
 .irs__title {
   margin: 0;
   font-size: 1.4rem;
-  color: #e2e8f0;
+  color: var(--color-text);
   text-align: center;
 }
 
@@ -38,25 +39,20 @@
   justify-content: center;
   gap: 0.5rem;
   font-size: 1.1rem;
-  color: #94a3b8;
+  color: var(--color-muted);
 }
 
 .irs__suit-icon {
   font-size: 1.6rem;
 }
 
-.irs__suit-icon--hearts,
-.irs__suit-icon--diamonds {
-  color: #f87171;
-}
-
-.irs__suit-icon--clubs,
-.irs__suit-icon--spades {
-  color: #e2e8f0;
-}
+.irs__suit-icon--hearts   { color: var(--suit-hearts); }
+.irs__suit-icon--diamonds { color: var(--suit-diamonds); }
+.irs__suit-icon--clubs    { color: var(--suit-clubs); }
+.irs__suit-icon--spades   { color: var(--suit-spades); }
 
 .irs__suit-name {
-  color: #cbd5e1;
+  color: var(--color-text);
 }
 
 /* ── Standings table ──────────────────────────────────────────────────────── */
@@ -69,23 +65,23 @@
 .irs__standings th {
   text-align: left;
   padding: 0.4rem 0.6rem;
-  color: #64748b;
-  border-bottom: 1px solid #2a2a4a;
+  color: var(--color-muted);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .irs__standings td {
   padding: 0.4rem 0.6rem;
-  color: #cbd5e1;
-  border-bottom: 1px solid #1e1e38;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .irs__row--own td {
-  background: rgba(99, 102, 241, 0.12);
-  color: #a5b4fc;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
 }
 
 .irs__away {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 0.8rem;
 }
 
@@ -100,28 +96,29 @@
 .irs__owner-controls {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 0.25rem;
 }
 
 .vote-tally {
   display: flex;
   gap: 0.4rem;
   align-items: center;
-  color: #94a3b8;
+  color: var(--color-muted);
   font-size: 0.9rem;
 }
 
 .vote-tally__count {
-  color: #e2e8f0;
+  color: var(--color-text);
 }
 
 .irs__vote-btn {
   padding: 0.4rem 1rem;
-  border-radius: 6px;
-  border: 1px solid #6366f1;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-accent);
   background: transparent;
-  color: #a5b4fc;
+  color: var(--color-accent);
   cursor: pointer;
   font-size: 0.9rem;
   transition: background 0.15s;
@@ -129,12 +126,12 @@
 }
 
 .irs__vote-btn:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.2);
+  background: var(--color-accent-dim);
 }
 
 .irs__vote-btn:disabled {
-  border-color: #2a2a4a;
-  color: #475569;
+  border-color: var(--color-border);
+  color: var(--color-text-dim);
   cursor: default;
 }
 
@@ -142,14 +139,14 @@
 .irs__status {
   text-align: center;
   font-size: 0.9rem;
-  color: #64748b;
+  color: var(--color-muted);
   min-height: 1.4em;
 }
 
 .irs__status--ending {
-  color: #f59e0b;
+  color: var(--color-warning);
 }
 
 .irs__status--starting {
-  color: #34d399;
+  color: var(--color-success);
 }

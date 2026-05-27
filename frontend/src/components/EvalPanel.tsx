@@ -15,7 +15,7 @@ interface EvalPanelProps {
 }
 
 export function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, accumulationSignal = null, executionGuidance = null }: EvalPanelProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
 
   function toggle() {
     const next = !expanded

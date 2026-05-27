@@ -12,7 +12,7 @@
 }
 
 .settlement-ev__placeholder {
-  color: #888;
+  color: var(--color-muted);
   font-size: 12px;
   font-style: italic;
 }
@@ -23,13 +23,13 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #aaa;
+  color: var(--color-muted);
 }
 
 .settlement-ev__total {
   font-size: 28px;
   font-weight: 700;
-  color: #e0e0e0;
+  color: var(--color-text);
   letter-spacing: -0.5px;
 }
 
@@ -40,8 +40,8 @@
 }
 
 .settlement-ev__delta-cell {
-  background: #1e1e2e;
-  border-radius: 4px;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-md);
   padding: 4px 6px;
   display: flex;
   flex-direction: column;
@@ -53,15 +53,16 @@
   font-size: 14px;
 }
 
+/* Suit colors consistent with the rest of the app */
+.settlement-ev__suit--hearts   { color: var(--suit-hearts); }
+.settlement-ev__suit--diamonds { color: var(--suit-diamonds); }
+.settlement-ev__suit--clubs    { color: var(--suit-clubs); }
+.settlement-ev__suit--spades   { color: var(--suit-spades); }
+
 .settlement-ev__delta-val {
   font-size: 12px;
   font-weight: 600;
 }
 
-.settlement-ev__delta-val--pos {
-  color: #2ecc71;
-}
-
-.settlement-ev__delta-val--neg {
-  color: #e74c3c;
-}
+.settlement-ev__delta-val--pos { color: var(--color-success); }
+.settlement-ev__delta-val--neg { color: var(--color-danger); }

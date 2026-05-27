@@ -1,7 +1,7 @@
 .shortcut-help__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--color-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9,9 +9,9 @@
 }
 
 .shortcut-help__panel {
-  background: var(--color-surface, #1a1a1a);
-  border: 1px solid var(--color-border, #333);
-  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
   min-width: 280px;
   max-width: 360px;
@@ -31,13 +31,13 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-text-muted, #888);
+  color: var(--color-muted);
 }
 
 .shortcut-help__close {
   background: none;
   border: none;
-  color: var(--color-text-muted, #888);
+  color: var(--color-muted);
   cursor: pointer;
   font-size: 0.9rem;
   padding: 0.2rem 0.4rem;
@@ -45,7 +45,7 @@
 }
 
 .shortcut-help__close:hover {
-  color: var(--color-text, #e0e0e0);
+  color: var(--color-text);
 }
 
 .shortcut-help__table {
@@ -54,13 +54,13 @@
 }
 
 .shortcut-help__row:not(:last-child) {
-  border-bottom: 1px solid var(--color-border-faint, #222);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .shortcut-help__action {
   padding: 0.35rem 0;
   font-size: 0.82rem;
-  color: var(--color-text-muted, #ccc);
+  color: var(--color-muted);
 }
 
 .shortcut-help__key {
@@ -70,12 +70,12 @@
 
 .shortcut-help__key kbd {
   display: inline-block;
-  background: var(--color-surface-raised, #2a2a2a);
-  border: 1px solid var(--color-border, #444);
-  border-radius: 4px;
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   padding: 0.1rem 0.45rem;
-  font-family: inherit;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--color-text, #e0e0e0);
+  color: var(--color-text);
   white-space: nowrap;
 }

@@ -4,9 +4,6 @@ import './ExecutionGuidanceDisplay.css'
 const SUIT_SYMBOLS: Record<string, string> = {
   clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠',
 }
-const SUIT_COLORS: Record<string, string> = {
-  clubs: '#2a7a2a', diamonds: '#1a5fc8', hearts: '#c0392b', spades: '#e8e8e8',
-}
 const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades']
 
 const ACTION_CLASS: Record<string, string> = {
@@ -22,7 +19,6 @@ const REC_LABEL: Record<string, string> = {
 }
 
 function SuitRow({ name, g }: { name: string; g: EvalSuitGuidance }) {
-  const color  = SUIT_COLORS[name] ?? '#aaa'
   const symbol = SUIT_SYMBOLS[name] ?? name
   const fp     = (g.fill_probability * 100).toFixed(0) + '%'
   const pev    = g.passive_ev >= 0
@@ -32,7 +28,7 @@ function SuitRow({ name, g }: { name: string; g: EvalSuitGuidance }) {
 
   return (
     <tr className="execution-suit-row">
-      <td className="execution-suit-row__suit" style={{ color }}>
+      <td className={`execution-suit-row__suit execution-suit-row__suit--${name}`}>
         {symbol}
       </td>
       <td className="execution-suit-row__fp">{fp}</td>
@@ -75,8 +71,7 @@ export function ExecutionGuidanceDisplay({ executionGuidance }: Props) {
         </span>
         {suit && (
           <span
-            className="execution-guidance__suit"
-            style={{ color: SUIT_COLORS[suit] ?? '#aaa' }}
+            className={`execution-guidance__suit execution-guidance__suit--${suit}`}
             data-testid="execution-guidance-suit"
           >
             {SUIT_SYMBOLS[suit] ?? suit}

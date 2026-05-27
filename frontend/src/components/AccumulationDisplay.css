@@ -12,7 +12,7 @@
 }
 
 .accumulation-display__placeholder {
-  color: #888;
+  color: var(--color-muted);
   font-size: 12px;
   font-style: italic;
 }
@@ -23,7 +23,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #aaa;
+  color: var(--color-muted);
 }
 
 .accumulation-display__players {
@@ -33,8 +33,8 @@
 }
 
 .accumulation-display__card {
-  background: #1e1e2e;
-  border-radius: 6px;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   display: flex;
   flex-direction: column;
@@ -51,7 +51,7 @@
 .accumulation-display__player-name {
   font-size: 12px;
   font-weight: 500;
-  color: #ccc;
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -68,18 +68,18 @@
 }
 
 .accumulation-display__badge--normal {
-  background: #333;
-  color: #999;
+  background: var(--color-border);
+  color: var(--color-muted);
 }
 
 .accumulation-display__badge--elevated {
-  background: #3d2800;
-  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--color-warning);
 }
 
 .accumulation-display__badge--high {
-  background: #3d0000;
-  color: #ef4444;
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
 }
 
 .accumulation-display__card-row {
@@ -97,21 +97,26 @@
 .accumulation-display__bar-track {
   flex: 1;
   height: 4px;
-  background: #333;
+  background: var(--color-border);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .accumulation-display__bar-fill {
   height: 100%;
-  background: #4a90d9;
+  background: var(--color-accent);
   border-radius: 2px;
   transition: width 0.3s ease;
 }
 
+.accumulation-display__suit--hearts   { color: var(--suit-hearts); }
+.accumulation-display__suit--diamonds { color: var(--suit-diamonds); }
+.accumulation-display__suit--clubs    { color: var(--suit-clubs); }
+.accumulation-display__suit--spades   { color: var(--suit-spades); }
+
 .accumulation-display__conf-label {
   font-size: 10px;
-  color: #777;
+  color: var(--color-text-dim);
   flex-shrink: 0;
   min-width: 28px;
   text-align: right;

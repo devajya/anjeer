@@ -66,10 +66,10 @@
   user-select: none;
 }
 
-.sp__badge--hearts   { color: #f87171; }
-.sp__badge--diamonds { color: #f87171; }
-.sp__badge--clubs    { color: #c8c8c8; }
-.sp__badge--spades   { color: #c8c8c8; }
+.sp__badge--hearts   { color: var(--suit-hearts); }
+.sp__badge--diamonds { color: var(--suit-diamonds); }
+.sp__badge--clubs    { color: var(--suit-clubs); }
+.sp__badge--spades   { color: var(--suit-spades); }
 
 /* Last trade price */
 .sp__last-trade {

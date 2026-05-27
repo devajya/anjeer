@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { PlayersAround } from '../types/messages'
 import './QueuePopup.css'
 
@@ -71,13 +72,32 @@ export function QueuePopup({ position, queueSize, playersAround, onLeave, onSpec
 
   return (
     <div className="qp" role="dialog" aria-label="Queue position">
-      <div className="qp__card">
+      <motion.div
+        className="qp__card"
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 16 }}
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      >
         <h3 className="qp__title">
           <span className="qp__pulse" aria-hidden="true" />
           Waiting to join
         </h3>
         <p className="qp__summary">
-          You are <strong>#{position}</strong> of {queueSize} waiting
+          You are{' '}
+          <AnimatePresence mode="wait">
+            <motion.strong
+              key={position}
+              className="qp__position-num"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              transition={{ duration: 0.15 }}
+            >
+              #{position}
+            </motion.strong>
+          </AnimatePresence>
+          {' '}of {queueSize} waiting
         </p>
 
         <div className="qp__track" aria-label="Queue track">
@@ -136,7 +156,7 @@ export function QueuePopup({ position, queueSize, playersAround, onLeave, onSpec
             Spectate
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }
