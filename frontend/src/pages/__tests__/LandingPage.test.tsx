@@ -7,9 +7,6 @@ import { LandingPage } from '../LandingPage'
 vi.mock('../../components/ExpandingPortal', () => ({
   ExpandingPortal: () => <section data-testid="section-expanding-portal" />,
 }))
-vi.mock('../../components/ParticleMorphCanvas', () => ({
-  ParticleMorphCanvas: () => <section data-testid="section-particle-morph" />,
-}))
 vi.mock('../../components/AutoAdvanceProgress', () => ({
   AutoAdvanceProgress: () => <section data-testid="section-auto-advance" />,
 }))
@@ -28,10 +25,9 @@ function renderLanding() {
 }
 
 describe('LandingPage', () => {
-  it('renders all 4 sections', () => {
+  it('renders all 3 sections', () => {
     renderLanding()
     expect(screen.getByTestId('section-expanding-portal')).toBeInTheDocument()
-    expect(screen.getByTestId('section-particle-morph')).toBeInTheDocument()
     expect(screen.getByTestId('section-auto-advance')).toBeInTheDocument()
     expect(screen.getByTestId('section-scroll-tracker')).toBeInTheDocument()
   })
