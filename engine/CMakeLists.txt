@@ -8,7 +8,6 @@ cmake_minimum_required(VERSION 3.20)
 #            4× OrderBook composition, per-player hand tracking.
 #            suit.h is header-only (constexpr); game_state.cpp has the impl.
 add_library(engine STATIC
-    src/order_book.cpp
     src/game_state.cpp
     src/scoring_engine.cpp
     src/bots/bot_agent.cpp
@@ -19,6 +18,7 @@ add_library(engine STATIC
 
 target_include_directories(engine PUBLIC include)
 target_compile_features(engine PUBLIC cxx_std_17)
+target_link_libraries(engine PUBLIC anjeer_exchange)
 
 # ---------------------------------------------------------------------------
 # Unit tests (Catch2)
