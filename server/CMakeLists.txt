@@ -41,6 +41,7 @@ target_include_directories(server PRIVATE include)
 
 target_link_libraries(server PRIVATE
     engine
+    anjeer_exchange
     uWebSockets
     nlohmann_json::nlohmann_json
     libpqxx::pqxx
@@ -433,6 +434,7 @@ target_compile_definitions(game_session_tests PRIVATE
 target_link_libraries(game_session_tests PRIVATE
     Catch2::Catch2WithMain
     engine
+    anjeer_exchange
     uWebSockets
     nlohmann_json::nlohmann_json
     libpqxx::pqxx

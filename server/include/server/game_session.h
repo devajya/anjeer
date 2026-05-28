@@ -7,6 +7,7 @@
 #include "server/eval/eval_runner.h"
 #include "engine/engine.h"
 #include "engine/game_snapshot.h"
+#include "exchange/exchange_session.h"
 #include <nlohmann/json.hpp>
 
 #include <readerwriterqueue.h>
@@ -271,6 +272,11 @@ private:
     std::string current_goal_suit_str() const;  // convenience: suit_name(current_deck_->goal_suit)
 
     std::array<engine::OrderBook, 4>   books_;
+    // AGENT-CTX: exchange_ is constructed alongside books_ in Task 7 (Slice 13).
+    // Both members coexist during Tasks 7–9; books_ is removed once all call sites
+    // in GameSession are routed through exchange_ (Task 8) and snapshot methods are
+    // updated (Task 9). Do not remove books_ before Task 8 is complete.
+    exchange::ExchangeSession          exchange_;
     std::array<bool, 4>                active_suits_{};
     std::unique_ptr<engine::GameState> game_state_;
 

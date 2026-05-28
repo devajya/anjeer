@@ -61,6 +61,25 @@ static std::array<engine::OrderBook, 4> build_books(const ServerConfig& cfg) {
     };
 }
 
+// AGENT-CTX: build_exchange mirrors build_books — same suit order, same config
+// values. Instrument IDs are 0–3 matching suit_index() order (C=0,D=1,H=2,S=3).
+// This helper is removed (along with build_books) once books_ is removed in Task 8.
+static exchange::ExchangeSession build_exchange(const ServerConfig& cfg) {
+    std::vector<exchange::InstrumentConfig> instruments;
+    instruments.reserve(4);
+    for (auto s : {engine::Suit::Clubs, engine::Suit::Diamonds,
+                   engine::Suit::Hearts, engine::Suit::Spades}) {
+        exchange::InstrumentConfig ic;
+        ic.min_price                = cfg.order_book.min_price;
+        ic.max_price                = cfg.order_book.max_price;
+        ic.nudge_initial_buy_price  = cfg.order_book.nudge_initial_buy_price;
+        ic.nudge_initial_sell_price = cfg.order_book.nudge_initial_sell_price;
+        ic.label                    = std::string(engine::suit_name(s));
+        instruments.push_back(ic);
+    }
+    return exchange::ExchangeSession(std::move(instruments));
+}
+
 // ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 GameSession::GameSession(
@@ -81,6 +100,7 @@ GameSession::GameSession(
     , lobby_id_(std::move(lobby_id))
     , slots_(std::move(slots))
     , books_(build_books(ctx.cfg))
+    , exchange_(build_exchange(ctx.cfg))
 {
     funded_this_round_.assign(slots_.size(), false);
     delta_table_.assign(slots_.size(), {0, 0, 0, 0});
