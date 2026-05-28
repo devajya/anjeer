@@ -190,6 +190,7 @@ target_link_libraries(uWebSockets INTERFACE uSockets)
 # ---------------------------------------------------------------------------
 # Subprojects
 # ---------------------------------------------------------------------------
+add_subdirectory(exchange)
 add_subdirectory(engine)
 add_subdirectory(server)
 

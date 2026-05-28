@@ -29,7 +29,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
 # FetchContent deps live in .deps/ (set via FETCHCONTENT_BASE_DIR in CMakeLists.txt)
 # so they survive `make clean` and are never re-downloaded unnecessarily.
 # ---------------------------------------------------------------------------
-$(BUILD_DIR)/Makefile: CMakeLists.txt engine/CMakeLists.txt server/CMakeLists.txt
+$(BUILD_DIR)/Makefile: CMakeLists.txt exchange/CMakeLists.txt engine/CMakeLists.txt server/CMakeLists.txt
 	cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
 
 # ---------------------------------------------------------------------------
