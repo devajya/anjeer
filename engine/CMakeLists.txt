@@ -22,24 +22,17 @@ target_link_libraries(engine PUBLIC anjeer_exchange)
 
 # ---------------------------------------------------------------------------
 # Unit tests (Catch2)
-# AGENT-CTX: engine_tests links only against engine and Catch2 — no server,
-# no uWS, no nlohmann. The engine must be testable in isolation.
-# If a test ever needs to link server code, it belongs in server/tests/ instead.
-# TEST_FIXTURES_DIR is not needed here (engine tests have no file I/O).
+# AGENT-CTX: engine_tests was removed in Slice 13 Task 3 — its only source file
+# (test_order_book.cpp) moved to exchange/tests/ when OrderBook migrated to the
+# exchange module. engine_tests no longer exists; OrderBook tests run as
+# exchange_tests. game_state_tests, scoring_engine_tests, and bot_tests remain
+# here as separate binaries. Keeping them separate means a compilation error in
+# one does not block running the others.
 # ---------------------------------------------------------------------------
-add_executable(engine_tests
-    tests/test_order_book.cpp
-)
-
-target_link_libraries(engine_tests PRIVATE
-    engine
-    Catch2::Catch2WithMain
-)
 
 # AGENT-CTX: game_state_tests is a separate binary so it can be built and run
-# independently from engine_tests (order_book tests). Keeping them separate also
-# means a compilation error in one test file doesn't block running the other.
-# Both binaries link the same engine static library.
+# independently. Both it and the other test binaries below link the same engine
+# static library.
 add_executable(game_state_tests
     tests/game_state_tests.cpp
 )
@@ -74,7 +67,6 @@ target_link_libraries(bot_tests PRIVATE
 
 include(CTest)
 include(Catch)
-catch_discover_tests(engine_tests)
 catch_discover_tests(game_state_tests)
 catch_discover_tests(scoring_engine_tests)
 catch_discover_tests(bot_tests)

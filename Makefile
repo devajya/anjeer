@@ -85,7 +85,7 @@ test-unit: $(BUILD_DIR)/Makefile
 	# AGENT-CTX: Build all test binaries explicitly before running ctest.
 	# Adding a new test binary in a subdirectory CMakeLists requires a matching
 	# --target line here. ctest discovers all registered tests from all binaries.
-	cmake --build $(BUILD_DIR) --target engine_tests --parallel
+	cmake --build $(BUILD_DIR) --target exchange_tests --parallel
 	cmake --build $(BUILD_DIR) --target game_state_tests --parallel
 	cmake --build $(BUILD_DIR) --target scoring_engine_tests --parallel
 	cmake --build $(BUILD_DIR) --target bot_tests --parallel

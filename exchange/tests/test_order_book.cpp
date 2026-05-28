@@ -3,15 +3,16 @@
 #include <variant>
 #include <vector>
 
-#include "engine/engine.h"
+#include "exchange/order_book.h"
 
-// AGENT-CTX: These tests are the authoritative expression of Slice 2 acceptance
-// criteria for the engine. Every AC in slice_definitions maps to at least one
-// TEST_CASE below. Do not remove a test without removing the corresponding AC.
-// Tests were written BEFORE the implementation (TDD / red-green) — all failed
-// against the stub in order_book.cpp before Task 5 provided real logic.
+// AGENT-CTX: Moved from engine/tests/test_order_book.cpp as part of Slice 13
+// (Task 3 — OrderBook migration). These are the authoritative Slice 2 acceptance
+// criteria tests for OrderBook, now living in the exchange module where OrderBook
+// resides. Namespace changed from anjeer::engine to anjeer::exchange; all type
+// names and test logic are identical. Do not remove a test without removing the
+// corresponding AC from the slice definitions.
 
-using namespace anjeer::engine;
+using namespace anjeer::exchange;
 
 // ---------------------------------------------------------------------------
 // Helpers
