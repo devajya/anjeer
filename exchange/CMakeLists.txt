@@ -19,6 +19,7 @@ target_compile_features(anjeer_exchange PUBLIC cxx_std_17)
 add_executable(exchange_tests
     tests/test_order_book.cpp
     tests/test_sequencer.cpp
+    tests/test_exchange_session.cpp
 )
 
 target_link_libraries(exchange_tests PRIVATE
