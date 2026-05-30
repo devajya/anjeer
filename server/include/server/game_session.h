@@ -171,18 +171,20 @@ private:
     // disconnection without ending the round — the round timer drives expiry.
     void check_end_condition();
 
-    // ── Engine event pipeline ─────────────────────────────────────────────────
-    // AGENT-CTX: Returns true if a trade occurred in the batch. Callers use
-    // this to decide whether to apply global wipe. Mirrors the old GameSession's
-    // dispatch_events but emits via outbound queue instead of direct ws->send().
-    bool dispatch_events    (int32_t slot, const std::vector<engine::OrderEvent>&);
+    // ── Exchange event pipeline ───────────────────────────────────────────────
+    // AGENT-CTX: Returns true if a trade occurred in the result (OrderExecuted
+    // present in result.market). Callers use this to decide whether to apply
+    // global wipe. Replaces the old dispatch_events(slot, vector<OrderEvent>)
+    // which operated on the engine-internal event vocabulary; dispatch_result
+    // operates on the exchange-boundary ExchangeResult dual-return type.
+    bool dispatch_result    (int32_t slot, const exchange::ExchangeResult&);
     void apply_global_wipe  ();
-    void apply_card_transfers (const std::vector<engine::OrderEvent>&);
-    void apply_trade_settlements(const std::vector<engine::OrderEvent>&);
+    void apply_card_transfers    (const exchange::ExchangeResult&);
+    void apply_trade_settlements (const exchange::ExchangeResult&);
 
     // ── Post-trade state pipeline ─────────────────────────────────────────────
-    void apply_post_trade_state   (const std::vector<engine::OrderEvent>&);
-    void push_book_updates_to_eval(const std::vector<engine::OrderEvent>&);
+    void apply_post_trade_state   (const exchange::ExchangeResult&);
+    void push_book_updates_to_eval(const exchange::ExchangeResult&);
 
     // ── Delta table ───────────────────────────────────────────────────────────
     // AGENT-CTX: Broadcast as a full snapshot after each trade so clients never
@@ -271,11 +273,10 @@ private:
 
     std::string current_goal_suit_str() const;  // convenience: suit_name(current_deck_->goal_suit)
 
-    std::array<engine::OrderBook, 4>   books_;
-    // AGENT-CTX: exchange_ is constructed alongside books_ in Task 7 (Slice 13).
-    // Both members coexist during Tasks 7–9; books_ is removed once all call sites
-    // in GameSession are routed through exchange_ (Task 8) and snapshot methods are
-    // updated (Task 9). Do not remove books_ before Task 8 is complete.
+    // AGENT-CTX: exchange_ replaced books_ (std::array<engine::OrderBook,4>) in
+    // Slice 13 Task 8. All order operations, wipe, cancel_player, and snapshot
+    // reads now go through ExchangeSession. books_ is gone; if you see a
+    // compilation error referencing books_, the migration is incomplete.
     exchange::ExchangeSession          exchange_;
     std::array<bool, 4>                active_suits_{};
     std::unique_ptr<engine::GameState> game_state_;

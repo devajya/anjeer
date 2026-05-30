@@ -12,6 +12,7 @@
 #include "server/ws_types.h"
 #include "server/logger.h"
 #include "engine/engine.h"
+#include "exchange/market_data.h"
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
@@ -26,6 +27,11 @@ namespace anjeer::server {
 // Exhaustive engine→wire code translation. Adding a new engine error code
 // causes a compile error until the server explicitly handles it.
 WsErrorCode to_ws_error_code(engine::OrderErrorEvent::Code c) noexcept;
+
+// Exchange-boundary error translation. OrderRejected::Code is a distinct type
+// from OrderErrorEvent::Code (see AGENT-CTX in market_data.h); this overload
+// maps it to the same WsErrorCode set so dispatch_result can use a single call.
+WsErrorCode to_ws_error_code(exchange::OrderRejected::Code c) noexcept;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // namespace parse — JSON → typed-command layer

@@ -11,6 +11,16 @@ WsErrorCode to_ws_error_code(engine::OrderErrorEvent::Code c) noexcept {
     return WsErrorCode::PriceOutOfRange;  // unreachable; silences -Wreturn-type
 }
 
+WsErrorCode to_ws_error_code(exchange::OrderRejected::Code c) noexcept {
+    switch (c) {
+        case exchange::OrderRejected::Code::PriceOutOfRange: return WsErrorCode::PriceOutOfRange;
+        case exchange::OrderRejected::Code::OrderNotFound:   return WsErrorCode::OrderNotFound;
+        case exchange::OrderRejected::Code::NotYourOrder:    return WsErrorCode::NotYourOrder;
+        case exchange::OrderRejected::Code::SelfTrade:       return WsErrorCode::OrderNotFound;
+    }
+    return WsErrorCode::PriceOutOfRange;  // unreachable; silences -Wreturn-type
+}
+
 namespace serialise {
 
 std::string error_code_str(WsErrorCode c) noexcept {

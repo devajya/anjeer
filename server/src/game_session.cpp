@@ -43,27 +43,8 @@ static constexpr std::array<DeckDef, 12> kDecks = {{
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-static std::array<engine::OrderBook, 4> build_books(const ServerConfig& cfg) {
-    auto make = [&](engine::Suit s) {
-        return engine::OrderBook{engine::OrderBook::Config{
-            cfg.order_book.min_price,
-            cfg.order_book.max_price,
-            cfg.order_book.nudge_initial_buy_price,
-            cfg.order_book.nudge_initial_sell_price,
-            std::string(engine::suit_name(s)),
-        }};
-    };
-    return {
-        make(engine::Suit::Clubs),
-        make(engine::Suit::Diamonds),
-        make(engine::Suit::Hearts),
-        make(engine::Suit::Spades),
-    };
-}
-
-// AGENT-CTX: build_exchange mirrors build_books — same suit order, same config
-// values. Instrument IDs are 0–3 matching suit_index() order (C=0,D=1,H=2,S=3).
-// This helper is removed (along with build_books) once books_ is removed in Task 8.
+// AGENT-CTX: Instrument IDs are 0–3 matching suit_index() order (C=0,D=1,H=2,S=3).
+// build_books was removed in Slice 13 Task 8 when books_ was replaced by exchange_.
 static exchange::ExchangeSession build_exchange(const ServerConfig& cfg) {
     std::vector<exchange::InstrumentConfig> instruments;
     instruments.reserve(4);
@@ -99,7 +80,6 @@ GameSession::GameSession(
     , session_id_(std::move(session_id))
     , lobby_id_(std::move(lobby_id))
     , slots_(std::move(slots))
-    , books_(build_books(ctx.cfg))
     , exchange_(build_exchange(ctx.cfg))
 {
     funded_this_round_.assign(slots_.size(), false);
@@ -270,7 +250,8 @@ void GameSession::handle_connect(const NetConnect& ev) {
         if (!active_suits_[si]) continue;
         emit_targeted(ev.slot, serialise::book_update_payload(
             std::string(engine::suit_name(s)),
-            books_[si].best_bid(), books_[si].best_ask()));
+            exchange_.best_bid(si), exchange_.best_ask(si),
+            exchange_.best_bid_slot(si), exchange_.best_ask_slot(si)));
     }
 
     if (phase_ == SessionPhase::Lobby) {
@@ -328,13 +309,15 @@ void GameSession::handle_submit(const NetSubmit& ev) {
             return;
         }
     }
-    auto events = books_[engine::suit_index(*suit_opt)].submit(ev.slot, ev.side, ev.price);
-    const bool had_trade = dispatch_events(ev.slot, events);
+    const int si = engine::suit_index(*suit_opt);
+    auto result = exchange_.submit_order(
+        static_cast<exchange::instrument_id_t>(si), ev.side, ev.price, ev.slot);
+    const bool had_trade = dispatch_result(ev.slot, result);
     if (had_trade) {
-        apply_post_trade_state(events);
+        apply_post_trade_state(result);
         apply_global_wipe();
     } else {
-        push_book_updates_to_eval(events);
+        push_book_updates_to_eval(result);
     }
 }
 
@@ -348,13 +331,33 @@ void GameSession::handle_nudge(const NetNudge& ev) {
         emit_error(ev.slot, "UNKNOWN_SUIT", "unknown suit: " + ev.suit);
         return;
     }
-    auto events = books_[engine::suit_index(*suit_opt)].nudge(ev.side, ev.slot);
-    const bool had_trade = dispatch_events(ev.slot, events);
+    // AGENT-CTX: Q3 option B (Slice 13 design) — nudge price is computed here
+    // rather than inside ExchangeSession. ExchangeSession does not expose a
+    // nudge_order method; it provides best_bid/best_ask queries so GameSession
+    // can reproduce the same price logic and then call submit_order.
+    const int si = engine::suit_index(*suit_opt);
+    const auto bid = exchange_.best_bid(static_cast<exchange::instrument_id_t>(si));
+    const auto ask = exchange_.best_ask(static_cast<exchange::instrument_id_t>(si));
+
+    exchange::price_t nudge_price;
+    if (ev.side == exchange::Side::Buy) {
+        nudge_price = bid.has_value()
+            ? std::min(bid.value() + 1, cfg_.order_book.max_price)
+            : cfg_.order_book.nudge_initial_buy_price;
+    } else {
+        nudge_price = ask.has_value()
+            ? std::max(ask.value() - 1, cfg_.order_book.min_price)
+            : cfg_.order_book.nudge_initial_sell_price;
+    }
+
+    auto result = exchange_.submit_order(
+        static_cast<exchange::instrument_id_t>(si), ev.side, nudge_price, ev.slot);
+    const bool had_trade = dispatch_result(ev.slot, result);
     if (had_trade) {
-        apply_post_trade_state(events);
+        apply_post_trade_state(result);
         apply_global_wipe();
     } else {
-        push_book_updates_to_eval(events);
+        push_book_updates_to_eval(result);
     }
 }
 
@@ -363,16 +366,29 @@ void GameSession::handle_cancel(const NetCancel& ev) {
         emit_error(ev.slot, "ROUND_NOT_ACTIVE", "round is not active");
         return;
     }
+    // Try cancelling on each instrument until one succeeds. ExchangeSession
+    // cancel_order requires a specific instrument_id, so we probe all active
+    // books — same logic as the old per-book books_[si].cancel loop.
     bool handled = false;
     for (auto s : engine::kAllSuits) {
         const int si = engine::suit_index(s);
         if (!active_suits_[si]) continue;
-        auto events = books_[si].cancel(ev.order_id, ev.slot);
-        if (events.empty()) continue;
-        const auto* err = std::get_if<engine::OrderErrorEvent>(&events.front());
-        if (err && err->code == engine::OrderErrorEvent::Code::OrderNotFound) continue;
+        auto result = exchange_.cancel_order(
+            ev.order_id,
+            static_cast<exchange::instrument_id_t>(si),
+            ev.slot);
+        // Detect OrderNotFound to continue probing next instrument.
+        bool not_found = false;
+        for (const auto& fev : result.feedback) {
+            if (const auto* rej = std::get_if<exchange::OrderRejected>(&fev)) {
+                if (rej->code == exchange::OrderRejected::Code::OrderNotFound) {
+                    not_found = true; break;
+                }
+            }
+        }
+        if (not_found) continue;
         handled = true;
-        if (dispatch_events(ev.slot, events)) apply_global_wipe();
+        if (dispatch_result(ev.slot, result)) apply_global_wipe();
         break;
     }
     if (!handled)
@@ -476,6 +492,9 @@ void GameSession::begin_round() {
 
     // Signal WsServer to admit queued players before dealing hands.
     outbound_.enqueue(GameRoundStarted{});
+
+    // Reset sequence counter so seq numbers are round-relative for feed consumers.
+    exchange_.reset_seq();
 
     reset_delta_table();
 
@@ -662,130 +681,149 @@ std::string GameSession::current_goal_suit_str() const {
     return current_deck_ ? std::string(engine::suit_name(current_deck_->goal_suit)) : "";
 }
 
-// ─── Engine event pipeline ────────────────────────────────────────────────────
+// Converts an exchange instrument_id (0–3) back to the suit label string used
+// in wire protocol messages. instrument_id == suit_index() so kAllSuits[id] gives
+// the correct Suit. Called only from dispatch_result and related emit helpers.
+static std::string instrument_suit_label(exchange::instrument_id_t id) {
+    return std::string(engine::suit_name(engine::kAllSuits[id]));
+}
 
-bool GameSession::dispatch_events(int32_t slot, const std::vector<engine::OrderEvent>& events) {
+// ─── Exchange event pipeline ──────────────────────────────────────────────────
+
+bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& result) {
+    // Detect trade first so BookUpdated suppression below is correct.
+    // After a trade, apply_global_wipe() immediately follows; broadcasting the
+    // pre-wipe book state would confuse clients, so BookUpdated is skipped.
     bool had_trade = false;
+    for (const auto& mev : result.market) {
+        if (std::holds_alternative<exchange::OrderExecuted>(mev)) { had_trade = true; break; }
+    }
 
-    for (const auto& ev : events) {
-        if (const auto* ack = std::get_if<engine::OrderAckEvent>(&ev)) {
+    // Operational feedback → targeted acks/errors and broadcast book updates.
+    for (const auto& fev : result.feedback) {
+        if (const auto* ack = std::get_if<exchange::OrderAck>(&fev)) {
             emit_targeted(slot, nlohmann::json{
                 {"type",     "order_ack"},
                 {"order_id", ack->order_id},
-                {"suit",     ack->suit},
+                {"suit",     instrument_suit_label(ack->instrument_id)},
                 {"side",     serialise::side(ack->side)},
                 {"price",    ack->price},
             }.dump());
         }
-        else if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
-            engine_log_.info("trade",
-                "suit=" + t->suit + " price=" + std::to_string(t->price));
-
-            // AGENT-CTX: buyer_id/seller_id in TradeEvent are slot indices (not
-            // DB player IDs). The engine uses them as array subscripts into the
-            // slots_ vector. Exposed as buyer_slot/seller_slot on the wire so the
-            // frontend can look them up in the roster for the trade feed display.
-            const int buyer_slot  = t->buyer_id;
-            const int seller_slot = t->seller_id;
-
-            for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
-                if (!slots_[i].connected) continue;
-                nlohmann::json your_side = nullptr;
-                if (i == buyer_slot)  your_side = "buy";
-                if (i == seller_slot) your_side = "sell";
-                emit_targeted(i, nlohmann::json{
-                    {"type",           "trade"},
-                    {"suit",           t->suit},
-                    {"price",          t->price},
-                    {"aggressor_side", serialise::side(t->aggressor_side)},
-                    {"your_side",      your_side},
-                    {"buyer_slot",     buyer_slot},
-                    {"seller_slot",    seller_slot},
-                }.dump());
-            }
-            emit_spectator_broadcast(nlohmann::json{
-                {"type",           "trade"},
-                {"suit",           t->suit},
-                {"price",          t->price},
-                {"aggressor_side", serialise::side(t->aggressor_side)},
-                {"your_side",      nullptr},
-                {"buyer_slot",     buyer_slot},
-                {"seller_slot",    seller_slot},
-            }.dump());
-
-            had_trade = true;
-        }
-        else if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
+        else if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
             if (!had_trade) {
                 emit_broadcast(serialise::book_update_payload(
-                    upd->suit, upd->best_bid, upd->best_ask,
-                    upd->best_bid_player_id, upd->best_ask_player_id));
+                    instrument_suit_label(upd->instrument_id),
+                    upd->best_bid, upd->best_ask,
+                    upd->best_bid_slot, upd->best_ask_slot));
             }
         }
-        else if (const auto* cack = std::get_if<engine::OrderCancelAckEvent>(&ev)) {
+        else if (const auto* rej = std::get_if<exchange::OrderRejected>(&fev)) {
+            emit_error(slot,
+                serialise::error_code_str(to_ws_error_code(rej->code)),
+                rej->message);
+        }
+        else if (const auto* cack = std::get_if<exchange::CancelAck>(&fev)) {
             emit_targeted(slot, nlohmann::json{
                 {"type",     "order_cancel_ack"},
                 {"order_id", cack->order_id},
             }.dump());
         }
-        else if (const auto* err = std::get_if<engine::OrderErrorEvent>(&ev)) {
-            emit_error(slot,
-                serialise::error_code_str(to_ws_error_code(err->code)),
-                err->message);
+    }
+
+    // Observable market events → broadcast trade to all players and spectators.
+    // AGENT-CTX: buyer_slot/seller_slot in OrderExecuted are slot indices (not
+    // DB player IDs) — same semantics as the old TradeEvent::buyer_id/seller_id.
+    for (const auto& mev : result.market) {
+        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+            const std::string suit = instrument_suit_label(exec->instrument_id);
+            engine_log_.info("trade",
+                "suit=" + suit + " price=" + std::to_string(exec->price));
+
+            for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+                if (!slots_[i].connected) continue;
+                nlohmann::json your_side = nullptr;
+                if (i == exec->buyer_slot)  your_side = "buy";
+                if (i == exec->seller_slot) your_side = "sell";
+                emit_targeted(i, nlohmann::json{
+                    {"type",           "trade"},
+                    {"suit",           suit},
+                    {"price",          exec->price},
+                    {"aggressor_side", serialise::side(exec->aggressor_side)},
+                    {"your_side",      your_side},
+                    {"buyer_slot",     exec->buyer_slot},
+                    {"seller_slot",    exec->seller_slot},
+                }.dump());
+            }
+            emit_spectator_broadcast(nlohmann::json{
+                {"type",           "trade"},
+                {"suit",           suit},
+                {"price",          exec->price},
+                {"aggressor_side", serialise::side(exec->aggressor_side)},
+                {"your_side",      nullptr},
+                {"buyer_slot",     exec->buyer_slot},
+                {"seller_slot",    exec->seller_slot},
+            }.dump());
         }
     }
 
     return had_trade;
 }
 
-void GameSession::push_book_updates_to_eval(const std::vector<engine::OrderEvent>& events) {
-    for (const auto& ev : events) {
-        if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
-            const auto suit_opt = engine::suit_from_string(upd->suit);
+void GameSession::push_book_updates_to_eval(const exchange::ExchangeResult& result) {
+    for (const auto& fev : result.feedback) {
+        if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
+            const auto suit_opt = engine::suit_from_string(instrument_suit_label(upd->instrument_id));
             if (!suit_opt) continue;
             eval::EvalBookUpdate bu;
             bu.suit          = *suit_opt;
             bu.best_bid      = upd->best_bid;
             bu.best_ask      = upd->best_ask;
-            bu.best_bid_slot = upd->best_bid_player_id;
-            bu.best_ask_slot = upd->best_ask_player_id;
+            bu.best_bid_slot = upd->best_bid_slot;
+            bu.best_ask_slot = upd->best_ask_slot;
             eval_runner_->push_book_update(bu);
         }
     }
 }
 
-void GameSession::apply_post_trade_state(const std::vector<engine::OrderEvent>& events) {
-    apply_card_transfers(events);
-    apply_trade_settlements(events);
-    for (const auto& ev : events) {
-        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
-            const auto suit_opt = engine::suit_from_string(t->suit);
-            if (suit_opt) apply_trade_delta(t->buyer_id, t->seller_id, engine::suit_index(*suit_opt));
+void GameSession::apply_post_trade_state(const exchange::ExchangeResult& result) {
+    apply_card_transfers(result);
+    apply_trade_settlements(result);
+    for (const auto& mev : result.market) {
+        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+            const std::string suit = instrument_suit_label(exec->instrument_id);
+            apply_trade_delta(exec->buyer_slot, exec->seller_slot,
+                              static_cast<int>(exec->instrument_id));
         }
     }
     broadcast_delta_update();
 
     const int64_t elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - round_start_time_).count();
-    for (const auto& ev : events) {
-        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
-            const auto suit_opt = engine::suit_from_string(t->suit);
+    for (const auto& mev : result.market) {
+        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+            const std::string suit = instrument_suit_label(exec->instrument_id);
+            const auto suit_opt    = engine::suit_from_string(suit);
             if (!suit_opt) continue;
-            recent_trades_.push_back({t->buyer_id, t->seller_id, t->price, *suit_opt, elapsed_ms});
+            recent_trades_.push_back(
+                {exec->buyer_slot, exec->seller_slot, exec->price, *suit_opt, elapsed_ms});
             eval_runner_->push_trade(eval::EvalTradeEvent{
-                t->buyer_id, t->seller_id, t->price, *suit_opt, elapsed_ms});
-            engine_log_.info("eval", "[eval] trade pushed suit=" + t->suit +
-                " price=" + std::to_string(t->price));
+                exec->buyer_slot, exec->seller_slot, exec->price, *suit_opt, elapsed_ms});
+            engine_log_.info("eval",
+                "[eval] trade pushed suit=" + suit + " price=" + std::to_string(exec->price));
         }
-        if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
-            const auto suit_opt = engine::suit_from_string(upd->suit);
+    }
+    for (const auto& fev : result.feedback) {
+        if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
+            const auto suit_opt =
+                engine::suit_from_string(instrument_suit_label(upd->instrument_id));
             if (!suit_opt) continue;
             eval::EvalBookUpdate bu;
-            bu.suit         = *suit_opt;
-            bu.best_bid     = upd->best_bid;
-            bu.best_ask     = upd->best_ask;
-            bu.best_bid_slot = upd->best_bid_player_id;
-            bu.best_ask_slot = upd->best_ask_player_id;
+            bu.suit          = *suit_opt;
+            bu.best_bid      = upd->best_bid;
+            bu.best_ask      = upd->best_ask;
+            bu.best_bid_slot = upd->best_bid_slot;
+            bu.best_ask_slot = upd->best_ask_slot;
             eval_runner_->push_book_update(bu);
         }
     }
@@ -817,27 +855,23 @@ void GameSession::broadcast_delta_update() {
 
 void GameSession::apply_global_wipe() {
     engine_log_.info("global_wipe", "wiping all books");
-    for (auto s : engine::kAllSuits) {
-        const int si = engine::suit_index(s);
-        if (!active_suits_[si]) continue;
-        const auto events = books_[si].wipe();
-        for (const auto& ev : events) {
-            if (const auto* upd = std::get_if<engine::BookUpdateEvent>(&ev)) {
-                emit_broadcast(serialise::book_update_payload(
-                    upd->suit, upd->best_bid, upd->best_ask));
-            }
-        }
+    for (const auto& upd : exchange_.wipe()) {
+        if (!active_suits_[upd.instrument_id]) continue;
+        emit_broadcast(serialise::book_update_payload(
+            instrument_suit_label(upd.instrument_id),
+            upd.best_bid, upd.best_ask));
     }
 }
 
-void GameSession::apply_card_transfers(const std::vector<engine::OrderEvent>& events) {
+void GameSession::apply_card_transfers(const exchange::ExchangeResult& result) {
     if (!game_state_) return;
     bool had_trade = false;
-    for (const auto& ev : events) {
-        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
-            const auto suit_opt = engine::suit_from_string(t->suit);
+    for (const auto& mev : result.market) {
+        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+            const auto suit_opt =
+                engine::suit_from_string(instrument_suit_label(exec->instrument_id));
             if (!suit_opt) continue;
-            game_state_->transfer_card(t->seller_id, t->buyer_id, *suit_opt);
+            game_state_->transfer_card(exec->seller_slot, exec->buyer_slot, *suit_opt);
             had_trade = true;
         }
     }
@@ -854,12 +888,12 @@ void GameSession::apply_card_transfers(const std::vector<engine::OrderEvent>& ev
     }
 }
 
-void GameSession::apply_trade_settlements(const std::vector<engine::OrderEvent>& events) {
+void GameSession::apply_trade_settlements(const exchange::ExchangeResult& result) {
     bool had_trade = false;
-    for (const auto& ev : events) {
-        if (const auto* t = std::get_if<engine::TradeEvent>(&ev)) {
-            slots_[t->buyer_id].balance  -= t->price;
-            slots_[t->seller_id].balance += t->price;
+    for (const auto& mev : result.market) {
+        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+            slots_[exec->buyer_slot].balance  -= exec->price;
+            slots_[exec->seller_slot].balance += exec->price;
             had_trade = true;
         }
     }
@@ -896,10 +930,10 @@ void GameSession::send_spectator_snapshot(int32_t spectator_id) {
             emit_spectator_targeted(spectator_id,
                 serialise::book_update_payload(
                     std::string(engine::suit_name(s)),
-                    books_[si].best_bid(),
-                    books_[si].best_ask(),
-                    std::nullopt,
-                    std::nullopt));
+                    exchange_.best_bid(si),
+                    exchange_.best_ask(si),
+                    exchange_.best_bid_slot(si),
+                    exchange_.best_ask_slot(si)));
         }
         if (game_state_) {
             nlohmann::json totals = nlohmann::json::array();
@@ -1087,12 +1121,10 @@ engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
 
     for (auto suit : engine::kAllSuits) {
         const int si = engine::suit_index(suit);
-        snap.books[si].best_bid  = books_[si].best_bid();
-        snap.books[si].best_ask  = books_[si].best_ask();
-        const auto bids = books_[si].bids_snapshot();
-        const auto asks = books_[si].asks_snapshot();
-        if (!bids.empty()) snap.books[si].best_bid_slot = bids.front().player_slot;
-        if (!asks.empty()) snap.books[si].best_ask_slot = asks.front().player_slot;
+        snap.books[si].best_bid  = exchange_.best_bid(si);
+        snap.books[si].best_ask  = exchange_.best_ask(si);
+        snap.books[si].best_bid_slot = exchange_.best_bid_slot(si);
+        snap.books[si].best_ask_slot = exchange_.best_ask_slot(si);
     }
 
     return snap;
@@ -1232,22 +1264,27 @@ void GameSession::check_reconnect_expirations() {
 
 std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) {
     std::vector<CancelledOrder> cancelled;
-    for (auto s : engine::kAllSuits) {
-        const int si = engine::suit_index(s);
-        if (!active_suits_[si]) continue;
-        auto events = books_[si].cancel_player(static_cast<int32_t>(slot_index));
-        bool had_cancel = false;
-        for (const auto& ev : events) {
-            if (const auto* cack = std::get_if<engine::OrderCancelAckEvent>(&ev)) {
-                cancelled.push_back({si, cack->order_id});
-                had_cancel = true;
-            }
+    auto result = exchange_.cancel_player(static_cast<int32_t>(slot_index));
+
+    // Collect CancelAck entries for the return value.
+    for (const auto& fev : result.feedback) {
+        if (const auto* cack = std::get_if<exchange::CancelAck>(&fev)) {
+            cancelled.push_back({static_cast<int>(cack->instrument_id), cack->order_id});
         }
-        // Broadcast final book state once per suit (not once per cancelled order).
-        if (had_cancel) {
+    }
+
+    // Broadcast book state for every instrument that had at least one cancel.
+    // Only emit for active suits; deduplicate by instrument_id (one broadcast per suit).
+    std::array<bool, 4> emitted{};
+    for (const auto& fev : result.feedback) {
+        if (const auto* cack = std::get_if<exchange::CancelAck>(&fev)) {
+            const int si = static_cast<int>(cack->instrument_id);
+            if (!active_suits_[si] || emitted[si]) continue;
+            emitted[si] = true;
             emit_broadcast(serialise::book_update_payload(
-                std::string(engine::suit_name(s)),
-                books_[si].best_bid(), books_[si].best_ask()));
+                instrument_suit_label(cack->instrument_id),
+                exchange_.best_bid(cack->instrument_id),
+                exchange_.best_ask(cack->instrument_id)));
         }
     }
     return cancelled;
@@ -1280,11 +1317,11 @@ std::string GameSession::build_state_snapshot(int slot_index,
         if (!active_suits_[si]) continue;
         const std::string suit = std::string(engine::suit_name(s));
         nlohmann::json bids_arr = nlohmann::json::array();
-        for (const auto& b : books_[si].bids_snapshot())
+        for (const auto& b : exchange_.bids_snapshot(static_cast<exchange::instrument_id_t>(si)))
             bids_arr.push_back({{"order_id", b.order_id}, {"price", b.price},
                                 {"player_slot", b.player_slot}});
         nlohmann::json asks_arr = nlohmann::json::array();
-        for (const auto& a : books_[si].asks_snapshot())
+        for (const auto& a : exchange_.asks_snapshot(static_cast<exchange::instrument_id_t>(si)))
             asks_arr.push_back({{"order_id", a.order_id}, {"price", a.price},
                                 {"player_slot", a.player_slot}});
         books_json[suit] = {{"bids", bids_arr}, {"asks", asks_arr}};
