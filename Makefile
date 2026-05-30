@@ -73,9 +73,11 @@ dev-frontend:
 dev: build-server reset-lobby-db
 	@fuser -k 9001/tcp 2>/dev/null || true; \
 	fuser -k 10000/tcp 2>/dev/null || true; \
-	trap 'kill $$server_pid $$vite_pid 2>/dev/null; fuser -k 9001/tcp 2>/dev/null || true; fuser -k 10000/tcp 2>/dev/null || true; exit 0' INT TERM; \
+	powershell.exe -NoProfile -Command "Stop-Process -Id (Get-NetTCPConnection -LocalPort 5173 -EA 0).OwningProcess -Force -EA 0" 2>/dev/null || true; \
+	sleep 0.2; \
 	./$(BUILD_DIR)/server/server --config $(CONFIG) & server_pid=$$!; \
-	npm run dev --prefix frontend & vite_pid=$$!; \
+	npm run dev --prefix frontend -- --port 5173 --strictPort & vite_pid=$$!; \
+	trap 'kill $$server_pid 2>/dev/null; kill $$vite_pid 2>/dev/null; powershell.exe -NoProfile -Command "Stop-Process -Id (Get-NetTCPConnection -LocalPort 5173 -EA 0).OwningProcess -Force -EA 0" 2>/dev/null; exit 0' INT TERM; \
 	wait
 
 # ---------------------------------------------------------------------------
@@ -186,12 +188,12 @@ install-deps:
 db-migrate:
 	@psql "$(DB_CONN)" -v ON_ERROR_STOP=1 \
 	    -c "CREATE TABLE IF NOT EXISTS schema_migrations (version INT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now());"
-	@for f in $$(ls db/migrations/*.sql | sort); do \
+	@for f in $$(ls db/migrations/*.sql | sort -V); do \
 	    ver=$$(basename $$f | sed 's/_.*//' | sed 's/^0*//'); \
 	    exists=$$(psql "$(DB_CONN)" -tAc "SELECT 1 FROM schema_migrations WHERE version=$$ver"); \
 	    if [ "$$exists" != "1" ]; then \
 	        echo "Applying $$f (version $$ver)..."; \
-	        psql "$(DB_CONN)" -v ON_ERROR_STOP=1 -f "$$f"; \
+	        psql "$(DB_CONN)" -v ON_ERROR_STOP=1 -f "$$f" && \
 	        psql "$(DB_CONN)" -c "INSERT INTO schema_migrations (version) VALUES ($$ver);"; \
 	    else \
 	        echo "Skipping $$f (already applied)"; \
