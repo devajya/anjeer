@@ -226,6 +226,7 @@ target_compile_definitions(ws_server_tests PRIVATE
 target_link_libraries(ws_server_tests PRIVATE
     Catch2::Catch2WithMain
     engine
+    anjeer_exchange
     uWebSockets
     nlohmann_json::nlohmann_json
     libpqxx::pqxx
@@ -543,6 +544,7 @@ target_include_directories(bot_adapter_tests PRIVATE include)
 target_link_libraries(bot_adapter_tests PRIVATE
     Catch2::Catch2WithMain
     engine
+    anjeer_exchange
     nlohmann_json::nlohmann_json
     readerwriterqueue
     pthread
@@ -565,6 +567,7 @@ target_include_directories(bot_manager_tests PRIVATE include)
 target_link_libraries(bot_manager_tests PRIVATE
     Catch2::Catch2WithMain
     engine
+    anjeer_exchange
     nlohmann_json::nlohmann_json
     readerwriterqueue
     pthread
@@ -604,6 +607,7 @@ target_compile_definitions(bot_headless_tests PRIVATE
 target_link_libraries(bot_headless_tests PRIVATE
     Catch2::Catch2WithMain
     engine
+    anjeer_exchange
     uWebSockets
     nlohmann_json::nlohmann_json
     libpqxx::pqxx
@@ -748,6 +752,7 @@ target_compile_definitions(reconnect_integration_tests PRIVATE
 target_link_libraries(reconnect_integration_tests PRIVATE
     Catch2::Catch2WithMain
     engine
+    anjeer_exchange
     uWebSockets
     nlohmann_json::nlohmann_json
     libpqxx::pqxx
