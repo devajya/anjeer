@@ -1,5 +1,11 @@
 #pragma once
 
+// Exchange-layer invariant: WsServer must not access ExchangeSession, OrderBook,
+// or any exchange/ header directly. All order operations go through GameSession,
+// which owns exchange::ExchangeSession and is the sole entry point for the
+// exchange layer. Enforced by: grep -n "ExchangeSession\|OrderBook" ws_server.cpp
+// returning zero matches.
+
 #include "server/api_key_repo.h"
 #include "server/auth_service.h"
 #include "server/bot_manager.h"

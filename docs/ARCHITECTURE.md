@@ -6,7 +6,7 @@
 
 ## System Overview
 
-Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) → Server → Engine. No layer reaches backward.
+Four-layer architecture. Strict dependency direction: Frontend → (WebSocket) → Server → Exchange → Engine. No layer reaches backward.
 
 ```
 ┌─────────────────────────────────┐
@@ -27,9 +27,19 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
        │         └───────────────┘
        │
 ┌──────▼──────────────────────────┐
+│  GameSession  (server layer)    │  Owns ExchangeSession; no direct OrderBook access
+└──────┬──────────────────────────┘
+       │
+┌──────▼──────────────────────────┐
+│  Exchange  (anjeer::exchange)   │  ExchangeSession, Sequencer, dual-return API
+│  Owns: OrderBook, seq stamping, │
+│  MarketDataEvent / Feedback     │
+└──────┬──────────────────────────┘
+       │
+┌──────▼──────────────────────────┐
 │  Engine    (C++ / pure logic)   │  Static library, no I/O
-│  Owns: matching, game state,    │
-│  scoring, all game rules        │
+│  Owns: game state, scoring,     │
+│  bot strategies, eval modules   │
 └─────────────────────────────────┘
 ```
 
@@ -37,17 +47,38 @@ Three-layer architecture. Strict dependency direction: Frontend → (WebSocket) 
 
 **Role:** Pure game logic. No network, no JSON, no file I/O. Returns structured events; callers own dispatch.
 
-**Current modules (Slice 11):**
-- `OrderBook` — price-time priority limit order matching. Operations: submit, nudge (best±1), cancel, wipe (global clear). Returns a vector of typed events per operation. `BookUpdateEvent` carries `best_bid_player_id` / `best_ask_player_id` (slot indices) so the frontend can colour quote owners.
+**Current modules (Slice 13):**
+- `OrderBook` — moved to `exchange/` in Slice 13; re-exported into `anjeer::engine` namespace via shim for backward compatibility. See Exchange Layer below.
 - `GameState` — deals deck, tracks per-player hand counts. Goal suit is **explicit per-deck** (passed in `Config::goal_suit`); it is no longer derived from the distribution. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules.
 - `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, disconnected flags, and `ScoringConfig`. `ScoringConfig::bonus_pool` is derived by the server as `pot_size − total_goal_cards × points_per_card` and passed in at scoring time. Computes pot, per-card payout, majority/plurality bonus, and payouts. No I/O; server owns dispatch.
 - `BotAgent` (Slice 10) — abstract base + `make_bot()` factory for three difficulty tiers. `BotGameSnapshot` is the read-only view passed to `decide()` each tick; `BotEvent` carries round lifecycle and market data. `EasyBot`: hand-heuristic belief (no hypergeometric), taker scan + gap fill + pending-order management. `MediumBot`: hypergeometric opening posterior, noisy Bayesian fill update, EV-threshold maker/taker decisions. `HardBot`: exact Bayesian belief update, book-event observation, per-player pressure tracking, deterministic lock-in on posterior collapse or card-count elimination.
 - `EvalModule` / `EvalRunner` (Slice 11) — plugin-style analysis running on a dedicated worker thread. `EvalRunner` owns a lock-free SPSC queue (capacity 64); push_* methods are non-blocking and drop silently at capacity to avoid back-pressure on the game loop. Three concrete modules registered at session init: `BayesianEvalModule` (multivariate hypergeometric posterior over 12 deck configs + trade-direction heuristic, emits `eval.posterior_update` per slot on every trade and round boundary), `AccumulationEvalModule` (signed delta tracking + concentration score + EWMA baseline, emits `eval.accumulation_signal` broadcast after every trade), `ExecutionEvalModule` (fill-probability EWMA + leakage penalty + passive/aggressive EV comparison, emits `eval.execution_guidance` broadcast on every book update and round end).
 
 **Planned modules (future slices):**
-- `ReplayEngine` (Slice 13) — deterministic state reconstruction from event log
+- `ReplayEngine` — deterministic state reconstruction from event log
 
 **Event model:** Every engine operation returns `std::vector<OrderEvent>` (a `std::variant` of typed event structs). Server iterates the vector and serializes each event to the appropriate WebSocket recipients. Engine never decides who receives what.
+
+## Exchange Layer
+
+**Role:** Market mechanics between server and engine. Owns order matching, sequence numbering, and the dual-return event API that separates observable market data from operational feedback. Added in Slice 13.
+
+**Modules:**
+- `ExchangeSession` — central entry point. Owns `vector<OrderBook>` (one per instrument/suit) and a `Sequencer`. Methods: `submit_order`, `cancel_order`, `cancel_player`, `wipe`, `reset_seq`. All return `ExchangeResult` or `vector<BookUpdated>`.
+- `Sequencer` — monotonic `seq_t` counter shared across all instruments in a session. `reset()` called at `begin_round` so sequence numbers are round-relative.
+- `ExchangeResult` — dual-return type: `feedback` (operational: `OrderAck`, `BookUpdated`, `OrderRejected`, `CancelAck`) targeted at the submitting player; `market` (observable: `OrderAdded`, `OrderExecuted`, `OrderCancelled`) broadcast to all feed consumers.
+- `InstrumentConfig` — per-instrument configuration (label, min/max price, nudge seed prices). Constructed by `GameSession` from `ServerConfig` at session init.
+
+**Invariant:** `WsServer` must not access `ExchangeSession` or `OrderBook` directly. All exchange operations flow through `GameSession`. Enforced by grep check in `ws_server.h`.
+
+**Data flow (order submission):**
+```
+NetSubmit → GameSession::handle_submit
+  → ExchangeSession::submit_order(instrument_id, side, price, slot)
+  → ExchangeResult { feedback: [OrderAck, BookUpdated], market: [OrderAdded] }
+  → dispatch_result: feedback → targeted ack; BookUpdated → broadcast
+  → if OrderExecuted in market: apply_post_trade_state → apply_global_wipe
+```
 
 ## Server Layer
 
