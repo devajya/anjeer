@@ -156,6 +156,8 @@ private:
     void begin_round      ();          // first round and every subsequent round
     void collect_buy_ins  (int buy_in);
     void end_round        ();
+    void deal_and_send_round_start(const engine::DealResult& deal, const std::string& round_end_at);
+    void push_round_start_to_eval ();
     void begin_inter_round(const std::vector<struct WirePlayerResult>& results,
                             const std::string& goal_suit);
     void end_game         (bool forced);

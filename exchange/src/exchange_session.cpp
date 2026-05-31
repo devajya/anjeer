@@ -9,9 +9,6 @@ struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts>
 overloaded(Ts...) -> overloaded<Ts...>;
 
-// ---------------------------------------------------------------------------
-// Construction
-// ---------------------------------------------------------------------------
 
 ExchangeSession::ExchangeSession(std::vector<InstrumentConfig> instruments) {
     books_.reserve(instruments.size());
@@ -26,9 +23,6 @@ ExchangeSession::ExchangeSession(std::vector<InstrumentConfig> instruments) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mutating operations
-// ---------------------------------------------------------------------------
 
 ExchangeResult ExchangeSession::submit_order(
         instrument_id_t instrument_id, Side side, price_t price, int32_t player_slot) {
@@ -89,9 +83,6 @@ void ExchangeSession::reset_seq() {
     sequencer_.reset();
 }
 
-// ---------------------------------------------------------------------------
-// Book state queries
-// ---------------------------------------------------------------------------
 
 std::optional<price_t> ExchangeSession::best_bid(instrument_id_t instrument_id) const {
     if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return std::nullopt;
@@ -129,9 +120,6 @@ ExchangeSession::asks_snapshot(instrument_id_t instrument_id) const {
     return books_[instrument_id].asks_snapshot();
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 OrderRejected::Code
 ExchangeSession::map_error_code(OrderErrorEvent::Code code) noexcept {

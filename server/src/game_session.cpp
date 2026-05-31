@@ -14,7 +14,6 @@
 
 namespace anjeer::server {
 
-// ─── Deck table ───────────────────────────────────────────────────────────────
 //
 // 12 fixed deck variants per the game specification. Each entry specifies
 // per-suit card counts (indexed by engine::suit_index: clubs=0, diamonds=1,
@@ -41,7 +40,6 @@ static constexpr std::array<DeckDef, 12> kDecks = {{
     { {10, 12, 10,  8}, engine::Suit::Spades   },
 }};
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
 
 static exchange::ExchangeSession build_exchange(const ServerConfig& cfg) {
     std::vector<exchange::InstrumentConfig> instruments;
@@ -59,7 +57,6 @@ static exchange::ExchangeSession build_exchange(const ServerConfig& cfg) {
     return exchange::ExchangeSession(std::move(instruments));
 }
 
-// ─── Constructor / Destructor ─────────────────────────────────────────────────
 
 GameSession::GameSession(
     std::string                                       session_id,
@@ -131,7 +128,6 @@ std::unordered_map<int,int> GameSession::slot_balances() const {
     return result;
 }
 
-// ─── Game loop ────────────────────────────────────────────────────────────────
 
 void GameSession::run() {
     server_log_.info("session", "game loop started session=" + session_id_);
@@ -221,7 +217,6 @@ void GameSession::process_inbound() {
     }
 }
 
-// ─── NetEvent handlers ────────────────────────────────────────────────────────
 
 void GameSession::handle_connect(const NetConnect& ev) {
     if (ev.slot < 0 || ev.slot >= static_cast<int32_t>(slots_.size())) {
@@ -463,7 +458,6 @@ void GameSession::handle_permanent_leave(int32_t slot) {
     check_end_condition();
 }
 
-// ─── Session / round lifecycle ────────────────────────────────────────────────
 
 void GameSession::begin_countdown() {
     phase_             = SessionPhase::Countdown;
@@ -524,30 +518,8 @@ void GameSession::begin_round() {
                       std::chrono::seconds(cfg_.game.round_duration_seconds);
     const std::string round_end_at = steady_to_iso(round_deadline_);
 
-    std::vector<std::string> usernames;
-    std::vector<int>         all_hand_totals;
-    std::vector<int>         all_balances;
-    usernames.reserve(slots_.size());
-    all_hand_totals.reserve(slots_.size());
-    all_balances.reserve(slots_.size());
-    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
-        usernames.push_back(slots_[i].username);
-        const auto& sc = deal.hands[i].suit_counts;
-        all_hand_totals.push_back(sc[0] + sc[1] + sc[2] + sc[3]);
-        all_balances.push_back(slots_[i].balance);
-    }
-
-    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
-        if (!slots_[i].connected) continue;
-        emit_targeted(i, serialise::round_start_payload(
-            i, deal.hands[i], round_end_at, slots_[i].balance,
-            usernames, all_hand_totals, all_balances));
-    }
-
-    recent_trades_.clear();
-    round_start_time_ = std::chrono::steady_clock::now();
-    eval_runner_->push_round_start(make_eval_snapshot());
-    engine_log_.info("eval", "[eval] round_start pushed round=" + std::to_string(round_number_));
+    deal_and_send_round_start(deal, round_end_at);
+    push_round_start_to_eval();
 
     server_log_.info("round",
         "round=" + std::to_string(round_number_) +
@@ -561,6 +533,35 @@ void GameSession::collect_buy_ins(int buy_in) {
         slots_[i].balance    -= buy_in;
         funded_this_round_[i] = true;
     }
+}
+
+void GameSession::deal_and_send_round_start(
+        const engine::DealResult& deal, const std::string& round_end_at) {
+    std::vector<std::string> usernames;
+    std::vector<int>         all_hand_totals;
+    std::vector<int>         all_balances;
+    usernames.reserve(slots_.size());
+    all_hand_totals.reserve(slots_.size());
+    all_balances.reserve(slots_.size());
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        usernames.push_back(slots_[i].username);
+        const auto& sc = deal.hands[i].suit_counts;
+        all_hand_totals.push_back(sc[0] + sc[1] + sc[2] + sc[3]);
+        all_balances.push_back(slots_[i].balance);
+    }
+    for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
+        if (!slots_[i].connected) continue;
+        emit_targeted(i, serialise::round_start_payload(
+            i, deal.hands[i], round_end_at, slots_[i].balance,
+            usernames, all_hand_totals, all_balances));
+    }
+}
+
+void GameSession::push_round_start_to_eval() {
+    recent_trades_.clear();
+    round_start_time_ = std::chrono::steady_clock::now();
+    eval_runner_->push_round_start(make_eval_snapshot());
+    engine_log_.info("eval", "[eval] round_start pushed round=" + std::to_string(round_number_));
 }
 
 void GameSession::end_round() {
@@ -669,7 +670,6 @@ void GameSession::check_end_condition() {
     }
 }
 
-// ─── Round config helper ──────────────────────────────────────────────────────
 
 std::string GameSession::current_goal_suit_str() const {
     return current_deck_ ? std::string(engine::suit_name(current_deck_->goal_suit)) : "";
@@ -682,7 +682,6 @@ static std::string instrument_suit_label(exchange::instrument_id_t id) {
     return std::string(engine::suit_name(engine::kAllSuits[id]));
 }
 
-// ─── Exchange event pipeline ──────────────────────────────────────────────────
 
 bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& result) {
     // Detect trade first so BookUpdated suppression below is correct.
@@ -895,7 +894,6 @@ void GameSession::apply_trade_settlements(const exchange::ExchangeResult& result
     }
 }
 
-// ─── Spectator handlers ───────────────────────────────────────────────────────
 
 void GameSession::send_spectator_snapshot(int32_t spectator_id) {
     switch (phase_) {
@@ -987,7 +985,6 @@ void GameSession::handle_spectator_leave(const NetSpectatorLeave& ev) {
         "spectator_id=" + std::to_string(ev.spectator_id));
 }
 
-// ─── Outbound helpers ─────────────────────────────────────────────────────────
 
 void GameSession::emit_broadcast(const std::string& json) {
     outbound_.enqueue(GameBroadcast{json});
@@ -1024,7 +1021,6 @@ void GameSession::broadcast_waiting_for_start() {
     }.dump());
 }
 
-// ─── DB writes ────────────────────────────────────────────────────────────────
 
 void GameSession::persist_game_result() {
     try {
@@ -1049,7 +1045,6 @@ void GameSession::persist_error(const std::string& type, const std::string& msg,
     }
 }
 
-// ─── ISO timestamp helpers ────────────────────────────────────────────────────
 
 std::string GameSession::to_iso_string(std::chrono::system_clock::time_point tp) {
     auto t = std::chrono::system_clock::to_time_t(tp);
@@ -1068,7 +1063,6 @@ std::string GameSession::steady_to_iso(std::chrono::steady_clock::time_point tp)
         std::chrono::duration_cast<std::chrono::system_clock::duration>(delta));
 }
 
-// ─── Eval integration ─────────────────────────────────────────────────────────
 
 engine::GameStateSnapshot GameSession::make_eval_snapshot() const {
     engine::GameStateSnapshot snap;
@@ -1125,7 +1119,6 @@ void GameSession::drain_eval_output() {
         outbound_.enqueue(GameEvalOutput{std::move(out)});
 }
 
-// ─── T9: Reconnect / queue public API ────────────────────────────────────────
 
 void GameSession::handle_player_disconnect(int slot_index) {
     // Thread-safe: enqueues onto the SPSC inbound queue; game-loop thread processes.
@@ -1141,7 +1134,6 @@ void GameSession::handle_player_reattach(int slot_index,
         reconnect_expires_at_ms});
 }
 
-// ─── T9: Reconnect internal handlers ─────────────────────────────────────────
 
 void GameSession::handle_reconnect_disconnect(int32_t slot) {
     if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
@@ -1204,7 +1196,6 @@ void GameSession::handle_reconnect_reattach(int32_t slot,
     }
 }
 
-// ─── T9: check_reconnect_expirations ─────────────────────────────────────────
 
 void GameSession::check_reconnect_expirations() {
     // Only runs during RoundActive — timers are not started in other phases.
@@ -1245,7 +1236,6 @@ void GameSession::check_reconnect_expirations() {
     }
 }
 
-// ─── T9: cancel_orders_for_slot ──────────────────────────────────────────────
 
 std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) {
     std::vector<CancelledOrder> cancelled;
@@ -1275,7 +1265,6 @@ std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) 
     return cancelled;
 }
 
-// ─── T9: build_state_snapshot ────────────────────────────────────────────────
 
 std::string GameSession::build_state_snapshot(int slot_index,
                                                const std::string& reconnect_token,
@@ -1348,7 +1337,6 @@ std::string GameSession::build_state_snapshot(int slot_index,
     }.dump();
 }
 
-// ─── T9: hand_for_slot / compute_all_scores / handle_admit_queue ─────────────
 
 engine::PlayerHand GameSession::hand_for_slot(int slot_index) const {
     if (!game_state_ || slot_index < 0 || slot_index >= game_state_->player_count())
