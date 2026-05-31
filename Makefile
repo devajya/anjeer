@@ -45,8 +45,12 @@ build-frontend:
 	npm run build --prefix frontend
 
 build: $(BUILD_DIR)/Makefile
-	cmake --build $(BUILD_DIR) --parallel
-	npm run build --prefix frontend
+	# AGENT-CTX: C++ and frontend builds are independent — run them in parallel.
+	# Each background job's exit code is captured; both must succeed.
+	cmake --build $(BUILD_DIR) --parallel & CPP_PID=$$!; \
+	npm run build --prefix frontend; NPM_EXIT=$$?; \
+	wait $$CPP_PID; CPP_EXIT=$$?; \
+	exit $$(( CPP_EXIT | NPM_EXIT ))
 
 # ---------------------------------------------------------------------------
 # Dev run targets
@@ -86,42 +90,47 @@ dev: build-server reset-lobby-db
 test-unit: $(BUILD_DIR)/Makefile
 	# AGENT-CTX: Build all test binaries explicitly before running ctest.
 	# Adding a new test binary in a subdirectory CMakeLists requires a matching
-	# --target line here. ctest discovers all registered tests from all binaries.
-	cmake --build $(BUILD_DIR) --target exchange_tests --parallel
-	cmake --build $(BUILD_DIR) --target game_state_tests --parallel
-	cmake --build $(BUILD_DIR) --target scoring_engine_tests --parallel
-	cmake --build $(BUILD_DIR) --target bot_tests --parallel
-	cmake --build $(BUILD_DIR) --target server_tests --parallel
-	cmake --build $(BUILD_DIR) --target ws_server_tests --parallel
-	cmake --build $(BUILD_DIR) --target auth_integration_tests --parallel
-	cmake --build $(BUILD_DIR) --target event_bus_tests --parallel
-	cmake --build $(BUILD_DIR) --target lobby_tests --parallel
-	cmake --build $(BUILD_DIR) --target http_lobby_tests --parallel
-	cmake --build $(BUILD_DIR) --target session_repo_tests --parallel
-	cmake --build $(BUILD_DIR) --target lobby_resilience_tests --parallel
-	cmake --build $(BUILD_DIR) --target game_session_tests --parallel
-	cmake --build $(BUILD_DIR) --target session_queue_tsan_tests --parallel
-	cmake --build $(BUILD_DIR) --target api_key_repo_tests --parallel
-	cmake --build $(BUILD_DIR) --target rate_limiter_tests --parallel
-	cmake --build $(BUILD_DIR) --target bot_scheduler_tests --parallel
-	cmake --build $(BUILD_DIR) --target bot_adapter_tests --parallel
-	cmake --build $(BUILD_DIR) --target bot_manager_tests --parallel
-	cmake --build $(BUILD_DIR) --target bot_headless_tests --parallel
-	cmake --build $(BUILD_DIR) --target simple_cache_tests --parallel
-	cmake --build $(BUILD_DIR) --target reconnect_token_repo_tests --parallel
-	cmake --build $(BUILD_DIR) --target game_slots_repo_tests --parallel
-	cmake --build $(BUILD_DIR) --target lobby_queue_tests --parallel
-	cmake --build $(BUILD_DIR) --target reconnect_integration_tests --parallel
-	cmake --build $(BUILD_DIR) --target eval_runner_tests --parallel
-	cmake --build $(BUILD_DIR) --target bayesian_module_tests --parallel
-	cmake --build $(BUILD_DIR) --target accumulation_module_tests --parallel
-	cmake --build $(BUILD_DIR) --target execution_module_tests --parallel
-	cmake --build $(BUILD_DIR) --target eval_integration_tests --parallel
+	# --target entry in the single cmake --build call below.
+	# All targets are passed in one invocation so CMake can parallelize compilation
+	# across them simultaneously (25 sequential cmake calls was the prior bottleneck).
+	cmake --build $(BUILD_DIR) --parallel \
+		--target exchange_tests \
+		--target game_state_tests \
+		--target scoring_engine_tests \
+		--target bot_tests \
+		--target server_tests \
+		--target ws_server_tests \
+		--target auth_integration_tests \
+		--target event_bus_tests \
+		--target lobby_tests \
+		--target http_lobby_tests \
+		--target session_repo_tests \
+		--target lobby_resilience_tests \
+		--target game_session_tests \
+		--target session_queue_tsan_tests \
+		--target api_key_repo_tests \
+		--target rate_limiter_tests \
+		--target bot_scheduler_tests \
+		--target bot_adapter_tests \
+		--target bot_manager_tests \
+		--target bot_headless_tests \
+		--target simple_cache_tests \
+		--target reconnect_token_repo_tests \
+		--target game_slots_repo_tests \
+		--target lobby_queue_tests \
+		--target reconnect_integration_tests \
+		--target eval_runner_tests \
+		--target bayesian_module_tests \
+		--target accumulation_module_tests \
+		--target execution_module_tests \
+		--target eval_integration_tests
 	# AGENT-CTX: NTFS (/mnt/c/) does not reliably preserve the execute bit on
 	# newly linked ELF binaries. chmod after every build so ctest can run them
 	# regardless of which targets were just rebuilt.
 	find $(BUILD_DIR) -maxdepth 2 -name '*_tests' -exec chmod +x {} +
-	cd $(BUILD_DIR) && ctest --output-on-failure
+	# AGENT-CTX: -j runs test binaries in parallel; ws_server_tests is registered
+	# RUN_SERIAL in CMakeLists so ctest automatically holds it until parallel tests finish.
+	cd $(BUILD_DIR) && ctest --output-on-failure -j$$(nproc)
 
 TSAN_BUILD_DIR := build-tsan
 
@@ -139,7 +148,8 @@ test-tsan:
 	  ctest -R session_queue_tsan_tests --output-on-failure
 
 test-frontend:
-	npm test --prefix frontend
+	# AGENT-CTX: Call vitest directly to skip ~300ms npm process-wrapper overhead.
+	cd frontend && npx vitest run
 
 test: test-unit test-frontend
 

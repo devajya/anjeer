@@ -152,16 +152,4 @@ std::vector<OrderBook::OrderSnapshot> OrderBook::asks_snapshot() const {
     return snap;
 }
 
-std::vector<OrderEvent> OrderBook::nudge(Side side, int32_t player_id) {
-    int32_t new_price;
-    if (side == Side::Buy) {
-        new_price = best_bid().value_or(cfg_.nudge_initial_buy_price - 1) + 1;
-        new_price = std::clamp(new_price, cfg_.min_price, cfg_.max_price);
-    } else {
-        new_price = best_ask().value_or(cfg_.nudge_initial_sell_price + 1) - 1;
-        new_price = std::clamp(new_price, cfg_.min_price, cfg_.max_price);
-    }
-    return submit(player_id, side, new_price);
-}
-
 } // namespace anjeer::exchange

@@ -93,9 +93,6 @@ public:
     //       or: [OrderErrorEvent] (OrderNotFound or NotYourOrder).
     [[nodiscard]] std::vector<OrderEvent> cancel(int64_t order_id, int32_t player_id);
 
-    // Place a new order at best_bid+1 (buy) or best_ask-1 (sell), clamped to range.
-    [[nodiscard]] std::vector<OrderEvent> nudge(Side side, int32_t player_id);
-
     // Clear all resting orders; returns BookUpdateEvent with null best_bid/ask.
     [[nodiscard]] std::vector<OrderEvent> wipe();
 
