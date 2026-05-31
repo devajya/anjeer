@@ -43,8 +43,6 @@ static constexpr std::array<DeckDef, 12> kDecks = {{
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-// AGENT-CTX: Instrument IDs are 0–3 matching suit_index() order (C=0,D=1,H=2,S=3).
-// build_books was removed in Slice 13 Task 8 when books_ was replaced by exchange_.
 static exchange::ExchangeSession build_exchange(const ServerConfig& cfg) {
     std::vector<exchange::InstrumentConfig> instruments;
     instruments.reserve(4);
@@ -331,10 +329,6 @@ void GameSession::handle_nudge(const NetNudge& ev) {
         emit_error(ev.slot, "UNKNOWN_SUIT", "unknown suit: " + ev.suit);
         return;
     }
-    // AGENT-CTX: Q3 option B (Slice 13 design) — nudge price is computed here
-    // rather than inside ExchangeSession. ExchangeSession does not expose a
-    // nudge_order method; it provides best_bid/best_ask queries so GameSession
-    // can reproduce the same price logic and then call submit_order.
     const int si = engine::suit_index(*suit_opt);
     const auto bid = exchange_.best_bid(static_cast<exchange::instrument_id_t>(si));
     const auto ask = exchange_.best_ask(static_cast<exchange::instrument_id_t>(si));
@@ -731,9 +725,6 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
         }
     }
 
-    // Observable market events → broadcast trade to all players and spectators.
-    // AGENT-CTX: buyer_slot/seller_slot in OrderExecuted are slot indices (not
-    // DB player IDs) — same semantics as the old TradeEvent::buyer_id/seller_id.
     for (const auto& mev : result.market) {
         if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
             const std::string suit = instrument_suit_label(exec->instrument_id);
@@ -791,7 +782,6 @@ void GameSession::apply_post_trade_state(const exchange::ExchangeResult& result)
     apply_trade_settlements(result);
     for (const auto& mev : result.market) {
         if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
-            const std::string suit = instrument_suit_label(exec->instrument_id);
             apply_trade_delta(exec->buyer_slot, exec->seller_slot,
                               static_cast<int>(exec->instrument_id));
         }
@@ -840,8 +830,6 @@ void GameSession::reset_delta_table() {
 }
 
 void GameSession::broadcast_delta_update() {
-    // AGENT-CTX: Full snapshot sent every trade — clients never accumulate.
-    // 4×4 array: outer index = player slot, inner index = suit (clubs/diamonds/hearts/spades).
     nlohmann::json deltas = nlohmann::json::array();
     for (const auto& row : delta_table_) {
         deltas.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));

@@ -4,10 +4,6 @@
 
 namespace anjeer::exchange {
 
-// ---------------------------------------------------------------------------
-// overloaded helper — C++17 pattern for std::visit with inline lambdas.
-// Defined locally; not exposed in the header.
-// ---------------------------------------------------------------------------
 template<class... Ts>
 struct overloaded : Ts... { using Ts::operator()...; };
 template<class... Ts>
@@ -135,10 +131,6 @@ ExchangeResult ExchangeSession::translate(
     ExchangeResult result;
     for (auto& ev : events) {
         std::visit(overloaded{
-            // New resting order placed — emit private ack + public OrderAdded.
-            // AGENT-CTX: Both feedback and market are emitted even when the order
-            // immediately crosses (OrderAckEvent precedes TradeEvent in that case).
-            // The subsequent OrderExecuted in market tells consumers the order filled.
             [&](const OrderAckEvent& ack) {
                 seq_t seq = sequencer_.next_seq();
                 OrderAck fb;
@@ -158,8 +150,6 @@ ExchangeResult ExchangeSession::translate(
                 added.seq           = seq;
                 result.market.push_back(added);
             },
-            // Trade matched — emit public OrderExecuted.
-            // AGENT-CTX: order_id == seq in v1 (see market_data.h AGENT-CTX).
             [&](const TradeEvent& trade) {
                 seq_t seq = sequencer_.next_seq();
                 OrderExecuted exec;
@@ -172,7 +162,6 @@ ExchangeResult ExchangeSession::translate(
                 exec.seq            = seq;
                 result.market.push_back(exec);
             },
-            // Book top-of-book changed — emit operational BookUpdated (not market feed).
             [&](const BookUpdateEvent& bu) {
                 BookUpdated upd;
                 upd.instrument_id = instrument_id;
@@ -182,7 +171,6 @@ ExchangeResult ExchangeSession::translate(
                 upd.best_ask_slot = bu.best_ask_player_id;
                 result.feedback.push_back(upd);
             },
-            // Order cancelled — emit private CancelAck + public OrderCancelled.
             [&](const OrderCancelAckEvent& ack) {
                 seq_t seq = sequencer_.next_seq();
                 CancelAck fb;
@@ -196,7 +184,6 @@ ExchangeResult ExchangeSession::translate(
                 cancelled.seq           = seq;
                 result.market.push_back(cancelled);
             },
-            // Validation error — emit private OrderRejected only.
             [&](const OrderErrorEvent& err) {
                 OrderRejected rej;
                 rej.code    = map_error_code(err.code);

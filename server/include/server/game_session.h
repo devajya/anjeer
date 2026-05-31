@@ -29,10 +29,8 @@ namespace anjeer::server {
 
 enum class SessionPhase { Lobby, Countdown, RoundActive, InterRound, Ended };
 
-// AGENT-CTX: SlotInfo represents one player seat for the lifetime of the session.
-// connected tracks current WS state (can flip on each NetConnect/NetDisconnect).
-// active=false means the player has permanently left — no further NetConnect will
-// re-seat them.
+// connected: current WS state (flips on each NetConnect/NetDisconnect).
+// active=false: player permanently left — no further NetConnect will re-seat them.
 struct SlotInfo {
     int64_t     player_id = -1;
     std::string username;
@@ -108,17 +106,13 @@ public:
     std::vector<CancelledOrder> cancel_orders_for_slot(int slot_index);
 
     // Builds the full JSON state snapshot for the given slot.
-    // AGENT-CTX: serialize_state_snapshot was not added to game_session_wire.h
-    // because the complete snapshot requires books_, delta_table_, and slots_,
-    // all of which are GameSession-private. The snapshot is built inline here
-    // to avoid a complex multi-arg wire helper or exposing private state via getters.
+    // Snapshot requires books_, delta_table_, and slots_ — all GameSession-private.
+    // Built here rather than in game_session_wire.h to avoid exposing those via getters.
     std::string build_state_snapshot(int slot_index,
                                      const std::string& reconnect_token,
                                      int64_t reconnect_expires_at_ms) const;
 
     // Returns the current hand for the slot (suit_counts).
-    // AGENT-CTX: Spec used std::vector<Card> but Card does not exist in the engine;
-    // engine::PlayerHand (suit_counts array) is the correct type.
     engine::PlayerHand hand_for_slot(int slot_index) const;
 
     // Deactivates a bot slot so the game-loop can fill it at the next round
@@ -166,17 +160,13 @@ private:
                             const std::string& goal_suit);
     void end_game         (bool forced);
 
-    // AGENT-CTX: check_end_condition is called at InterRound transitions and on
-    // disconnect. It does NOT fire during RoundActive because we allow temporary
-    // disconnection without ending the round — the round timer drives expiry.
+    // Not called during RoundActive — temporary disconnection is allowed mid-round;
+    // the round timer drives expiry.
     void check_end_condition();
 
     // ── Exchange event pipeline ───────────────────────────────────────────────
-    // AGENT-CTX: Returns true if a trade occurred in the result (OrderExecuted
-    // present in result.market). Callers use this to decide whether to apply
-    // global wipe. Replaces the old dispatch_events(slot, vector<OrderEvent>)
-    // which operated on the engine-internal event vocabulary; dispatch_result
-    // operates on the exchange-boundary ExchangeResult dual-return type.
+    // Returns true if a trade occurred (OrderExecuted in result.market).
+    // Callers use this to decide whether to apply the global wipe.
     bool dispatch_result    (int32_t slot, const exchange::ExchangeResult&);
     void apply_global_wipe  ();
     void apply_card_transfers    (const exchange::ExchangeResult&);
@@ -187,8 +177,7 @@ private:
     void push_book_updates_to_eval(const exchange::ExchangeResult&);
 
     // ── Delta table ───────────────────────────────────────────────────────────
-    // AGENT-CTX: Broadcast as a full snapshot after each trade so clients never
-    // accumulate increments and risk desync.
+    // Full snapshot each trade — clients replace rather than accumulate to avoid desync.
     void apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx);
     void reset_delta_table();
     void broadcast_delta_update();
@@ -212,9 +201,7 @@ private:
     // eval subsystem needs a consistent read of hands, balances, books, and deltas.
     engine::GameStateSnapshot make_eval_snapshot() const;
     // Moves buffered EvalOutput items from eval_out_pending_ to outbound_ as GameEvalOutput.
-    // AGENT-CTX: eval_runner_ worker thread writes to eval_out_pending_ (mutex-guarded);
-    // drain_eval_output() is called from tick() so all outbound_ writes stay on the
-    // game-loop thread, preserving the SPSC invariant on outbound_.
+    // Called from tick() so outbound_ writes stay on the game-loop thread (SPSC invariant).
     void drain_eval_output();
 
     // ── ISO timestamp helpers ─────────────────────────────────────────────────
@@ -253,10 +240,8 @@ private:
     // Used in build_state_snapshot for the all_scores field.
     std::vector<int> compute_all_scores() const;
 
-    // AGENT-CTX: Grace window before ending on all-disconnected. 500ms lets
-    // WsServer reconnect a client to a freed slot (slot reuse for test compat)
-    // before we declare the session dead. Without this, a single-tick all-zero
-    // count on primer-client disconnect/reconnect races would kill the session.
+    // 500ms grace: lets WsServer reconnect a client before declaring the session dead.
+    // Without this, a rapid disconnect/reconnect race would kill the session.
     bool                                       all_disconnected_      = false;
     std::chrono::steady_clock::time_point      all_disconnected_since_{};
     static constexpr std::chrono::milliseconds kReconnectGrace{500};
@@ -265,25 +250,19 @@ private:
     SessionPhase phase_        = SessionPhase::Lobby;
     int          round_number_ = 0;
     std::string  current_round_id_;
-    // AGENT-CTX: current_deck_ is the single authoritative source for all per-round
-    // deck properties (goal_suit, bonus_pool, distribution). Points into the static
-    // kDecks table — always valid after begin_round, null in Lobby/Countdown phase.
+    // Single source of truth for per-round deck properties (goal_suit, distribution).
+    // Points into kDecks; valid only after begin_round (null in Lobby/Countdown).
     const struct DeckDef* current_deck_ = nullptr;
     int                   current_buy_in_ = 0;
 
     std::string current_goal_suit_str() const;  // convenience: suit_name(current_deck_->goal_suit)
 
-    // AGENT-CTX: exchange_ replaced books_ (std::array<engine::OrderBook,4>) in
-    // Slice 13 Task 8. All order operations, wipe, cancel_player, and snapshot
-    // reads now go through ExchangeSession. books_ is gone; if you see a
-    // compilation error referencing books_, the migration is incomplete.
     exchange::ExchangeSession          exchange_;
     std::array<bool, 4>                active_suits_{};
     std::unique_ptr<engine::GameState> game_state_;
 
-    // AGENT-CTX: delta_table_[player_slot][suit_index] — net cards gained this
-    // round visible to all players. Suit indices match engine::kAllSuits order.
-    // Sized to slots_.size() at construction — supports any player count.
+    // [player_slot][suit_index] — net cards gained this round.
+    // Suit indices match engine::kAllSuits order; sized to slots_.size().
     std::vector<std::array<int,4>>     delta_table_;
 
     // Per-round result accumulation for game_ended summary
@@ -307,10 +286,8 @@ private:
     std::chrono::steady_clock::time_point round_start_time_{};   // set in begin_round
 
     // ── Thread control ────────────────────────────────────────────────────────
-    // AGENT-CTX: stop_ is written by shutdown() on the calling thread and read by
-    // run() on the game-loop thread. memory_order_relaxed is sufficient for the
-    // stop flag because no other data races through it — the join() in shutdown()
-    // provides the happens-before synchronisation that makes all mutations visible.
+    // memory_order_relaxed is sufficient: the join() in shutdown() provides the
+    // happens-before that makes all mutations visible before the thread exits.
     std::atomic<bool> stop_{false};
     std::atomic<bool> done_{false};
     std::thread       game_loop_thread_;

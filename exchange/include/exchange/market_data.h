@@ -37,10 +37,7 @@ struct OrderAdded {
 };
 
 // Emitted when a crossing submit causes a fill.
-// AGENT-CTX: order_id is set to seq in v1 (the sequence number uniquely
-// identifies the trade). Future versions may set this to the resting order's
-// id by bumping v; consumers must not assume order_id == resting order id
-// when v == 1.
+// order_id == seq in v1; do not assume order_id is the resting order's id.
 struct OrderExecuted {
     int64_t         order_id;
     instrument_id_t instrument_id;
@@ -53,10 +50,8 @@ struct OrderExecuted {
 };
 
 // Emitted when a resting order is explicitly cancelled (not from a wipe).
-// AGENT-CTX: wipe() does NOT emit OrderCancelled — it returns BookUpdated
-// events only. Wipe is a game-mechanic; feed consumers do not observe it
-// as individual cancels. This is intentional for Slice 13; Slice 18 may
-// need to revisit if the MBO feed requires wipe visibility.
+// wipe() does NOT emit OrderCancelled — it returns BookUpdated events only.
+// Wipe is a game-mechanic; feed consumers do not observe it as individual cancels.
 struct OrderCancelled {
     int64_t         order_id;
     instrument_id_t instrument_id;
@@ -94,11 +89,8 @@ struct BookUpdated {
 };
 
 // Private error feedback sent to the submitting or cancelling player only.
-// AGENT-CTX: Code mirrors OrderErrorEvent::Code from order_book.h but is a
-// distinct type. Separation is intentional: OrderErrorEvent is internal
-// OrderBook vocabulary; OrderRejected is the exchange-boundary vocabulary.
-// ExchangeSession::translate() maps between the two so market_data.h does
-// not need to include order_book.h.
+// Code is distinct from OrderErrorEvent::Code (exchange-boundary vs. internal OrderBook
+// vocabulary) so translate() maps between them and market_data.h stays self-contained.
 struct OrderRejected {
     enum class Code {
         PriceOutOfRange,

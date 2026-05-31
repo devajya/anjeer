@@ -3,12 +3,6 @@
 // Wire protocol helpers for GameSession — JSON builders and parsers.
 // No game state; no side effects beyond socket I/O in the send functions.
 // Editing the wire format requires changes only in this header and game_session_wire.cpp.
-
-// AGENT-CTX: game_session_wire.h includes ws_types.h (not game_session.h) since
-// Slice 7. The new GameSession has no uWS dependency, so WsHandle/WsErrorCode
-// live in ws_types.h. The legacy send functions (error, book_update, trade) that
-// take WsHandle are still used by ws_server.cpp directly during the Slice 7→8
-// transition; they will be removed when Task 8 completes the WsServer refactor.
 #include "server/ws_types.h"
 #include "server/logger.h"
 #include "engine/engine.h"
@@ -61,11 +55,6 @@ std::optional<LeaveLobbyFields>  leave_lobby  (const nlohmann::json& j);
 // No game-state reads or writes.
 // ═══════════════════════════════════════════════════════════════════════════
 // ── Payload structs for multi-field messages ─────────────────────────────────
-// AGENT-CTX: Plain data structs live here (not inside GameSession) so the wire
-// layer has no compile-time dependency on GameSession internals.  GameSession
-// builds these from its own SlotInfo / RoundSummary types before calling the
-// serialise functions below.  Renaming a GameSession field never forces a
-// recompile of everything that includes this header.
 
 struct WirePlayerResult {
     int  player_slot;
@@ -118,23 +107,17 @@ std::string round_start_payload(int                             slot,
 
 void error      (WsHandle ws, WsErrorCode code, std::string_view msg, Logger& slog);
 
-// best_bid / best_ask sent as JSON null when nullopt (no resting orders).
-// Clients must handle null on both fields — happens after a wipe.
 void book_update(const std::set<WsHandle>& conns,
                  const std::string&        suit,
                  std::optional<int32_t>    best_bid,
                  std::optional<int32_t>    best_ask,
                  Logger&                   slog);
 
-// your_side is null for spectators (anyone who is neither buyer nor seller).
 void trade      (const std::set<WsHandle>& conns,
                  const engine::TradeEvent& t,
                  Logger&                   slog);
 
 // ── GameSession outbound payloads (return std::string, no socket I/O) ────────
-// AGENT-CTX: These functions return JSON strings rather than performing
-// socket sends because GameSession runs on its own thread and has no WsHandle.
-// WsServer drains the outbound queue and calls ws->send() with these strings.
 
 // next_round_at: ISO timestamp, or empty string → serialised as JSON null.
 std::string inter_round_payload(

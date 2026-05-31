@@ -13,11 +13,8 @@
 namespace anjeer::exchange {
 
 // Configuration for one tradeable instrument.
-// Structurally identical to OrderBook::Config — renamed and promoted to the
-// exchange-session boundary so callers (GameSession) do not need to include
-// order_book.h directly.
-// instrument_id is implied by the vector index passed to ExchangeSession's
-// constructor (instruments[0] → instrument_id 0, etc.).
+// instrument_id is implied by the position in the vector passed to ExchangeSession
+// (instruments[0] → instrument_id 0, etc.).
 struct InstrumentConfig {
     price_t     min_price                = 1;
     price_t     max_price                = 99;
@@ -76,8 +73,6 @@ public:
     [[nodiscard]] std::optional<price_t> best_bid(instrument_id_t instrument_id) const;
     [[nodiscard]] std::optional<price_t> best_ask(instrument_id_t instrument_id) const;
 
-    // best_bid_slot / best_ask_slot derived from bids_snapshot / asks_snapshot
-    // (OrderBook does not expose a direct player-id query for best level).
     [[nodiscard]] std::optional<int32_t> best_bid_slot(instrument_id_t instrument_id) const;
     [[nodiscard]] std::optional<int32_t> best_ask_slot(instrument_id_t instrument_id) const;
 
@@ -91,15 +86,7 @@ private:
     std::vector<OrderBook> books_;
     Sequencer              sequencer_;
 
-    // Translate a raw vector<OrderEvent> from a single OrderBook call into an
-    // ExchangeResult, stamping seq numbers on every outbound event. The
-    // instrument_id parameter is passed through because OrderBook events carry
-    // the suit string label, not the numeric instrument id.
     ExchangeResult translate(instrument_id_t instrument_id, std::vector<OrderEvent> events);
-
-    // Map OrderErrorEvent::Code → OrderRejected::Code. The two enums have
-    // identical values but are intentionally separate types (see AGENT-CTX
-    // in market_data.h).
     static OrderRejected::Code map_error_code(OrderErrorEvent::Code code) noexcept;
 };
 
