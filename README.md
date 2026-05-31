@@ -43,29 +43,39 @@ A real-time multiplayer card-trading game built from scratch — C++ matching en
          │           │  PostgreSQL   │
          │           └───────────────┘
 ┌────────▼──────────────────────────────┐
-│  Engine  (pure C++, no I/O)           │
-│  OrderBook · GameState · Scoring      │
+│  Exchange  (market mechanics)         │
+│  ExchangeSession · OrderBook          │
+│  Sequencer · MarketDataEvent          │
+└────────┬──────────────────────────────┘
+┌────────▼──────────────────────────────┐
+│  Engine  (pure game logic, no I/O)    │
+│  GameState · ScoringEngine            │
 │  BotAgent (Easy / Medium / Hard)      │
 └───────────────────────────────────────┘
 ```
 
-Three strict layers. The engine has **zero I/O** — it returns typed event vectors; the server owns all serialization and dispatch. The frontend is a pure consumer of WebSocket messages.
+Four strict layers. Neither the exchange nor the engine has any I/O — both return typed event vectors; the server owns all serialization and dispatch. The frontend is a pure consumer of WebSocket messages.
 
 ---
 
-## Matching Engine
+## Matching Engine & Exchange Layer
 
-**Location:** `engine/`
+**Locations:** `engine/` · `exchange/`
 
-A pure C++ static library with no network, filesystem, or JSON dependencies. Every method returns a `std::vector<OrderEvent>` — a `std::variant` of typed structs. The caller (server) decides routing.
+The matching stack is split into two pure C++ libraries. Neither has network, filesystem, or JSON dependencies.
 
-### Order Book
+### Exchange Layer (`exchange/`)
 
-- **Price-time priority** limit order matching (`engine/order_book.h`)
-- Operations: `submit`, `nudge` (best ± 1), `cancel`, `wipe` (global clear)
-- All prices are `int32_t` — no floats anywhere in the matching path
-- Quantity is implicitly 1 per order (game mechanic)
-- `wipe()` fires after every trade — all four books cleared atomically; this is a core game rule
+Sits between the game server and the engine. Owns market mechanics that are independent of game rules.
+
+- **`ExchangeSession`** — owns all four `OrderBook` instances; routes `submit_order` / `cancel_order` / `cancel_player` through a `Sequencer` that stamps monotonic sequence numbers onto every outbound event. Returns an `ExchangeResult{feedback, market}` — `feedback` is the private operational response to the submitting player; `market` is the observable event broadcast to all participants.
+- **`Sequencer`** — monotonic `seq_t` counter; `next_seq()` / `reset()`. Guarantees strict event ordering across all instruments in a session.
+- **`OrderBook`** — price-time priority limit order matching. Operations: `submit`, `cancel`, `cancel_player`, `wipe`. All prices are `int32_t` — no floats anywhere in the matching path. Quantity is implicitly 1 per order (game mechanic).
+- `wipe()` fires after every trade — all four books cleared atomically; this is a core game rule.
+
+### Engine (`engine/`)
+
+Pure game logic — deck dealing, hand tracking, scoring. No market mechanics.
 
 ### Game State
 
@@ -409,6 +419,10 @@ anjeer/
 │   ├── include/engine/    # Public headers (engine.h is the only façade)
 │   ├── src/               # Implementation
 │   └── tests/             # Catch2 unit tests
+├── exchange/
+│   ├── include/exchange/  # OrderBook, ExchangeSession, Sequencer, market_data types
+│   ├── src/               # Implementation
+│   └── tests/             # Catch2 tests (order book, sequencer, session)
 ├── server/
 │   ├── include/server/    # Server headers
 │   ├── src/               # WsServer, HttpServer, GameSession, repos

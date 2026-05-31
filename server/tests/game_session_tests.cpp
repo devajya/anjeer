@@ -508,6 +508,82 @@ TEST_CASE("G-T3: reconnect window expiry fires GameReconnectExpired and GameSpaw
     CHECK(h.recv_spawn_bot(1, 500ms).has_value());
 }
 
+// ─── G-T3b: last real player expiry ends game without spawning a bot ─────────
+//
+// Regression for: GameSpawnBot was enqueued unconditionally in
+// check_reconnect_expirations before the real_player_count_ == 0 guard fired,
+// causing GameSpawnBot + GameDone to land on the outbound queue in the same
+// tick.  WsServer processed the spawn first, registered a BotAdapter holding
+// a reference into the session, then GameDone tore the session down —
+// use-after-free / null-deref on the uWS event-loop thread, silent crash.
+//
+// Fixed by: moving the real_player_count_ == 0 early-return above the
+// GameSpawnBot enqueue in check_reconnect_expirations.
+TEST_CASE("G-T3b: last real player reconnect expiry emits GameDone, not GameSpawnBot",
+          "[game_session][reconnect]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.game.player_count                  = 1;
+    cfg.lobby.min_players                  = 1;
+    cfg.reconnect.reconnect_window_seconds = 1;
+    Harness h(cfg, make_slots(1));
+
+    h.push(NetConnect{0, 1, "player0"});
+    h.push(NetStartGame{});
+    REQUIRE(h.recv_type("round_starting").has_value());
+    REQUIRE(h.recv_targeted(0, "round_start").has_value());
+
+    h.session->handle_player_disconnect(0);
+    h.recv_type("game_player_left");
+
+    REQUIRE(h.recv_reconnect_expired(0, 3000ms));
+
+    // No bot spawn — there is no game left to spawn into.
+    CHECK_FALSE(h.recv_spawn_bot(0, 300ms).has_value());
+    // Session must end cleanly.
+    CHECK(h.recv_done(2000ms));
+}
+
+// ─── G-T3c: NetPermanentLeave bypasses reconnect window ──────────────────────
+//
+// Regression for: onLeave in Game.tsx previously called navigate() without
+// sending leave_lobby first.  The WS closed on component unmount, triggering
+// onDisconnect → handle_player_disconnect → reconnect window.  The game kept
+// running with bots for reconnect_window_seconds even though the player
+// intentionally left.
+//
+// Fixed by: Game.tsx sends leave_lobby before navigate().  WsServer's
+// handle_leave_lobby enqueues NetPermanentLeave and removes the WS handle from
+// ws_to_slot_, so the subsequent onDisconnect (from component unmount) finds no
+// slot entry and never starts the reconnect window.
+//
+// This test verifies the server-side contract: NetPermanentLeave must produce
+// GameDone immediately — well before reconnect_window_seconds would elapse.
+// reconnect_window_seconds is set to 5 s so a regression (where permanent leave
+// mistakenly starts the reconnect path) causes recv_done to time out.
+TEST_CASE("G-T3c: NetPermanentLeave ends game immediately, not after reconnect window",
+          "[game_session][leave]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.game.player_count                  = 1;
+    cfg.lobby.min_players                  = 1;
+    cfg.reconnect.reconnect_window_seconds = 5;  // long window — GameDone must beat it
+    Harness h(cfg, make_slots(1));
+
+    h.push(NetConnect{0, 1, "player0"});
+    h.push(NetStartGame{});
+    REQUIRE(h.recv_type("round_starting").has_value());
+    REQUIRE(h.recv_targeted(0, "round_start").has_value());
+
+    h.push(NetPermanentLeave{0});
+    h.recv_type("game_player_left");
+
+    // GameDone must arrive within 2 s — far below the 5 s reconnect window.
+    CHECK(h.recv_done(2000ms));
+    // No reconnect window should ever be started for a permanent leave.
+    CHECK_FALSE(h.recv_reconnect_expired(0, 200ms));
+}
+
 // ─── G-T4: handle_player_reattach sends game_state_snapshot ──────────────────
 
 // On reattach the returning player must receive a full state snapshot so their

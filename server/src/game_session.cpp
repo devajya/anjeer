@@ -1218,6 +1218,8 @@ void GameSession::check_reconnect_expirations() {
         // Tell WsServer to send reconnect_window_expired to the stale socket.
         outbound_.enqueue(GameReconnectExpired{i});
 
+        if (real_player_count_ == 0) { end_game(true); return; }
+
         // Signal WsServer to spawn a replacement bot (same path as permanent leave).
         if (game_state_) {
             const auto& hand = game_state_->hand(i);
@@ -1231,8 +1233,6 @@ void GameSession::check_reconnect_expirations() {
                 remaining
             });
         }
-
-        if (real_player_count_ == 0) { end_game(true); return; }
     }
 }
 

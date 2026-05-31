@@ -288,7 +288,10 @@ const { user } = useAuth()
           {user && (
             <PlayerBadge
               username={user.username}
-              onLeave={() => navigate('/lobby', { state: { leftGame: lobbyId } })}
+              onLeave={() => {
+                sendMessage({ type: 'leave_lobby', lobby_id: lobbyId })
+                navigate('/lobby', { state: { leftGame: lobbyId } })
+              }}
             />
           )}
         </header>
