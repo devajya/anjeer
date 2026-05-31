@@ -253,6 +253,34 @@ TEST_CASE("submit with price above max_price returns OrderErrorEvent", "[order_b
     CHECK(err->code == OrderErrorEvent::Code::PriceOutOfRange);
 }
 
+// ---------------------------------------------------------------------------
+// AC: Self-trade suppression
+// ---------------------------------------------------------------------------
+
+TEST_CASE("self-trade buy into own ask is suppressed; both orders rest", "[order_book]") {
+    OrderBook book{make_config()};
+    book.submit(1, Side::Sell, 50);          // player 1 resting ask at 50
+
+    auto events = book.submit(1, Side::Buy, 50);  // player 1 buys at 50 — crosses own ask
+
+    CHECK_FALSE(has_event<TradeEvent>(events));
+    REQUIRE(has_event<OrderAckEvent>(events));    // order acked and rests
+    CHECK(book.best_bid() == 50);
+    CHECK(book.best_ask() == 50);
+}
+
+TEST_CASE("self-trade sell into own bid is suppressed; both orders rest", "[order_book]") {
+    OrderBook book{make_config()};
+    book.submit(1, Side::Buy, 50);           // player 1 resting bid at 50
+
+    auto events = book.submit(1, Side::Sell, 50); // player 1 sells at 50 — crosses own bid
+
+    CHECK_FALSE(has_event<TradeEvent>(events));
+    REQUIRE(has_event<OrderAckEvent>(events));
+    CHECK(book.best_bid() == 50);
+    CHECK(book.best_ask() == 50);
+}
+
 TEST_CASE("rejected order does not modify the book", "[order_book]") {
     OrderBook book{make_config()};
     book.submit(1, Side::Buy, 50);  // valid order first

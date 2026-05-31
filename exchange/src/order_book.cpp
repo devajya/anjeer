@@ -21,6 +21,7 @@ BookUpdateEvent OrderBook::make_book_update() const {
 std::optional<TradeEvent> OrderBook::try_match() {
     if (bids_.empty() || asks_.empty()) return std::nullopt;
     if (bids_.front().price < asks_.front().price) return std::nullopt;
+    if (bids_.front().player_id == asks_.front().player_id) return std::nullopt;
 
     const Order& bid = bids_.front();
     const Order& ask = asks_.front();
