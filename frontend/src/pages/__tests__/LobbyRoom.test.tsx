@@ -405,17 +405,18 @@ describe('LobbyRoom — REST leave when WS disconnected', () => {
   test('REST leave is NOT sent when back-nav button was used (leaveSentRef guard)', async () => {
     // handleBack sends WS leave and sets leaveSentRef so the unmount cleanup
     // skips the REST leave — no double-leave. This is intentional design.
+    //
+    // Fake timers are intentionally NOT used here: we are asserting that no
+    // REST leave timer is scheduled at all (leaveSentRef blocks it). Advancing
+    // fake timers before the click interferes with React Router's navigation
+    // scheduling (which uses setTimeout internally), deferring the unmount and
+    // creating a window where the cleanup can run without seeing leaveSentRef=true.
     renderRoom()
     await waitFor(() => screen.getByText('← Lobbies'))
     await act(async () => {})
 
-    vi.useFakeTimers()
-    try {
-      fireEvent.click(screen.getByText('← Lobbies'))
-      act(() => { vi.advanceTimersByTime(200) })
-    } finally {
-      vi.useRealTimers()
-    }
+    fireEvent.click(screen.getByText('← Lobbies'))
+    await act(async () => {})  // settle navigation + unmount + cleanup
 
     // WS leave was sent synchronously by handleBack
     expect(mockSendMsg).toHaveBeenCalledWith(

@@ -181,6 +181,7 @@ private:
     void apply_trade_delta(int buyer_slot, int seller_slot, int suit_idx);
     void reset_delta_table();
     void broadcast_delta_update();
+    [[nodiscard]] nlohmann::json serialize_delta_table() const;
 
     // ── Outbound helpers ──────────────────────────────────────────────────────
     void emit_broadcast           (const std::string& json);

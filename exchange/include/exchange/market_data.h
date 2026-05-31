@@ -97,6 +97,7 @@ struct OrderRejected {
         OrderNotFound,
         NotYourOrder,
         SelfTrade,
+        InvalidInstrument,
     };
     Code        code;
     std::string message;

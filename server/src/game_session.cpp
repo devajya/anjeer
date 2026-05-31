@@ -780,18 +780,13 @@ void GameSession::push_book_updates_to_eval(const exchange::ExchangeResult& resu
 void GameSession::apply_post_trade_state(const exchange::ExchangeResult& result) {
     apply_card_transfers(result);
     apply_trade_settlements(result);
-    for (const auto& mev : result.market) {
-        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
-            apply_trade_delta(exec->buyer_slot, exec->seller_slot,
-                              static_cast<int>(exec->instrument_id));
-        }
-    }
-    broadcast_delta_update();
 
     const int64_t elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - round_start_time_).count();
     for (const auto& mev : result.market) {
         if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+            apply_trade_delta(exec->buyer_slot, exec->seller_slot,
+                              static_cast<int>(exec->instrument_id));
             const std::string suit = instrument_suit_label(exec->instrument_id);
             const auto suit_opt    = engine::suit_from_string(suit);
             if (!suit_opt) continue;
@@ -803,6 +798,8 @@ void GameSession::apply_post_trade_state(const exchange::ExchangeResult& result)
                 "[eval] trade pushed suit=" + suit + " price=" + std::to_string(exec->price));
         }
     }
+    broadcast_delta_update();
+
     for (const auto& fev : result.feedback) {
         if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
             const auto suit_opt =
@@ -829,15 +826,18 @@ void GameSession::reset_delta_table() {
     for (auto& row : delta_table_) row.fill(0);
 }
 
+nlohmann::json GameSession::serialize_delta_table() const {
+    nlohmann::json out = nlohmann::json::array();
+    for (const auto& row : delta_table_)
+        out.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
+    return out;
+}
+
 void GameSession::broadcast_delta_update() {
-    nlohmann::json deltas = nlohmann::json::array();
-    for (const auto& row : delta_table_) {
-        deltas.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
-    }
     engine_log_.info("delta_update", "broadcast");
     emit_broadcast(nlohmann::json{
         {"type",   "delta_update"},
-        {"deltas", deltas},
+        {"deltas", serialize_delta_table()},
     }.dump());
 }
 
@@ -943,12 +943,9 @@ void GameSession::send_spectator_snapshot(int32_t spectator_id) {
             }.dump());
         }
         {
-            nlohmann::json deltas = nlohmann::json::array();
-            for (const auto& row : delta_table_)
-                deltas.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
             emit_spectator_targeted(spectator_id, nlohmann::json{
                 {"type",   "delta_update"},
-                {"deltas", deltas},
+                {"deltas", serialize_delta_table()},
             }.dump());
         }
         {
@@ -1315,9 +1312,7 @@ std::string GameSession::build_state_snapshot(int slot_index,
         books_json[suit] = {{"bids", bids_arr}, {"asks", asks_arr}};
     }
 
-    nlohmann::json deltas_json = nlohmann::json::array();
-    for (const auto& row : delta_table_)
-        deltas_json.push_back(nlohmann::json::array({row[0], row[1], row[2], row[3]}));
+    nlohmann::json deltas_json = serialize_delta_table();
 
     nlohmann::json balances_json = nlohmann::json::array();
     for (const auto& sl : slots_) balances_json.push_back(sl.balance);

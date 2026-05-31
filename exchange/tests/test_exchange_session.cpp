@@ -357,6 +357,38 @@ TEST_CASE("instrument_count matches construction") {
     REQUIRE(s.instrument_count() == 4);
 }
 
+// ---------------------------------------------------------------------------
+// AC: Out-of-range instrument_id returns typed rejection, not UB
+// ---------------------------------------------------------------------------
+
+TEST_CASE("submit_order with out-of-range instrument_id returns InvalidInstrument", "[exchange_session]") {
+    auto s = make_session();
+    auto r = s.submit_order(/*instrument_id=*/99, Side::Buy, 50, /*player_slot=*/1);
+
+    REQUIRE(has_feedback<OrderRejected>(r));
+    CHECK(get_feedback<OrderRejected>(r).code == OrderRejected::Code::InvalidInstrument);
+    CHECK_FALSE(has_feedback<OrderAck>(r));
+}
+
+TEST_CASE("cancel_order with out-of-range instrument_id returns InvalidInstrument", "[exchange_session]") {
+    auto s = make_session();
+    auto r = s.cancel_order(/*order_id=*/1, /*instrument_id=*/99, /*player_slot=*/1);
+
+    REQUIRE(has_feedback<OrderRejected>(r));
+    CHECK(get_feedback<OrderRejected>(r).code == OrderRejected::Code::InvalidInstrument);
+}
+
+TEST_CASE("query methods with out-of-range instrument_id return nullopt or empty", "[exchange_session]") {
+    auto s = make_session();
+
+    CHECK_FALSE(s.best_bid(99).has_value());
+    CHECK_FALSE(s.best_ask(99).has_value());
+    CHECK_FALSE(s.best_bid_slot(99).has_value());
+    CHECK_FALSE(s.best_ask_slot(99).has_value());
+    CHECK(s.bids_snapshot(99).empty());
+    CHECK(s.asks_snapshot(99).empty());
+}
+
 TEST_CASE("crossing on one instrument does not affect other instruments") {
     auto s = make_session();
     s.submit_order(0, Side::Sell, 50, 2);

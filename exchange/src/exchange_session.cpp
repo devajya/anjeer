@@ -32,12 +32,24 @@ ExchangeSession::ExchangeSession(std::vector<InstrumentConfig> instruments) {
 
 ExchangeResult ExchangeSession::submit_order(
         instrument_id_t instrument_id, Side side, price_t price, int32_t player_slot) {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) {
+        ExchangeResult r;
+        r.feedback.push_back(OrderRejected{OrderRejected::Code::InvalidInstrument,
+            "instrument_id " + std::to_string(instrument_id) + " out of range"});
+        return r;
+    }
     return translate(instrument_id,
                      books_[instrument_id].submit(player_slot, side, price));
 }
 
 ExchangeResult ExchangeSession::cancel_order(
         int64_t order_id, instrument_id_t instrument_id, int32_t player_slot) {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) {
+        ExchangeResult r;
+        r.feedback.push_back(OrderRejected{OrderRejected::Code::InvalidInstrument,
+            "instrument_id " + std::to_string(instrument_id) + " out of range"});
+        return r;
+    }
     return translate(instrument_id,
                      books_[instrument_id].cancel(order_id, player_slot));
 }
@@ -82,20 +94,24 @@ void ExchangeSession::reset_seq() {
 // ---------------------------------------------------------------------------
 
 std::optional<price_t> ExchangeSession::best_bid(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return std::nullopt;
     return books_[instrument_id].best_bid();
 }
 
 std::optional<price_t> ExchangeSession::best_ask(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return std::nullopt;
     return books_[instrument_id].best_ask();
 }
 
 std::optional<int32_t> ExchangeSession::best_bid_slot(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return std::nullopt;
     auto snaps = books_[instrument_id].bids_snapshot();
     if (snaps.empty()) return std::nullopt;
     return snaps.front().player_slot;
 }
 
 std::optional<int32_t> ExchangeSession::best_ask_slot(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return std::nullopt;
     auto snaps = books_[instrument_id].asks_snapshot();
     if (snaps.empty()) return std::nullopt;
     return snaps.front().player_slot;
@@ -103,11 +119,13 @@ std::optional<int32_t> ExchangeSession::best_ask_slot(instrument_id_t instrument
 
 std::vector<OrderBook::OrderSnapshot>
 ExchangeSession::bids_snapshot(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return {};
     return books_[instrument_id].bids_snapshot();
 }
 
 std::vector<OrderBook::OrderSnapshot>
 ExchangeSession::asks_snapshot(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return {};
     return books_[instrument_id].asks_snapshot();
 }
 

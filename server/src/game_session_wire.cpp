@@ -16,7 +16,8 @@ WsErrorCode to_ws_error_code(exchange::OrderRejected::Code c) noexcept {
         case exchange::OrderRejected::Code::PriceOutOfRange: return WsErrorCode::PriceOutOfRange;
         case exchange::OrderRejected::Code::OrderNotFound:   return WsErrorCode::OrderNotFound;
         case exchange::OrderRejected::Code::NotYourOrder:    return WsErrorCode::NotYourOrder;
-        case exchange::OrderRejected::Code::SelfTrade:       return WsErrorCode::OrderNotFound;
+        case exchange::OrderRejected::Code::SelfTrade:          return WsErrorCode::OrderNotFound;
+        case exchange::OrderRejected::Code::InvalidInstrument: return WsErrorCode::MalformedMessage;
     }
     return WsErrorCode::PriceOutOfRange;  // unreachable; silences -Wreturn-type
 }

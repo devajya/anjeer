@@ -25,11 +25,11 @@ function renderLanding() {
 }
 
 describe('LandingPage', () => {
-  it('renders all 3 sections', () => {
+  it('renders all 3 sections', async () => {
     renderLanding()
     expect(screen.getByTestId('section-expanding-portal')).toBeInTheDocument()
-    expect(screen.getByTestId('section-auto-advance')).toBeInTheDocument()
-    expect(screen.getByTestId('section-scroll-tracker')).toBeInTheDocument()
+    expect(await screen.findByTestId('section-auto-advance')).toBeInTheDocument()
+    expect(await screen.findByTestId('section-scroll-tracker')).toBeInTheDocument()
   })
 
   it('"Play Now" CTA links to /auth', () => {
