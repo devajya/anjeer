@@ -33,3 +33,26 @@ TEST_CASE("Sequencer multiple resets are idempotent") {
     REQUIRE(seq.next_seq() == 1);
     REQUIRE(seq.next_seq() == 2);
 }
+
+// T01 — current_seq() returns 0 before first call, N after N calls, 0 after reset()
+TEST_CASE("T01 Sequencer::current_seq returns 0 before first next_seq call") {
+    Sequencer seq;
+    REQUIRE(seq.current_seq() == 0);
+}
+
+TEST_CASE("T01 Sequencer::current_seq tracks last issued seq") {
+    Sequencer seq;
+    seq.next_seq(); // 1
+    REQUIRE(seq.current_seq() == 1);
+    seq.next_seq(); // 2
+    seq.next_seq(); // 3
+    REQUIRE(seq.current_seq() == 3);
+}
+
+TEST_CASE("T01 Sequencer::current_seq returns 0 after reset") {
+    Sequencer seq;
+    seq.next_seq();
+    seq.next_seq();
+    seq.reset();
+    REQUIRE(seq.current_seq() == 0);
+}

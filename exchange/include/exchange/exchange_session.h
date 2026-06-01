@@ -67,6 +67,9 @@ public:
     // from 1 each round — makes sequence numbers round-relative for consumers.
     void reset_seq();
 
+    // Returns the last seq issued this round, or 0 if no events have been stamped yet.
+    [[nodiscard]] seq_t current_seq() const noexcept;
+
     // ── Book state queries ────────────────────────────────────────────────
     // Used by GameSession for nudge price computation (Q3 option B resolution:
     // nudge price is computed in GameSession, not exposed as a method here).

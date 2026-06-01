@@ -401,3 +401,26 @@ TEST_CASE("crossing on one instrument does not affect other instruments") {
     // instrument 1's order untouched
     REQUIRE(s.best_bid(1).value() == 45);
 }
+
+// T02 — ExchangeSession::current_seq() proxies Sequencer correctly
+TEST_CASE("T02 ExchangeSession::current_seq returns 0 before any events") {
+    auto s = make_session();
+    REQUIRE(s.current_seq() == 0);
+}
+
+TEST_CASE("T02 ExchangeSession::current_seq increments after submit") {
+    auto s = make_session();
+    s.submit_order(0, Side::Buy, 40, 1);
+    REQUIRE(s.current_seq() >= 1);
+    seq_t after_first = s.current_seq();
+    s.submit_order(0, Side::Sell, 60, 2);
+    REQUIRE(s.current_seq() > after_first);
+}
+
+TEST_CASE("T02 ExchangeSession::current_seq returns 0 after reset_seq") {
+    auto s = make_session();
+    s.submit_order(0, Side::Buy, 40, 1);
+    REQUIRE(s.current_seq() > 0);
+    s.reset_seq();
+    REQUIRE(s.current_seq() == 0);
+}

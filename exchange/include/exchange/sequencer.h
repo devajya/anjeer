@@ -16,6 +16,9 @@ public:
     // Called by ExchangeSession at begin_round so seq restarts from 1 each round.
     void reset() noexcept;
 
+    // Returns the last value returned by next_seq(), or 0 if never called / after reset().
+    [[nodiscard]] seq_t current_seq() const noexcept;
+
 private:
     seq_t seq_ = 0;
 };

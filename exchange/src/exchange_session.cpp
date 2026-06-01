@@ -83,6 +83,10 @@ void ExchangeSession::reset_seq() {
     sequencer_.reset();
 }
 
+seq_t ExchangeSession::current_seq() const noexcept {
+    return sequencer_.current_seq();
+}
+
 
 std::optional<price_t> ExchangeSession::best_bid(instrument_id_t instrument_id) const {
     if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return std::nullopt;
