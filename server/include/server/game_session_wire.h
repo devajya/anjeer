@@ -6,6 +6,7 @@
 #include "server/ws_types.h"
 #include "server/logger.h"
 #include "engine/engine.h"
+#include "exchange/exchange_types.h"
 #include "exchange/market_data.h"
 #include <nlohmann/json.hpp>
 
@@ -86,11 +87,12 @@ std::string opt_price      (std::optional<int32_t> p) noexcept;
 // Shared between on-connect snapshot and broadcast_book_update so the wire
 // format stays in sync regardless of call site.
 // best_bid_slot / best_ask_slot are null when no orders exist on that side.
-std::string book_update_payload(const std::string&     suit,
-                                 std::optional<int32_t> best_bid,
-                                 std::optional<int32_t> best_ask,
-                                 std::optional<int32_t> best_bid_slot = std::nullopt,
-                                 std::optional<int32_t> best_ask_slot = std::nullopt);
+std::string book_update_payload(const std::string&              suit,
+                                 std::optional<int32_t>          best_bid,
+                                 std::optional<int32_t>          best_ask,
+                                 anjeer::exchange::seq_t         seq       = 0,
+                                 std::optional<int32_t>          best_bid_slot = std::nullopt,
+                                 std::optional<int32_t>          best_ask_slot = std::nullopt);
 
 std::string round_end_payload  (const engine::RoundResult& result,
                                  const std::vector<int>&    available_cash);

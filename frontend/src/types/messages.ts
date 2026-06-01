@@ -36,6 +36,8 @@ export interface OrderAckMessage {
  */
 export interface BookUpdateMessage {
   type: 'book_update'
+  v: number
+  seq: number
   suit: string
   best_bid: number | null
   best_ask: number | null

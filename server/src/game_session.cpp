@@ -244,6 +244,7 @@ void GameSession::handle_connect(const NetConnect& ev) {
         emit_targeted(ev.slot, serialise::book_update_payload(
             std::string(engine::suit_name(s)),
             exchange_.best_bid(si), exchange_.best_ask(si),
+            exchange_.current_seq(),
             exchange_.best_bid_slot(si), exchange_.best_ask_slot(si)));
     }
 
@@ -708,6 +709,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 emit_broadcast(serialise::book_update_payload(
                     instrument_suit_label(upd->instrument_id),
                     upd->best_bid, upd->best_ask,
+                    exchange_.current_seq(),
                     upd->best_bid_slot, upd->best_ask_slot));
             }
         }
@@ -846,7 +848,8 @@ void GameSession::apply_global_wipe() {
         if (!active_suits_[upd.instrument_id]) continue;
         emit_broadcast(serialise::book_update_payload(
             instrument_suit_label(upd.instrument_id),
-            upd.best_bid, upd.best_ask));
+            upd.best_bid, upd.best_ask,
+            exchange_.current_seq()));
     }
 }
 
@@ -918,6 +921,7 @@ void GameSession::send_spectator_snapshot(int32_t spectator_id) {
                     std::string(engine::suit_name(s)),
                     exchange_.best_bid(si),
                     exchange_.best_ask(si),
+                    exchange_.current_seq(),
                     exchange_.best_bid_slot(si),
                     exchange_.best_ask_slot(si)));
         }
@@ -1259,7 +1263,8 @@ std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) 
             emit_broadcast(serialise::book_update_payload(
                 instrument_suit_label(cack->instrument_id),
                 exchange_.best_bid(cack->instrument_id),
-                exchange_.best_ask(cack->instrument_id)));
+                exchange_.best_ask(cack->instrument_id),
+                exchange_.current_seq()));
         }
     }
     return cancelled;

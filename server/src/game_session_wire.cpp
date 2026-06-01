@@ -1,4 +1,6 @@
 #include "server/game_session_wire.h"
+#include "server/market_data_wire.h"
+#include "exchange/exchange_types.h"
 
 namespace anjeer::server {
 
@@ -57,17 +59,20 @@ std::string opt_price(std::optional<int32_t> p) noexcept {
 }
 
 std::string book_update_payload(
-        const std::string&     suit,
-        std::optional<int32_t> best_bid,
-        std::optional<int32_t> best_ask,
-        std::optional<int32_t> best_bid_slot,
-        std::optional<int32_t> best_ask_slot) {
+        const std::string&              suit,
+        std::optional<int32_t>          best_bid,
+        std::optional<int32_t>          best_ask,
+        anjeer::exchange::seq_t         seq,
+        std::optional<int32_t>          best_bid_slot,
+        std::optional<int32_t>          best_ask_slot) {
     const nlohmann::json bid_val      = best_bid.has_value()       ? nlohmann::json(*best_bid)       : nlohmann::json(nullptr);
     const nlohmann::json ask_val      = best_ask.has_value()       ? nlohmann::json(*best_ask)       : nlohmann::json(nullptr);
     const nlohmann::json bid_slot_val = best_bid_slot.has_value()  ? nlohmann::json(*best_bid_slot)  : nlohmann::json(nullptr);
     const nlohmann::json ask_slot_val = best_ask_slot.has_value()  ? nlohmann::json(*best_ask_slot)  : nlohmann::json(nullptr);
     return nlohmann::json{
         {"type",           "book_update"},
+        {"v",              anjeer::server::wire::kSchemaVersion},
+        {"seq",            static_cast<int64_t>(seq)},
         {"suit",           suit},
         {"best_bid",       bid_val},
         {"best_ask",       ask_val},

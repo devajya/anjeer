@@ -11,7 +11,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
 
 .PHONY: build build-engine build-server build-frontend \
         dev dev-server dev-frontend \
-        test test-unit test-frontend \
+        test test-unit test-one test-frontend \
         clean clean-all fmt install-hooks install-deps \
         db-migrate db-seed reset-lobby-db
 
@@ -133,6 +133,12 @@ test-unit: $(BUILD_DIR)/Makefile
 	# AGENT-CTX: -j runs test binaries in parallel; ws_server_tests is registered
 	# RUN_SERIAL in CMakeLists so ctest automatically holds it until parallel tests finish.
 	cd $(BUILD_DIR) && ctest --output-on-failure -j$$(nproc)
+
+test-one: $(BUILD_DIR)/Makefile
+	# Usage: make test-one T=market_data_wire_tests
+	# Builds the named target then runs its binary directly (bypasses ctest name-matching).
+	cmake --build $(BUILD_DIR) --target $(T) --parallel
+	find $(BUILD_DIR) -maxdepth 2 -name '$(T)' -exec chmod +x {} \; -exec {} \;
 
 TSAN_BUILD_DIR := build-tsan
 
