@@ -12,6 +12,18 @@
 
 namespace anjeer::exchange {
 
+// Aggregated price level for MBP-N depth view.
+struct PriceLevel {
+    price_t price;
+    int     qty;    // total resting quantity at this price
+};
+
+// Single resting order for MBO view.
+struct OrderEntry {
+    order_id_t order_id;
+    price_t    price;
+};
+
 // Configuration for one tradeable instrument.
 // instrument_id is implied by the position in the vector passed to ExchangeSession
 // (instruments[0] → instrument_id 0, etc.).
@@ -82,6 +94,15 @@ public:
     // Full order snapshots for state serialization (reconnect, eval).
     [[nodiscard]] std::vector<OrderBook::OrderSnapshot> bids_snapshot(instrument_id_t instrument_id) const;
     [[nodiscard]] std::vector<OrderBook::OrderSnapshot> asks_snapshot(instrument_id_t instrument_id) const;
+
+    // MBP-N: price-level aggregated depth view (qty = total resting qty at level).
+    // Returns at most `depth` levels ordered best-price first.
+    [[nodiscard]] std::vector<PriceLevel> bids_depth(instrument_id_t instrument_id, int depth) const;
+    [[nodiscard]] std::vector<PriceLevel> asks_depth(instrument_id_t instrument_id, int depth) const;
+
+    // MBO: individual order view (one entry per resting order, best-price first).
+    [[nodiscard]] std::vector<OrderEntry> bids_mbo(instrument_id_t instrument_id) const;
+    [[nodiscard]] std::vector<OrderEntry> asks_mbo(instrument_id_t instrument_id) const;
 
     [[nodiscard]] std::size_t instrument_count() const noexcept { return books_.size(); }
 

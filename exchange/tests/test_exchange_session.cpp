@@ -402,6 +402,99 @@ TEST_CASE("crossing on one instrument does not affect other instruments") {
     REQUIRE(s.best_bid(1).value() == 45);
 }
 
+// ---------------------------------------------------------------------------
+// T03–T05 — depth and MBO snapshot methods
+// ---------------------------------------------------------------------------
+
+TEST_CASE("T03 bids_depth returns at most depth levels", "[exchange_session]") {
+    auto s = make_session();
+    s.submit_order(0, Side::Buy, 50, 1);
+    s.submit_order(0, Side::Buy, 45, 2);
+    s.submit_order(0, Side::Buy, 40, 3);
+
+    auto levels = s.bids_depth(0, 2);
+    REQUIRE(levels.size() == 2);
+    CHECK(levels[0].price == 50);
+    CHECK(levels[1].price == 45);
+}
+
+TEST_CASE("T03 asks_depth returns at most depth levels", "[exchange_session]") {
+    auto s = make_session();
+    s.submit_order(0, Side::Sell, 50, 1);
+    s.submit_order(0, Side::Sell, 55, 2);
+    s.submit_order(0, Side::Sell, 60, 3);
+
+    auto levels = s.asks_depth(0, 2);
+    REQUIRE(levels.size() == 2);
+    CHECK(levels[0].price == 50);
+    CHECK(levels[1].price == 55);
+}
+
+TEST_CASE("T03 bids_depth qty equals total resting qty at each level", "[exchange_session]") {
+    auto s = make_session();
+    s.submit_order(0, Side::Buy, 42, 1);
+    s.submit_order(0, Side::Buy, 42, 2);
+    s.submit_order(0, Side::Buy, 42, 3);
+    s.submit_order(0, Side::Buy, 40, 4);
+
+    auto levels = s.bids_depth(0, 10);
+    REQUIRE(levels.size() == 2);
+    CHECK(levels[0].price == 42);
+    CHECK(levels[0].qty   == 3);
+    CHECK(levels[1].price == 40);
+    CHECK(levels[1].qty   == 1);
+}
+
+TEST_CASE("T04 bids_depth aggregates three orders at same price into qty=3", "[exchange_session]") {
+    auto s = make_session();
+    s.submit_order(0, Side::Buy, 42, 1);
+    s.submit_order(0, Side::Buy, 42, 2);
+    s.submit_order(0, Side::Buy, 42, 3);
+
+    auto levels = s.bids_depth(0, 10);
+    REQUIRE(levels.size() == 1);
+    CHECK(levels[0].price == 42);
+    CHECK(levels[0].qty   == 3);
+}
+
+TEST_CASE("T05 bids_mbo returns one OrderEntry per resting bid with correct order_id and price", "[exchange_session]") {
+    auto s = make_session();
+    auto r1 = s.submit_order(0, Side::Buy, 50, 1);
+    auto r2 = s.submit_order(0, Side::Buy, 45, 2);
+    auto id1 = get_feedback<OrderAck>(r1).order_id;
+    auto id2 = get_feedback<OrderAck>(r2).order_id;
+
+    auto entries = s.bids_mbo(0);
+    REQUIRE(entries.size() == 2);
+    CHECK(entries[0].order_id == id1);
+    CHECK(entries[0].price    == 50);
+    CHECK(entries[1].order_id == id2);
+    CHECK(entries[1].price    == 45);
+}
+
+TEST_CASE("T05 asks_mbo returns one OrderEntry per resting ask with correct order_id and price", "[exchange_session]") {
+    auto s = make_session();
+    auto r1 = s.submit_order(0, Side::Sell, 50, 1);
+    auto r2 = s.submit_order(0, Side::Sell, 60, 2);
+    auto id1 = get_feedback<OrderAck>(r1).order_id;
+    auto id2 = get_feedback<OrderAck>(r2).order_id;
+
+    auto entries = s.asks_mbo(0);
+    REQUIRE(entries.size() == 2);
+    CHECK(entries[0].order_id == id1);
+    CHECK(entries[0].price    == 50);
+    CHECK(entries[1].order_id == id2);
+    CHECK(entries[1].price    == 60);
+}
+
+TEST_CASE("T03 depth/MBO methods return empty for out-of-range instrument_id", "[exchange_session]") {
+    auto s = make_session();
+    CHECK(s.bids_depth(99, 5).empty());
+    CHECK(s.asks_depth(99, 5).empty());
+    CHECK(s.bids_mbo(99).empty());
+    CHECK(s.asks_mbo(99).empty());
+}
+
 // T02 — ExchangeSession::current_seq() proxies Sequencer correctly
 TEST_CASE("T02 ExchangeSession::current_seq returns 0 before any events") {
     auto s = make_session();

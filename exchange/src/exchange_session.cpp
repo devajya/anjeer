@@ -125,6 +125,58 @@ ExchangeSession::asks_snapshot(instrument_id_t instrument_id) const {
 }
 
 
+std::vector<PriceLevel>
+ExchangeSession::bids_depth(instrument_id_t instrument_id, int depth) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return {};
+    auto snaps = books_[instrument_id].bids_snapshot();
+    std::vector<PriceLevel> levels;
+    for (auto& s : snaps) {
+        if (!levels.empty() && levels.back().price == s.price) {
+            ++levels.back().qty;
+        } else {
+            if (static_cast<int>(levels.size()) == depth) break;
+            levels.push_back({s.price, 1});
+        }
+    }
+    return levels;
+}
+
+std::vector<PriceLevel>
+ExchangeSession::asks_depth(instrument_id_t instrument_id, int depth) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return {};
+    auto snaps = books_[instrument_id].asks_snapshot();
+    std::vector<PriceLevel> levels;
+    for (auto& s : snaps) {
+        if (!levels.empty() && levels.back().price == s.price) {
+            ++levels.back().qty;
+        } else {
+            if (static_cast<int>(levels.size()) == depth) break;
+            levels.push_back({s.price, 1});
+        }
+    }
+    return levels;
+}
+
+std::vector<OrderEntry>
+ExchangeSession::bids_mbo(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return {};
+    auto snaps = books_[instrument_id].bids_snapshot();
+    std::vector<OrderEntry> out;
+    out.reserve(snaps.size());
+    for (auto& s : snaps) out.push_back({s.order_id, s.price});
+    return out;
+}
+
+std::vector<OrderEntry>
+ExchangeSession::asks_mbo(instrument_id_t instrument_id) const {
+    if (instrument_id >= static_cast<instrument_id_t>(books_.size())) return {};
+    auto snaps = books_[instrument_id].asks_snapshot();
+    std::vector<OrderEntry> out;
+    out.reserve(snaps.size());
+    for (auto& s : snaps) out.push_back({s.order_id, s.price});
+    return out;
+}
+
 OrderRejected::Code
 ExchangeSession::map_error_code(OrderErrorEvent::Code code) noexcept {
     switch (code) {
