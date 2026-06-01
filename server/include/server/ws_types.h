@@ -12,6 +12,8 @@
 #include <optional>
 #include <string>
 
+#include "feed_tier.h"
+
 namespace anjeer::server {
 
 enum class ConnectionRole { Player, Spectator };
@@ -57,6 +59,7 @@ struct PerSocketData {
     // Populated in .upgrade from ?token= query param; consumed in .open to
     // validate and trigger the reattach path instead of a fresh NetConnect.
     std::string reconnect_token;
+    FeedTier    feed_tier = FeedTier::MBP1;
 };
 
 using WsHandle = uWS::WebSocket<false, true, PerSocketData>*;

@@ -180,13 +180,17 @@ void WsServer::run() {
             // build player_left broadcasts without a per-event DB round-trip. Skip
             // the query for connections we are about to reject.
             std::string username;
+            FeedTier    feed_tier = FeedTier::MBP1;
             if (player_id >= 0 && !pending_close) {
                 try {
                     auto handle = db_pool_.acquire();
                     pqxx::work txn(handle.get());
                     auto rows = txn.exec_params(
-                        "SELECT username FROM players WHERE id = $1", player_id);
-                    if (!rows.empty()) username = rows[0][0].as<std::string>();
+                        "SELECT username, feed_preference FROM players WHERE id = $1", player_id);
+                    if (!rows.empty()) {
+                        username  = rows[0][0].as<std::string>();
+                        feed_tier = feed_tier_from_string(rows[0][1].as<std::string>());
+                    }
                 } catch (...) {}
             }
 
@@ -196,6 +200,7 @@ void WsServer::run() {
             psd.pending_close   = pending_close;
             psd.username        = username;
             psd.reconnect_token = std::string(reconnect_qp);
+            psd.feed_tier       = feed_tier;
 
             res->template upgrade<PerSocketData>(
                 std::move(psd),
@@ -221,6 +226,12 @@ void WsServer::run() {
             }
 
             const int64_t player_id = data->player_id;
+
+            if (player_id >= 0) {
+                server_log_.info("open", "feed_tier=" +
+                    std::string(feed_tier_to_string(data->feed_tier)) +
+                    " for player " + std::to_string(player_id));
+            }
 
             // Check if this player belongs to an active game session
             auto lobby_it = player_to_lobby_.find(player_id);
