@@ -514,6 +514,21 @@ target_link_libraries(rate_limiter_tests PRIVATE
 catch_discover_tests(rate_limiter_tests)
 
 # ---------------------------------------------------------------------------
+# FeedTier unit tests — header-only enum + string helpers, no DB, no network
+# ---------------------------------------------------------------------------
+add_executable(feed_tier_tests
+    tests/test_feed_tier.cpp
+)
+
+target_include_directories(feed_tier_tests PRIVATE include)
+
+target_link_libraries(feed_tier_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+catch_discover_tests(feed_tier_tests)
+
+# ---------------------------------------------------------------------------
 # BotScheduler unit tests — no DB, no network, pure thread-pool logic
 # ---------------------------------------------------------------------------
 add_executable(bot_scheduler_tests
