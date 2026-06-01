@@ -35,6 +35,7 @@ add_executable(server
     src/bayesian_eval_module.cpp
     src/accumulation_eval_module.cpp
     src/execution_eval_module.cpp
+    src/market_data_wire.cpp
 )
 
 target_include_directories(server PRIVATE include)
@@ -527,6 +528,22 @@ target_link_libraries(feed_tier_tests PRIVATE
 )
 
 catch_discover_tests(feed_tier_tests)
+
+add_executable(market_data_wire_tests
+    tests/test_market_data_wire.cpp
+    src/market_data_wire.cpp
+)
+
+target_include_directories(market_data_wire_tests PRIVATE include)
+
+target_link_libraries(market_data_wire_tests PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    anjeer_exchange
+    nlohmann_json::nlohmann_json
+)
+
+catch_discover_tests(market_data_wire_tests)
 
 # ---------------------------------------------------------------------------
 # BotScheduler unit tests — no DB, no network, pure thread-pool logic

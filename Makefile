@@ -124,7 +124,8 @@ test-unit: $(BUILD_DIR)/Makefile
 		--target accumulation_module_tests \
 		--target execution_module_tests \
 		--target eval_integration_tests \
-		--target feed_tier_tests
+		--target feed_tier_tests \
+		--target market_data_wire_tests
 	# AGENT-CTX: NTFS (/mnt/c/) does not reliably preserve the execute bit on
 	# newly linked ELF binaries. chmod after every build so ctest can run them
 	# regardless of which targets were just rebuilt.
