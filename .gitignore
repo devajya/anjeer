@@ -50,6 +50,7 @@ venv/
 config/dev.json
 config/local.json
 config/default.json
+cli/anjeer.json
 *.env
 .env.*
 
