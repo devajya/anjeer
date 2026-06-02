@@ -147,6 +147,9 @@ ServerConfig load_config(const std::string& path) {
         cfg.reconnect.max_queue_size           = rc.at("max_queue_size").get<int>();
         cfg.reconnect.token_ttl_seconds        = rc.at("token_ttl_seconds").get<int>();
 
+        const auto& md = j.at("market_data");
+        cfg.market_data.mbp_depth = md.at("mbp_depth").get<int>();
+
         return cfg;
     } catch (const nlohmann::json::exception& e) {
         throw std::runtime_error(

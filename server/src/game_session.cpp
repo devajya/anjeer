@@ -732,8 +732,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                         upd->best_bid, upd->best_ask, seq,
                         upd->best_bid_slot, upd->best_ask_slot),
                     suit,
-                    exchange_.bids_depth(iid, 100),
-                    exchange_.asks_depth(iid, 100),
+                    exchange_.bids_depth(iid, cfg_.market_data.mbp_depth),
+                    exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
                     seq});
             }
         }
@@ -895,8 +895,8 @@ void GameSession::apply_global_wipe() {
                 instrument_suit_label(upd.instrument_id),
                 upd.best_bid, upd.best_ask, seq),
             suit,
-            exchange_.bids_depth(iid, 100),
-            exchange_.asks_depth(iid, 100),
+            exchange_.bids_depth(iid, cfg_.market_data.mbp_depth),
+            exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
             seq});
     }
 }
@@ -1316,8 +1316,8 @@ std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) 
                     instrument_suit_label(cack->instrument_id),
                     exchange_.best_bid(iid), exchange_.best_ask(iid), seq),
                 suit,
-                exchange_.bids_depth(iid, 100),
-                exchange_.asks_depth(iid, 100),
+                exchange_.bids_depth(iid, cfg_.market_data.mbp_depth),
+                exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
                 seq});
         }
     }
@@ -1450,8 +1450,8 @@ void GameSession::handle_send_feed_snapshot(int32_t slot, const std::string& tie
         } else if (tier == "mbpn") {
             emit_targeted(slot, wire::book_depth_snapshot(
                 suit,
-                exchange_.bids_depth(iid, 100),
-                exchange_.asks_depth(iid, 100),
+                exchange_.bids_depth(iid, cfg_.market_data.mbp_depth),
+                exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
                 seq));
         } else if (tier == "mbo") {
             emit_targeted(slot, wire::order_book_snapshot(

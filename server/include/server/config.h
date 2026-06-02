@@ -150,6 +150,10 @@ struct ServerConfig {
         int max_queue_size           = 8;
         int token_ttl_seconds        = 7200;
     } reconnect;
+
+    struct MarketDataConfig {
+        int mbp_depth = 5;  // top N price levels sent in MBP-N messages
+    } market_data;
 };
 
 // Load and parse a JSON config file.

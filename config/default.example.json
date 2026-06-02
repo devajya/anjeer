@@ -109,5 +109,8 @@
     "reconnect_window_seconds": 20,
     "max_queue_size": 8,
     "token_ttl_seconds": 7200
+  },
+  "market_data": {
+    "mbp_depth": 5
   }
 }
