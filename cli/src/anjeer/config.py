@@ -35,6 +35,6 @@ def load_config() -> AnjeerConfig:
 
 
 def save_config(cfg: AnjeerConfig) -> None:
-    _LOCAL_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    with open(_LOCAL_CONFIG, "w") as f:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
         json.dump(asdict(cfg), f, indent=2)

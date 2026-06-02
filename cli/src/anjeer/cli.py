@@ -14,6 +14,7 @@ from .api import (
     get_spectate_token,
     join_lobby,
     poll_lobby,
+    set_feed_preference,
     start_lobby,
 )
 from .config import AnjeerConfig, load_config, save_config
@@ -223,3 +224,32 @@ def create(
         click.echo(f"Warning: could not get spectate URL: {e}", err=True)
 
     _spawn_script(cfg, code)
+
+
+_FEED_ALIASES = {"mbp-1": "mbp1", "mbp-n": "mbpn"}
+_VALID_PREFS = {"mbp1", "mbpn", "mbo"}
+
+
+@main.command()
+@click.argument("preference", metavar="<mbp-1|mbp-n|mbo>")
+def feed(preference: str) -> None:
+    """Set your market-data feed tier (mbp-1, mbp-n, or mbo)."""
+    pref = _FEED_ALIASES.get(preference.lower(), preference.lower())
+    if pref not in _VALID_PREFS:
+        raise click.UsageError(
+            f"Invalid feed preference '{preference}'. Choose mbp-1, mbp-n, or mbo."
+        )
+
+    try:
+        cfg = load_config()
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(str(e), err=True)
+        sys.exit(1)
+
+    try:
+        set_feed_preference(cfg, pref)
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    click.echo(f"Feed preference updated to {pref}")

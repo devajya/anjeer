@@ -230,6 +230,43 @@ def test_create_starts_game_on_confirm(config_file):
     assert mock_sub.called
 
 
+# ─── feed ────────────────────────────────────────────────────────────────────
+
+def test_feed_mbp1_alias_calls_put(config_file):
+    """T32: anjeer feed mbp-1 → PUT /players/me/feed with body {"feed_preference":"mbp1"}"""
+    runner = CliRunner()
+    with patch("anjeer.api.requests.put") as mock_put:
+        mock_put.return_value = MagicMock(
+            ok=True, json=lambda: {"feed_preference": "mbp1"}
+        )
+        result = runner.invoke(main, ["feed", "mbp-1"])
+    assert result.exit_code == 0, result.output
+    assert "mbp1" in result.output
+    body = mock_put.call_args.kwargs.get("json") or mock_put.call_args[1].get("json")
+    assert body == {"feed_preference": "mbp1"}
+
+
+def test_feed_mbo_calls_put(config_file):
+    """T33: anjeer feed mbo → PUT /players/me/feed with body {"feed_preference":"mbo"}"""
+    runner = CliRunner()
+    with patch("anjeer.api.requests.put") as mock_put:
+        mock_put.return_value = MagicMock(
+            ok=True, json=lambda: {"feed_preference": "mbo"}
+        )
+        result = runner.invoke(main, ["feed", "mbo"])
+    assert result.exit_code == 0, result.output
+    assert "mbo" in result.output
+    body = mock_put.call_args.kwargs.get("json") or mock_put.call_args[1].get("json")
+    assert body == {"feed_preference": "mbo"}
+
+
+def test_feed_invalid_exits_nonzero(config_file):
+    """T34: anjeer feed <invalid> → exits non-zero, prints usage error"""
+    runner = CliRunner()
+    result = runner.invoke(main, ["feed", "turbo"])
+    assert result.exit_code != 0
+
+
 def test_create_spawns_script_after_start(config_file):
     runner = CliRunner()
     with patch("anjeer.api.requests.post") as mock_post, \

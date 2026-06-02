@@ -87,6 +87,18 @@ def poll_lobby(cfg: AnjeerConfig, code: str, interval_s: float = 2.0) -> dict:
         time.sleep(interval_s)
 
 
+def set_feed_preference(cfg: AnjeerConfig, pref: str) -> dict:
+    r = requests.put(
+        f"{cfg.api_url}/players/me/feed",
+        json={"feed_preference": pref},
+        headers=_headers(cfg),
+        timeout=10,
+    )
+    if not r.ok:
+        raise RuntimeError(f"Feed update failed: {r.json().get('error', r.text)}")
+    return r.json()
+
+
 def get_spectate_token(cfg: AnjeerConfig, lobby_code: str) -> str:
     r = requests.post(
         f"{cfg.api_url}/players/me/spectate-token",
