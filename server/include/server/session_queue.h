@@ -64,13 +64,17 @@ struct NetAdmitQueue { std::vector<SlotAdmitInfo> entries; };
 
 struct NetSendFeedSnapshot { int32_t slot; std::string tier; }; // "mbpn" | "mbo"
 
+// Triggers an MBO on-connect snapshot targeted at a /ws/marketdata connection.
+// md_id is assigned by WsServer from a per-session counter; not a player slot.
+struct NetMarketDataConnect { int32_t md_id; };
+
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
     NetStartGame, NetOwnerStartRound, NetOwnerEndGame, NetPermanentLeave,
     NetSpectatorJoin, NetSpectatorLeave,
     NetReconnectDisconnect, NetReconnectReattach,
-    NetAdmitQueue, NetSendFeedSnapshot>;
+    NetAdmitQueue, NetSendFeedSnapshot, NetMarketDataConnect>;
 
 // ── Outbound: game-loop thread → network thread ───────────────────────────────
 // AGENT-CTX: GameSession never touches WsHandle or uWS directly — it writes
@@ -124,10 +128,15 @@ struct GameBookUpdate {
 // order_cancelled). WsServer fans this out to sockets with FeedTier::MBO only.
 struct GameMboEvent { std::string json; };
 
+// Targeted delivery to one /ws/marketdata connection (identified by md_id,
+// not a player slot). Used to deliver the on-connect MBO snapshot.
+struct GameMarketDataTargeted { int32_t md_id; std::string json; };
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
                                GameSpawnBot, GameReconnectExpired,
                                GameRoundStarted, GameEvalOutput,
-                               GameBookUpdate, GameMboEvent>;
+                               GameBookUpdate, GameMboEvent,
+                               GameMarketDataTargeted>;
 
 } // namespace anjeer::server

@@ -571,6 +571,131 @@ void WsServer::run() {
            ->end("");
     });
 
+    // ── /ws/marketdata — dedicated MBO market-data feed ───────────────────
+    // Authenticated (Bearer/JWT) subscribers receive an MBO on-connect snapshot
+    // and all subsequent GameMboEvent broadcasts for the subscribed lobby.
+    // FeedTier is stamped MBO unconditionally (ignores player DB preference).
+    // Lobby association is via the ?lobby_id= query parameter.
+    app.ws<PerSocketData>("/ws/marketdata", {
+        .idleTimeout            = static_cast<unsigned short>(cfg_.ping_timeout_ms / 1000),
+        .sendPingsAutomatically = true,
+
+        .upgrade = [this](uWS::HttpResponse<false>* res,
+                          uWS::HttpRequest*          req,
+                          us_socket_context_t*       ctx) {
+            int64_t player_id = -1;
+            std::optional<WsErrorCode> pending_close;
+
+            std::string_view auth_hdr   = req->getHeader("authorization");
+            std::string_view api_key_qp = req->getQuery("api_key");
+
+            auto try_api_key_md = [&](std::string_view raw_key) {
+                try {
+                    auto handle = db_pool_.acquire();
+                    pqxx::work txn(handle.get());
+                    auto maybe = api_key_repo_.find_valid_by_hash(txn, sha256_hex(raw_key));
+                    if (maybe) player_id = maybe->player_id;
+                    else       pending_close = WsErrorCode::ApiKeyInvalid;
+                } catch (...) {
+                    pending_close = WsErrorCode::ApiKeyInvalid;
+                }
+            };
+
+            if (auth_hdr.size() > 7 && auth_hdr.substr(0, 7) == "Bearer ")
+                try_api_key_md(auth_hdr.substr(7));
+            else if (!api_key_qp.empty())
+                try_api_key_md(api_key_qp);
+            else {
+                // Try JWT cookie fallback
+                std::string_view cookie_hdr = req->getHeader("cookie");
+                if (!cookie_hdr.empty()) {
+                    std::string token = parse_cookie_value(cookie_hdr, "access_token");
+                    if (!token.empty()) {
+                        auto opt = auth_service_.validate_access_token(token);
+                        if (opt) player_id = *opt;
+                    }
+                }
+            }
+
+            // Reject unauthenticated connections immediately.
+            if (player_id < 0 && !pending_close)
+                pending_close = WsErrorCode::ApiKeyInvalid;
+
+            std::string lobby_id(req->getQuery("lobby_id"));
+
+            PerSocketData psd;
+            psd.player_id     = player_id;
+            psd.auth_type     = AuthType::ApiKey;
+            psd.pending_close = pending_close;
+            psd.feed_tier     = FeedTier::MBO;
+            psd.lobby_id      = lobby_id;
+
+            res->template upgrade<PerSocketData>(
+                std::move(psd),
+                req->getHeader("sec-websocket-key"),
+                req->getHeader("sec-websocket-protocol"),
+                req->getHeader("sec-websocket-extensions"),
+                ctx);
+        },
+
+        .open = [this, loop](WsHandle ws) {
+            auto* data = ws->getUserData();
+
+            if (data->pending_close) {
+                ws->send(nlohmann::json{
+                    {"type",    "error"},
+                    {"code",    serialise::error_code_str(*data->pending_close)},
+                    {"message", "connection rejected"}
+                }.dump(), uWS::OpCode::TEXT);
+                loop->defer([ws]() { ws->end(4001, "unauthorized"); });
+                return;
+            }
+
+            const std::string& lobby_id = data->lobby_id;
+            auto session_it = active_sessions_.find(lobby_id);
+            if (session_it == active_sessions_.end()) {
+                ws->send(nlohmann::json{
+                    {"type",    "error"},
+                    {"code",    "session_not_found"},
+                    {"message", "no active session for lobby_id"}
+                }.dump(), uWS::OpCode::TEXT);
+                loop->defer([ws]() { ws->end(4004, "session not found"); });
+                return;
+            }
+
+            auto& as = session_it->second;
+            const int32_t md_id = as.next_md_id_++;
+            as.marketdata_handles_[md_id] = ws;
+            as.ws_to_marketdata_[ws]      = md_id;
+
+            server_log_.info("marketdata",
+                "player_id=" + std::to_string(data->player_id) +
+                " connected to lobby " + lobby_id + " md_id=" + std::to_string(md_id));
+
+            // Request the MBO on-connect snapshot via the game session queue.
+            as.inbound->enqueue(NetMarketDataConnect{md_id});
+        },
+
+        .message = [](WsHandle /*ws*/, std::string_view /*msg*/, uWS::OpCode /*op*/) {
+            // /ws/marketdata is a read-only feed; inbound messages are silently dropped.
+        },
+
+        .close = [this](WsHandle ws, int /*code*/, std::string_view /*reason*/) {
+            auto* data = ws->getUserData();
+            const std::string& lobby_id = data->lobby_id;
+            auto session_it = active_sessions_.find(lobby_id);
+            if (session_it == active_sessions_.end()) return;
+            auto& as = session_it->second;
+            auto it = as.ws_to_marketdata_.find(ws);
+            if (it == as.ws_to_marketdata_.end()) return;
+            const int32_t md_id = it->second;
+            as.ws_to_marketdata_.erase(it);
+            as.marketdata_handles_.erase(md_id);
+            server_log_.info("marketdata",
+                "md_id=" + std::to_string(md_id) + " disconnected from lobby " + lobby_id);
+        },
+    });
+
     // ── Outbound drain timer (16 ms) ──────────────────────────────────────
     // AGENT-CTX: We store `this` in the timer's ext memory (sizeof(void*) bytes).
     // The timer fires on the uWS event-loop thread so drain_all_on_loop() can
@@ -953,6 +1078,13 @@ void WsServer::drain_all_on_loop() {
                                 ws->send(arg.json, uWS::OpCode::TEXT);
                         }
                     }
+                    // /ws/marketdata connections always receive all MBO events.
+                    for (auto& [md_id, ws] : as.marketdata_handles_)
+                        ws->send(arg.json, uWS::OpCode::TEXT);
+                } else if constexpr (std::is_same_v<T, GameMarketDataTargeted>) {
+                    auto wh = as.marketdata_handles_.find(arg.md_id);
+                    if (wh != as.marketdata_handles_.end())
+                        wh->second->send(arg.json, uWS::OpCode::TEXT);
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.
                     // For each bot displaced: stop the BotAdapter, deactivate the slot in

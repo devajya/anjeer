@@ -82,6 +82,11 @@ private:
         std::unique_ptr<LobbyQueue>                                queue_;
         // Mutable owner: initialized from creator_id, transferred on owner leave/expiry.
         int64_t                                                    current_owner_player_id_ = -1;
+        // /ws/marketdata connections: receive MBO snapshot on connect + all GameMboEvent
+        // fan-out. Keyed by a per-session monotonic md_id (not a player slot).
+        std::unordered_map<int32_t, WsHandle>                      marketdata_handles_;
+        std::unordered_map<WsHandle, int32_t>                      ws_to_marketdata_;
+        int32_t                                                    next_md_id_ = 0;
     };
 
     void create_session      (const std::string& lobby_id);

@@ -84,9 +84,10 @@ class WsTestClient {
 public:
     // extra_headers: optional additional HTTP headers appended before the blank line,
     // each terminated with \r\n. Example: "Authorization: Bearer ank_...\r\n"
-    explicit WsTestClient(int port, std::string extra_headers = "")
+    explicit WsTestClient(int port, std::string extra_headers = "", std::string path = "/ws")
         : fd_(::socket(AF_INET, SOCK_STREAM, 0))
-        , extra_headers_(std::move(extra_headers)) {
+        , extra_headers_(std::move(extra_headers))
+        , path_(std::move(path)) {
         if (fd_ < 0) throw std::runtime_error("socket() failed");
 
         // 3-second receive timeout — prevents tests hanging on missed messages.
@@ -176,12 +177,13 @@ public:
 private:
     int         fd_;
     std::string extra_headers_;
+    std::string path_;
 
     void do_handshake() {
         // RFC 6455 example key — any valid base64 value is accepted by uWS.
         const std::string key = "dGhlIHNhbXBsZSBub25jZQ==";
         const std::string req =
-            "GET /ws HTTP/1.1\r\n"
+            "GET " + path_ + " HTTP/1.1\r\n"
             "Host: 127.0.0.1\r\n"
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
@@ -1514,4 +1516,120 @@ TEST_CASE("WS server — resync on MBO returns order_book_snapshot",
         } catch (...) { break; }
     }
     REQUIRE(got_snapshot);
+}
+
+// ─── T25: /ws/marketdata unauthenticated → rejected ────────────────────────
+TEST_CASE("WS /ws/marketdata — unauthenticated connect is rejected",
+          "[ws_server][marketdata]") {
+    ensure_game_server_running();
+    // No auth → pending_close is set; server sends error JSON then closes.
+    WsTestClient c(WS_GAME_PORT, "", "/ws/marketdata?lobby_id=doesnotmatter");
+    bool rejected = false;
+    try {
+        auto j = c.recv_json();
+        rejected = (j.value("type", "") == "error");
+    } catch (...) {
+        // recv_text threw because the server sent a close frame — still a rejection.
+        rejected = true;
+    }
+    REQUIRE(rejected);
+}
+
+// ─── T26: /ws/marketdata authenticated → receives MBO regardless of DB pref ─
+TEST_CASE("WS /ws/marketdata — authenticated connection receives MBO events",
+          "[ws_server][marketdata]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("md1");
+
+    // Player 1 keeps default mbp1 preference; /ws/marketdata must override to MBO.
+    WsTestClient game1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    WsTestClient game2(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key2 + "\r\n");
+
+    const std::string md_path = "/ws/marketdata?lobby_id=" + setup.lobby_id;
+    WsTestClient md(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n", md_path);
+
+    // Wait for players to receive game_state_snapshot.
+    for (int i = 0; i < 20; ++i) {
+        try { if (game1.recv_json().value("type","") == "game_state_snapshot") break; }
+        catch (...) { break; }
+    }
+    for (int i = 0; i < 20; ++i) {
+        try { if (game2.recv_json().value("type","") == "game_state_snapshot") break; }
+        catch (...) { break; }
+    }
+
+    // Drain on-connect snapshots from the market data connection.
+    for (int i = 0; i < 10; ++i) {
+        try {
+            auto j = md.recv_json();
+            if (j.value("type","") != "order_book_snapshot") break;
+        } catch (...) { break; }
+    }
+
+    // Submit an order on the main game socket.
+    game1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",30}});
+
+    // The /ws/marketdata socket must receive an MBO order_added event.
+    bool got_mbo = false;
+    for (int i = 0; i < 30 && !got_mbo; ++i) {
+        try {
+            auto j = md.recv_json();
+            if (j.value("type","") == "order_added") got_mbo = true;
+        } catch (...) { break; }
+    }
+    REQUIRE(got_mbo);
+}
+
+// ─── T27: /ws/marketdata → order_book_snapshot on connect, MBO incrementals ─
+TEST_CASE("WS /ws/marketdata — snapshot on connect then incremental MBO events",
+          "[ws_server][marketdata]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("md2");
+
+    WsTestClient game1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    WsTestClient game2(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key2 + "\r\n");
+
+    const std::string md_path = "/ws/marketdata?lobby_id=" + setup.lobby_id;
+    WsTestClient md(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key2 + "\r\n", md_path);
+
+    for (int i = 0; i < 20; ++i) {
+        try { if (game1.recv_json().value("type","") == "game_state_snapshot") break; }
+        catch (...) { break; }
+    }
+    for (int i = 0; i < 20; ++i) {
+        try { if (game2.recv_json().value("type","") == "game_state_snapshot") break; }
+        catch (...) { break; }
+    }
+
+    // First messages on /ws/marketdata must be order_book_snapshot (one per active suit).
+    int snapshot_count = 0;
+    for (int i = 0; i < 10; ++i) {
+        try {
+            auto j = md.recv_json();
+            if (j.value("type","") == "order_book_snapshot") {
+                REQUIRE(j.contains("v"));
+                REQUIRE(j.contains("seq"));
+                REQUIRE(j.contains("suit"));
+                REQUIRE(j.contains("bids"));
+                REQUIRE(j.contains("asks"));
+                ++snapshot_count;
+            } else {
+                break;
+            }
+        } catch (...) { break; }
+    }
+    REQUIRE(snapshot_count >= 1);  // at least one suit active
+
+    // Submit an order; /ws/marketdata must receive order_added MBO event.
+    game1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","sell"},{"price",60}});
+    bool got_incremental = false;
+    for (int i = 0; i < 30 && !got_incremental; ++i) {
+        try {
+            auto j = md.recv_json();
+            const std::string t = j.value("type","");
+            if (t == "order_added" || t == "order_executed" || t == "order_cancelled")
+                got_incremental = true;
+        } catch (...) { break; }
+    }
+    REQUIRE(got_incremental);
 }

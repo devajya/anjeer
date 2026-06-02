@@ -143,6 +143,7 @@ private:
 
     void handle_admit_queue(const NetAdmitQueue&);
     void handle_send_feed_snapshot(int32_t slot, const std::string& tier);
+    void handle_market_data_connect(int32_t md_id);
 
     // ── Reconnect internal handlers (called on game-loop thread) ──────────────
     void handle_reconnect_disconnect(int32_t slot);
@@ -191,6 +192,7 @@ private:
     void emit_targeted            (int32_t slot, const std::string& json);
     void emit_spectator_targeted  (int32_t spectator_id, const std::string& json);
     void emit_spectator_broadcast (const std::string& json);
+    void emit_market_data_targeted(int32_t md_id, const std::string& json);
     void emit_error               (int32_t slot, std::string_view code, std::string_view message);
     void broadcast_waiting_for_start();
 

@@ -216,6 +216,8 @@ void GameSession::process_inbound() {
                 handle_admit_queue(e);
             else if constexpr (std::is_same_v<T, NetSendFeedSnapshot>)
                 handle_send_feed_snapshot(e.slot, e.tier);
+            else if constexpr (std::is_same_v<T, NetMarketDataConnect>)
+                handle_market_data_connect(e.md_id);
         }, ev);
     }
 }
@@ -1447,6 +1449,21 @@ void GameSession::handle_send_feed_snapshot(int32_t slot, const std::string& tie
                 seq));
         }
     }
+}
+
+void GameSession::handle_market_data_connect(int32_t md_id) {
+    const exchange::seq_t seq = exchange_.current_seq();
+    for (auto suit : engine::kAllSuits) {
+        const int si = engine::suit_index(suit);
+        if (!active_suits_[si]) continue;
+        const auto iid = static_cast<exchange::instrument_id_t>(si);
+        emit_market_data_targeted(md_id, wire::order_book_snapshot(
+            suit, exchange_.bids_mbo(iid), exchange_.asks_mbo(iid), seq));
+    }
+}
+
+void GameSession::emit_market_data_targeted(int32_t md_id, const std::string& json) {
+    outbound_.enqueue(GameMarketDataTargeted{md_id, json});
 }
 
 void GameSession::deactivate_bot_slot(int slot_index) {
