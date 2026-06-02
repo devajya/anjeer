@@ -16,7 +16,7 @@
 #include <vector>
 #include <variant>
 
-// AGENT-CTX: us_create_timer / us_timer_set are the libuSockets C timer API.
+//us_create_timer / us_timer_set are the libuSockets C timer API.
 // They are the correct way to schedule periodic work on the uWS event loop
 // without blocking. The 16ms period matches a 60fps drain cadence — tight
 // enough that outbound queue latency is imperceptible, loose enough to avoid
@@ -132,7 +132,7 @@ void WsServer::run() {
     uWS::App   app;
     uWS::Loop* loop = uWS::Loop::get();
 
-    // AGENT-CTX: Subscribe to "game:start" on the LocalEventBus. The handler
+    //Subscribe to "game:start" on the LocalEventBus. The handler
     // fires synchronously on the Crow thread (HttpServer publishes there after
     // a successful lobby start). loop->defer() marshals the actual session
     // creation back to the uWS event-loop thread so active_sessions_ is only
@@ -156,7 +156,7 @@ void WsServer::run() {
         .idleTimeout            = static_cast<unsigned short>(cfg_.ping_timeout_ms / 1000),
         .sendPingsAutomatically = true,
 
-        // AGENT-CTX: .upgrade fires before .open and has access to the HTTP
+        //.upgrade fires before .open and has access to the HTTP
         // request headers (including cookies). This is the only place we can
         // read auth credentials because uWS does not expose request headers
         // in .open. Auth priority: (1) Authorization: Bearer <api_key> header,
@@ -182,7 +182,7 @@ void WsServer::run() {
                 pending_close = WsErrorCode::RateLimitExceeded;
             }
 
-            // AGENT-CTX: Username is not in the JWT (the token only carries player_id
+            //Username is not in the JWT (the token only carries player_id
             // as subject). We fetch it here in .upgrade so handle_leave_lobby can
             // build player_left broadcasts without a per-event DB round-trip. Skip
             // the query for connections we are about to reject.
@@ -339,7 +339,7 @@ void WsServer::run() {
                     lobby_gateway_.handle_unsubscribe(ws);
                     return;
                 }
-                // AGENT-CTX: leave_lobby is handled by WsServer (not GameSession)
+                //leave_lobby is handled by WsServer (not GameSession)
                 // because it requires DB writes (remove_player, delete_if_empty)
                 // and slot-mapping cleanup. The game-loop thread only sees a
                 // NetDisconnect after WsServer has already done the DB work.
@@ -436,7 +436,7 @@ void WsServer::run() {
                     return;
                 }
 
-                // AGENT-CTX: Spectators share the same .message path as players
+                //Spectators share the same .message path as players
                 // but must never mutate game state. Guard here (not per-branch) so
                 // every future trading message type is automatically blocked.
                 if (data->role == ConnectionRole::Spectator) {
@@ -477,8 +477,7 @@ void WsServer::run() {
                     if (data->player_id == as.current_owner_player_id_)
                         as.inbound->enqueue(NetOwnerEndGame{});
                 } else if (type == "resync") {
-                    const std::string tier = feed_tier_to_string(data->feed_tier);
-                    as.inbound->enqueue(NetSendFeedSnapshot{slot, tier});
+                    as.inbound->enqueue(NetSendFeedSnapshot{slot, data->feed_tier});
                 }
                 // Unknown game-command types are silently dropped — prevents log
                 // spam when old client versions send now-unknown messages.
@@ -682,7 +681,7 @@ void WsServer::run() {
     });
 
     // ── Outbound drain timer (16 ms) ──────────────────────────────────────
-    // AGENT-CTX: We store `this` in the timer's ext memory (sizeof(void*) bytes).
+    //We store `this` in the timer's ext memory (sizeof(void*) bytes).
     // The timer fires on the uWS event-loop thread so drain_all_on_loop() can
     // safely access active_sessions_ without a mutex. Fallthrough=0 means the
     // timer keeps the event loop alive — correct, we always want it running.
@@ -782,7 +781,7 @@ void WsServer::create_session(const std::string& lobby_id) {
             creator_id           = lobby->creator_id;
         }
         session_id = session_repo_.create_session(txn, lobby_id);
-        // AGENT-CTX: Transition Starting→InGame here (not in HttpServer) because
+        //Transition Starting→InGame here (not in HttpServer) because
         // WsServer is the authority for session lifecycle. HttpServer only initiates
         // the start (Waiting→Starting); WsServer confirms the game is actually live.
         const bool ok = lobby_repo_.transition_status(
@@ -967,8 +966,6 @@ void WsServer::drain_all_on_loop() {
                 if constexpr (std::is_same_v<T, GameBroadcast>) {
                     for (auto& [slot, ws] : as.slot_to_ws_)
                         ws->send(arg.json, uWS::OpCode::TEXT);
-                    // AGENT-CTX: Spectators receive all broadcasts (market data,
-                    // trade feed, balances) but never player-targeted messages.
                     for (auto& [sid, ws] : as.spectator_handles_)
                         ws->send(arg.json, uWS::OpCode::TEXT);
                     bot_manager_.dispatch_to_bots(lobby_id, arg.json, -1);
@@ -1054,9 +1051,6 @@ void WsServer::drain_all_on_loop() {
                             has_mbpn = true; break;
                         }
                     }
-                    if (!has_mbpn)
-                        server_log_.info("dispatch",
-                            "skipped MBPN serialization (0 subscribers)");
                     const std::string mbpn_json = has_mbpn
                         ? wire::book_depth(arg.suit, arg.bids, arg.asks, arg.seq)
                         : std::string{};
@@ -1256,7 +1250,7 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
         auto handle = db_pool_.acquire();
         pqxx::work txn(handle.get());
         lobby_repo_.remove_player(txn, lobby_id, data->player_id);
-        // AGENT-CTX: delete_if_empty only runs for pre-game lobbies. If the
+        //delete_if_empty only runs for pre-game lobbies. If the
         // session is active the lobby row must stay alive (it's the FK parent for
         // game_sessions). Teardown_session closes the lobby when the game ends.
         if (!active_sessions_.count(lobby_id)) {
@@ -1292,7 +1286,7 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
         data->player_slot = -1;
     }
 
-    // AGENT-CTX: Unsubscribe BEFORE publishing so the departing socket is removed
+    //Unsubscribe BEFORE publishing so the departing socket is removed
     // from the fan-out list first. LocalEventBus dispatches synchronously via
     // loop->defer(), but the defer callback checks subs_.count(ws) before sending,
     // so the order here is a belt-and-suspenders guard for future bus implementations
@@ -1300,7 +1294,7 @@ void WsServer::handle_leave_lobby(WsHandle ws, const std::string& lobby_id) {
     lobby_gateway_.handle_unsubscribe(ws);
 
     // Broadcast departure to remaining lobby members.
-    // AGENT-CTX: Only publish when this was a pre-game lobby socket (not a game
+    //Only publish when this was a pre-game lobby socket (not a game
     // session socket that happened to carry a lobby_id). Active game sessions have
     // their own player_left equivalent (game_player_left) dispatched by GameSession.
     if (!active_sessions_.count(lobby_id) && data->player_id >= 0) {
@@ -1328,7 +1322,7 @@ void WsServer::handle_spectate_lobby(WsHandle ws, const std::string& lobby_id) {
     }
     auto& as = it->second;
 
-    // AGENT-CTX: Reject any socket that already holds a player slot in this
+    //Reject any socket that already holds a player slot in this
     // session. A player cannot downgrade to spectator mid-game; they must leave
     // the lobby first. Checking ws_to_slot (not player_to_lobby_) ensures the
     // guard fires only if this specific handle is registered, not just any
@@ -1550,7 +1544,7 @@ void WsServer::handle_remove_bot(WsHandle ws, const std::string& lobby_id,
 // Shared connect/reconnect logic called from .open and handle_reconnect_game.
 // If data->reconnect_token is non-empty, validates it; returns false on failure.
 // Always creates a fresh token, updates WsServer maps, and calls handle_player_reattach.
-// AGENT-CTX: Using handle_player_reattach for ALL slot connections (initial and
+//Using handle_player_reattach for ALL slot connections (initial and
 // reconnect) keeps a single code path. handle_reconnect_reattach sends a full
 // snapshot in RoundActive and is a no-op (just marks connected=true) otherwise,
 // matching what we need for initial lobby-phase connects too.
@@ -1618,10 +1612,8 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     }
 
     as.session->handle_player_reattach(slot, new_token, expires_at_ms);
-    if (data->feed_tier == FeedTier::MBPN)
-        as.inbound->enqueue(NetSendFeedSnapshot{slot, "mbpn"});
-    else if (data->feed_tier == FeedTier::MBO)
-        as.inbound->enqueue(NetSendFeedSnapshot{slot, "mbo"});
+    if (data->feed_tier != FeedTier::MBP1)
+        as.inbound->enqueue(NetSendFeedSnapshot{slot, data->feed_tier});
     game_slots_repo_.upsert_active(as.session_id_, data->player_id, slot);
 
     server_log_.info("open",
@@ -1665,7 +1657,7 @@ void WsServer::handle_reconnect_game(WsHandle ws,
     // If the slot is available for queue admission the reconnect window already
     // expired and a bot has taken over. Block the attach and tell the client so
     // the expiry overlay is shown instead of attaching the player to the bot.
-    // AGENT-CTX: available_slots_ is inserted on GameReconnectExpired and erased
+    //available_slots_ is inserted on GameReconnectExpired and erased
     // only when a queued player is admitted, so it is a reliable liveness guard.
     if (as.available_slots_.count(slot) > 0) {
         ws->send(nlohmann::json{{"type","reconnect_window_expired"}}.dump(),

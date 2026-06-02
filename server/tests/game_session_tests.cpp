@@ -817,7 +817,7 @@ TEST_CASE("G-E4: eval output routed to correct target_slot in outbound queue",
 }
 
 // ── T17 — MBO on-connect snapshot ────────────────────────────────────────────
-// NetSendFeedSnapshot{slot, "mbo"} → GameTargeted per instrument with
+// NetSendFeedSnapshot{slot, FeedTier::MBO} → GameTargeted per instrument with
 // type="order_book_snapshot".
 TEST_CASE("T17: MBO on-connect snapshot emits order_book_snapshot per instrument",
           "[game_session][mbo][T17]") {
@@ -830,7 +830,7 @@ TEST_CASE("T17: MBO on-connect snapshot emits order_book_snapshot per instrument
     REQUIRE(h.recv_type("round_starting").has_value());
     REQUIRE(h.recv_type("round_start").has_value());
 
-    h.push(NetSendFeedSnapshot{0, "mbo"});
+    h.push(NetSendFeedSnapshot{0, FeedTier::MBO});
 
     int snapshots = 0;
     const auto deadline = std::chrono::steady_clock::now() + 2000ms;

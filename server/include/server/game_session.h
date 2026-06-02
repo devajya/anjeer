@@ -142,7 +142,7 @@ private:
     void send_spectator_snapshot(int32_t spectator_id);
 
     void handle_admit_queue(const NetAdmitQueue&);
-    void handle_send_feed_snapshot(int32_t slot, const std::string& tier);
+    void handle_send_feed_snapshot(int32_t slot, FeedTier tier);
     void handle_market_data_connect(int32_t md_id);
 
     // ── Reconnect internal handlers (called on game-loop thread) ──────────────

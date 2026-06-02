@@ -1434,31 +1434,35 @@ void GameSession::handle_admit_queue(const NetAdmitQueue& ev) {
     }
 }
 
-void GameSession::handle_send_feed_snapshot(int32_t slot, const std::string& tier) {
+void GameSession::handle_send_feed_snapshot(int32_t slot, FeedTier tier) {
     if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
     const exchange::seq_t seq = exchange_.current_seq();
     for (auto suit : engine::kAllSuits) {
         const int si = engine::suit_index(suit);
         if (!active_suits_[si]) continue;
         const auto iid = static_cast<exchange::instrument_id_t>(si);
-        if (tier == "mbp1") {
-            emit_targeted(slot, serialise::book_update_payload(
-                std::string(engine::suit_name(suit)),
-                exchange_.best_bid(si), exchange_.best_ask(si),
-                seq,
-                exchange_.best_bid_slot(si), exchange_.best_ask_slot(si)));
-        } else if (tier == "mbpn") {
-            emit_targeted(slot, wire::book_depth_snapshot(
-                suit,
-                exchange_.bids_depth(iid, cfg_.market_data.mbp_depth),
-                exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
-                seq));
-        } else if (tier == "mbo") {
-            emit_targeted(slot, wire::order_book_snapshot(
-                suit,
-                exchange_.bids_mbo(iid),
-                exchange_.asks_mbo(iid),
-                seq));
+        switch (tier) {
+            case FeedTier::MBP1:
+                emit_targeted(slot, serialise::book_update_payload(
+                    std::string(engine::suit_name(suit)),
+                    exchange_.best_bid(si), exchange_.best_ask(si),
+                    seq,
+                    exchange_.best_bid_slot(si), exchange_.best_ask_slot(si)));
+                break;
+            case FeedTier::MBPN:
+                emit_targeted(slot, wire::book_depth_snapshot(
+                    suit,
+                    exchange_.bids_depth(iid, cfg_.market_data.mbp_depth),
+                    exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
+                    seq));
+                break;
+            case FeedTier::MBO:
+                emit_targeted(slot, wire::order_book_snapshot(
+                    suit,
+                    exchange_.bids_mbo(iid),
+                    exchange_.asks_mbo(iid),
+                    seq));
+                break;
         }
     }
 }

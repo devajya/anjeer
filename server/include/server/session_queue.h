@@ -3,6 +3,7 @@
 #include "engine/engine.h"
 #include "exchange/exchange_session.h"
 #include "server/eval/eval_types.h"
+#include "server/feed_tier.h"
 
 #include <array>
 #include <cstdint>
@@ -62,7 +63,7 @@ struct NetReconnectReattach {
 // it handles GameRoundStarted; GameSession processes it before the next tick.
 struct NetAdmitQueue { std::vector<SlotAdmitInfo> entries; };
 
-struct NetSendFeedSnapshot { int32_t slot; std::string tier; }; // "mbpn" | "mbo"
+struct NetSendFeedSnapshot { int32_t slot; FeedTier tier; };
 
 // Triggers an MBO on-connect snapshot targeted at a /ws/marketdata connection.
 // md_id is assigned by WsServer from a per-session counter; not a player slot.
