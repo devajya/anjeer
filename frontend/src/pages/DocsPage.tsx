@@ -16,6 +16,7 @@ export function DocsPage() {
           <li><a href="#outbound">Outbound Messages (Client → Server)</a></li>
           <li><a href="#sequences">Event Sequences</a></li>
           <li><a href="#bot-patterns">Bot Design Patterns</a></li>
+          <li><a href="#market-data">Market Data Feed</a></li>
           <li><a href="#templates">Template Downloads</a></li>
         </ol>
       </nav>
@@ -380,9 +381,220 @@ const inc = deltas[p][s] - prevDeltas[p][s]
           </p>
         </section>
 
-        {/* ── 8. Template Downloads ───────────────────────────────────── */}
+        {/* ── 8. Market Data Feed ─────────────────────────────────────── */}
+        <section id="market-data">
+          <h2>8. Market Data Feed</h2>
+          <p>
+            Anjeer exposes three tiers of market data detail. Each tier is a strict superset
+            of the previous — MBO contains everything MBP-N contains, which contains everything
+            MBP-1 contains, plus additional fields.
+          </p>
+
+          <h3>Three-tier model</h3>
+          <table className="docs__table">
+            <thead>
+              <tr><th>Tier</th><th>What you see</th><th>Use case</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>mbp1</code> (default)</td>
+                <td>Best bid and ask per suit</td>
+                <td>Simple bots; minimal bandwidth</td>
+              </tr>
+              <tr>
+                <td><code>mbpn</code></td>
+                <td>Full price-level depth (price → total resting qty)</td>
+                <td>Depth-of-book signals; queue-position estimation</td>
+              </tr>
+              <tr>
+                <td><code>mbo</code></td>
+                <td>Individual orders (order_id, side, price)</td>
+                <td>Full local-book reconstruction; cross-player order attribution</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Delivery endpoints</h3>
+          <table className="docs__table">
+            <thead>
+              <tr><th>Endpoint</th><th>Tier delivered</th><th>Auth</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>/ws</code></td>
+                <td>Tier from your <code>feed_preference</code> (default <code>mbp1</code>)</td>
+                <td>Bearer JWT or API key</td>
+              </tr>
+              <tr>
+                <td><code>/ws/marketdata</code></td>
+                <td>Always <code>mbo</code>, regardless of <code>feed_preference</code></td>
+                <td>Bearer JWT or API key</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Setting your feed preference</h3>
+          <p>Call <code>PUT /players/me/feed</code> or use the CLI:</p>
+          <pre><code>{`# REST
+curl -X PUT http://localhost:10000/players/me/feed \\
+  -H "Authorization: Bearer ank_<key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"feed_preference": "mbpn"}'
+
+# CLI
+anjeer feed mbp-n   # normalised to mbpn
+anjeer feed mbo`}</code></pre>
+          <p>The preference is read at WS upgrade time — reconnect after changing it.</p>
+
+          <h3>Sequence numbers (<code>seq</code>) and schema version (<code>v</code>)</h3>
+          <p>
+            Every market-data message carries two numeric fields:
+          </p>
+          <ul>
+            <li><code>v</code> — wire schema version, currently <code>1</code>. Increment is a breaking change.</li>
+            <li>
+              <code>seq</code> — monotonically increasing integer stamped by the exchange sequencer.
+              Starts near <code>1</code> at the beginning of each round and increments by 1 for every
+              order-book event (submit, cancel, execute). Resets to <code>0</code> at <code>begin_round</code>.
+            </li>
+          </ul>
+          <p>
+            <strong>Snapshot <code>seq</code>:</strong> A snapshot message (sent on connect or on <code>resync</code>)
+            carries the <code>seq</code> of the last applied event. The very next incremental message
+            will have <code>seq = snapshot_seq + 1</code>. Use this to verify you have received a
+            contiguous stream.
+          </p>
+          <pre><code>{`// Gap detection
+let expectedSeq = null
+
+on_message(msg):
+  if (msg.seq != null):
+    if (isSnapshot(msg)):
+      expectedSeq = msg.seq + 1        // next incremental will be this
+    else:
+      if (expectedSeq != null && msg.seq !== expectedSeq):
+        // gap detected — send resync to recover
+        sendResync()
+        expectedSeq = null
+      else:
+        expectedSeq = msg.seq + 1`}</code></pre>
+
+          <h3>Gap recovery — <code>resync</code></h3>
+          <p>
+            If you detect a sequence gap (or simply want a clean state), send a <code>resync</code>
+            message. The server responds with one snapshot per instrument matching your current tier:
+          </p>
+          <pre><code>{`// Send from client
+{ "type": "resync" }
+
+// MBP-1 response: one book_update per instrument
+// MBP-N response: one book_depth_snapshot per instrument
+// MBO response:   one order_book_snapshot per instrument`}</code></pre>
+
+          <h3>MBP-1 messages</h3>
+          <p><code>book_update</code> — emitted after every order-book mutation:</p>
+          <pre><code>{`{
+  type: "book_update", v: 1, seq: number,
+  suit: string,
+  best_bid: number | null,
+  best_ask: number | null
+}`}</code></pre>
+
+          <h3>MBP-N messages</h3>
+          <p><code>book_depth_snapshot</code> — sent on connect/resync, one per instrument:</p>
+          <pre><code>{`{
+  type: "book_depth_snapshot", v: 1, seq: number, suit: string,
+  bids: [{ price: number, qty: number }, ...],  // descending price
+  asks: [{ price: number, qty: number }, ...]   // ascending price
+}`}</code></pre>
+          <p><code>book_depth</code> — incremental update after every order-book event:</p>
+          <pre><code>{`{
+  type: "book_depth", v: 1, seq: number, suit: string,
+  bids: [{ price: number, qty: number }, ...],
+  asks: [{ price: number, qty: number }, ...]
+}`}</code></pre>
+          <p>
+            Each <code>book_depth</code> is a <strong>full replacement snapshot</strong> of the current depth, not a delta.
+            Apply it by replacing your local depth map for the named suit outright.
+          </p>
+
+          <h3>MBO messages</h3>
+          <p><code>order_book_snapshot</code> — sent on connect/resync, one per instrument:</p>
+          <pre><code>{`{
+  type: "order_book_snapshot", v: 1, seq: number, suit: string,
+  bids: [{ order_id: number, price: number }, ...],
+  asks: [{ order_id: number, price: number }, ...]
+}`}</code></pre>
+          <p><code>order_added</code> — new resting order:</p>
+          <pre><code>{`{ type: "order_added", v: 1, seq: number,
+  order_id: number, suit: string, side: "buy"|"sell", price: number }`}</code></pre>
+          <p><code>order_executed</code> — order matched (both sides removed from book):</p>
+          <pre><code>{`{ type: "order_executed", v: 1, seq: number,
+  order_id: number, suit: string, price: number,
+  aggressor_side: "buy"|"sell",
+  buyer_slot: number, seller_slot: number }`}</code></pre>
+          <p><code>order_cancelled</code> — resting order explicitly cancelled or wiped:</p>
+          <pre><code>{`{ type: "order_cancelled", v: 1, seq: number,
+  order_id: number, suit: string }`}</code></pre>
+
+          <h3>MBO local book reconstruction</h3>
+          <p>
+            Maintain a <code>Map&lt;order_id, Order&gt;</code> per suit. Apply events in <code>seq</code> order:
+          </p>
+          <pre><code>{`// State
+const localBook = {
+  clubs:    { bids: new Map(), asks: new Map() },
+  diamonds: { bids: new Map(), asks: new Map() },
+  hearts:   { bids: new Map(), asks: new Map() },
+  spades:   { bids: new Map(), asks: new Map() },
+}
+
+function applyMboEvent(msg) {
+  const book = localBook[msg.suit]
+  if (!book) return
+
+  if (msg.type === "order_book_snapshot") {
+    book.bids.clear()
+    book.asks.clear()
+    for (const o of msg.bids) book.bids.set(o.order_id, o)
+    for (const o of msg.asks) book.asks.set(o.order_id, o)
+    return
+  }
+  if (msg.type === "order_added") {
+    const side = msg.side === "buy" ? book.bids : book.asks
+    side.set(msg.order_id, { order_id: msg.order_id, price: msg.price })
+    return
+  }
+  if (msg.type === "order_executed" || msg.type === "order_cancelled") {
+    // The wipe-on-trade mechanic means order_executed is followed by
+    // order_cancelled events for every remaining resting order.
+    // Removing by order_id handles both the matched order and wipe events.
+    book.bids.delete(msg.order_id)
+    book.asks.delete(msg.order_id)
+    return
+  }
+}
+
+// Best bid/ask from local book
+function bestBid(suit) {
+  return [...localBook[suit].bids.values()]
+    .reduce((best, o) => (!best || o.price > best.price ? o : best), null)
+}
+function bestAsk(suit) {
+  return [...localBook[suit].asks.values()]
+    .reduce((best, o) => (!best || o.price < best.price ? o : best), null)
+}`}</code></pre>
+          <p>
+            <strong>Wipe mechanic note:</strong> Every trade wipes all four books. After an{' '}
+            <code>order_executed</code> event you will receive <code>order_cancelled</code> for every
+            remaining resting order. Your reconstruction loop handles this correctly via the{' '}
+            <code>delete</code> branch — no special wipe-detection code needed.
+          </p>
+        </section>
+
+        {/* ── 9. Template Downloads ───────────────────────────────────── */}
         <section id="templates">
-          <h2>8. Template Downloads</h2>
+          <h2>9. Template Downloads</h2>
           <p>
             These templates handle connection, authentication, and all message types.
             They are designed to be launched via <code>anjeer join</code> or <code>anjeer create</code> —
