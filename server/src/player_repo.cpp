@@ -57,4 +57,23 @@ Player PlayerRepo::insert(pqxx::transaction_base& txn,
     return row_to_player(result[0]);
 }
 
+void PlayerRepo::update_feed_preference(pqxx::transaction_base& txn,
+                                         int64_t                 player_id,
+                                         std::string_view        pref) {
+    txn.exec_params(
+        "UPDATE players SET feed_preference=$1 WHERE id=$2",
+        std::string(pref), player_id
+    );
+}
+
+std::string PlayerRepo::get_feed_preference(pqxx::transaction_base& txn,
+                                             int64_t                 player_id) {
+    const auto result = txn.exec_params(
+        "SELECT feed_preference FROM players WHERE id=$1",
+        player_id
+    );
+    if (result.empty() || result[0][0].is_null()) return "mbp1";
+    return result[0][0].as<std::string>();
+}
+
 } // namespace anjeer::server

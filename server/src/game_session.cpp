@@ -484,6 +484,18 @@ void GameSession::begin_round() {
     all_disconnected_ = false;
     round_number_++;
 
+    // If no WS players are connected at round start, start the all-disconnected
+    // grace timer immediately so the session tears down within kReconnectGrace
+    // rather than running for the full round_duration_seconds.
+    bool any_connected = false;
+    for (const auto& sl : slots_) {
+        if (sl.active && sl.connected) { any_connected = true; break; }
+    }
+    if (!any_connected) {
+        all_disconnected_       = true;
+        all_disconnected_since_ = std::chrono::steady_clock::now();
+    }
+
     // Signal WsServer to admit queued players before dealing hands.
     outbound_.enqueue(GameRoundStarted{});
 
