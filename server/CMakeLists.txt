@@ -198,6 +198,7 @@ add_executable(ws_server_tests
     src/accumulation_eval_module.cpp
     src/execution_eval_module.cpp
     src/game_session_wire.cpp
+    src/market_data_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
     src/db.cpp
@@ -422,6 +423,7 @@ add_executable(game_session_tests
     src/accumulation_eval_module.cpp
     src/execution_eval_module.cpp
     src/game_session_wire.cpp
+    src/market_data_wire.cpp
     src/logger.cpp
     src/event_bus.cpp
 )
@@ -619,6 +621,7 @@ add_executable(bot_headless_tests
     src/bayesian_eval_module.cpp
     src/accumulation_eval_module.cpp
     src/game_session_wire.cpp
+    src/market_data_wire.cpp
     src/session_repo.cpp
     src/lobby_repo.cpp
     src/logger.cpp
@@ -755,6 +758,7 @@ add_executable(reconnect_integration_tests
     src/accumulation_eval_module.cpp
     src/execution_eval_module.cpp
     src/game_session_wire.cpp
+    src/market_data_wire.cpp
     src/session_repo.cpp
     src/logger.cpp
     src/db.cpp

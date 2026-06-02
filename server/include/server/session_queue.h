@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/engine.h"
+#include "exchange/exchange_session.h"
 #include "server/eval/eval_types.h"
 
 #include <array>
@@ -61,13 +62,15 @@ struct NetReconnectReattach {
 // it handles GameRoundStarted; GameSession processes it before the next tick.
 struct NetAdmitQueue { std::vector<SlotAdmitInfo> entries; };
 
+struct NetSendFeedSnapshot { int32_t slot; std::string tier; }; // "mbpn" | "mbo"
+
 using NetEvent = std::variant<
     NetConnect, NetDisconnect,
     NetSubmit, NetNudge, NetCancel,
     NetStartGame, NetOwnerStartRound, NetOwnerEndGame, NetPermanentLeave,
     NetSpectatorJoin, NetSpectatorLeave,
     NetReconnectDisconnect, NetReconnectReattach,
-    NetAdmitQueue>;
+    NetAdmitQueue, NetSendFeedSnapshot>;
 
 // ── Outbound: game-loop thread → network thread ───────────────────────────────
 // AGENT-CTX: GameSession never touches WsHandle or uWS directly — it writes
@@ -109,9 +112,18 @@ struct GameRoundStarted {};
 // target_slot == -1 → broadcast to all active + spectator handles.
 struct GameEvalOutput { eval::EvalOutput out; };
 
+struct GameBookUpdate {
+    std::string                               mbp1_json;
+    engine::Suit                              suit;
+    std::vector<exchange::PriceLevel>         bids;
+    std::vector<exchange::PriceLevel>         asks;
+    exchange::seq_t                           seq;
+};
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
                                GameSpawnBot, GameReconnectExpired,
-                               GameRoundStarted, GameEvalOutput>;
+                               GameRoundStarted, GameEvalOutput,
+                               GameBookUpdate>;
 
 } // namespace anjeer::server

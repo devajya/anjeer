@@ -144,8 +144,9 @@ struct Harness {
             if (outbound.try_dequeue(ev)) {
                 auto json_str = std::visit([](auto&& e) -> std::string {
                     using T = std::decay_t<decltype(e)>;
-                    if constexpr (std::is_same_v<T, GameBroadcast>) return e.json;
-                    if constexpr (std::is_same_v<T, GameTargeted>)  return e.json;
+                    if constexpr (std::is_same_v<T, GameBroadcast>)  return e.json;
+                    if constexpr (std::is_same_v<T, GameTargeted>)   return e.json;
+                    if constexpr (std::is_same_v<T, GameBookUpdate>) return e.mbp1_json;
                     return "";
                 }, ev);
                 if (json_str.empty()) continue;
@@ -525,7 +526,7 @@ TEST_CASE("G-T3b: last real player reconnect expiry emits GameDone, not GameSpaw
     ServerConfig cfg = make_cfg();
     cfg.game.player_count                  = 1;
     cfg.lobby.min_players                  = 1;
-    cfg.reconnect.reconnect_window_seconds = 1;
+    cfg.reconnect.reconnect_window_seconds = 0;
     Harness h(cfg, make_slots(1));
 
     h.push(NetConnect{0, 1, "player0"});
@@ -538,10 +539,11 @@ TEST_CASE("G-T3b: last real player reconnect expiry emits GameDone, not GameSpaw
 
     REQUIRE(h.recv_reconnect_expired(0, 3000ms));
 
+    // Session must end cleanly. recv_done runs before recv_spawn_bot so
+    // GameDone is not accidentally consumed by the spawn-bot drain loop.
+    CHECK(h.recv_done(2000ms));
     // No bot spawn — there is no game left to spawn into.
     CHECK_FALSE(h.recv_spawn_bot(0, 300ms).has_value());
-    // Session must end cleanly.
-    CHECK(h.recv_done(2000ms));
 }
 
 // ─── G-T3c: NetPermanentLeave bypasses reconnect window ──────────────────────

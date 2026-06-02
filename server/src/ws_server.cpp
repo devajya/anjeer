@@ -1,6 +1,7 @@
 #include "server/ws_server.h"
 #include "server/crypto_util.h"
 #include "server/game_session_wire.h"
+#include "server/market_data_wire.h"
 #include "server/eval/bayesian_eval_module.h"
 #include "server/eval/accumulation_eval_module.h"
 #include "server/eval/execution_eval_module.h"
@@ -912,6 +913,19 @@ void WsServer::drain_all_on_loop() {
                     }
                 } else if constexpr (std::is_same_v<T, GameEvalOutput>) {
                     dispatch_eval_output(as, arg.out);
+                } else if constexpr (std::is_same_v<T, GameBookUpdate>) {
+                    for (auto& [slot, ws] : as.slot_to_ws_) {
+                        auto* d = ws->getUserData();
+                        if (d->feed_tier == FeedTier::MBPN) {
+                            ws->send(wire::book_depth(arg.suit, arg.bids, arg.asks, arg.seq),
+                                     uWS::OpCode::TEXT);
+                        } else {
+                            ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
+                        }
+                    }
+                    for (auto& [sid, ws] : as.spectator_handles_)
+                        ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
+                    bot_manager_.dispatch_to_bots(lobby_id, arg.mbp1_json, -1);
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.
                     // For each bot displaced: stop the BotAdapter, deactivate the slot in
@@ -1440,6 +1454,8 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     }
 
     as.session->handle_player_reattach(slot, new_token, expires_at_ms);
+    if (data->feed_tier == FeedTier::MBPN)
+        as.inbound->enqueue(NetSendFeedSnapshot{slot, "mbpn"});
     game_slots_repo_.upsert_active(as.session_id_, data->player_id, slot);
 
     server_log_.info("open",

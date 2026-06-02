@@ -1,5 +1,6 @@
 #include "server/game_session.h"
 #include "server/game_session_wire.h"
+#include "server/market_data_wire.h"
 #include "server/session_repo.h"
 #include "server/eval/eval_types.h"
 
@@ -213,6 +214,8 @@ void GameSession::process_inbound() {
                 handle_reconnect_reattach(e.slot, e.reconnect_token, e.reconnect_expires_at_ms);
             else if constexpr (std::is_same_v<T, NetAdmitQueue>)
                 handle_admit_queue(e);
+            else if constexpr (std::is_same_v<T, NetSendFeedSnapshot>)
+                handle_send_feed_snapshot(e.slot, e.tier);
         }, ev);
     }
 }
@@ -706,11 +709,18 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
         }
         else if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
             if (!had_trade) {
-                emit_broadcast(serialise::book_update_payload(
-                    instrument_suit_label(upd->instrument_id),
-                    upd->best_bid, upd->best_ask,
-                    exchange_.current_seq(),
-                    upd->best_bid_slot, upd->best_ask_slot));
+                const auto  iid  = static_cast<exchange::instrument_id_t>(upd->instrument_id);
+                const auto  suit = engine::kAllSuits[upd->instrument_id];
+                const exchange::seq_t seq  = exchange_.current_seq();
+                outbound_.enqueue(GameBookUpdate{
+                    serialise::book_update_payload(
+                        instrument_suit_label(upd->instrument_id),
+                        upd->best_bid, upd->best_ask, seq,
+                        upd->best_bid_slot, upd->best_ask_slot),
+                    suit,
+                    exchange_.bids_depth(iid, 100),
+                    exchange_.asks_depth(iid, 100),
+                    seq});
             }
         }
         else if (const auto* rej = std::get_if<exchange::OrderRejected>(&fev)) {
@@ -846,10 +856,17 @@ void GameSession::apply_global_wipe() {
     engine_log_.info("global_wipe", "wiping all books");
     for (const auto& upd : exchange_.wipe()) {
         if (!active_suits_[upd.instrument_id]) continue;
-        emit_broadcast(serialise::book_update_payload(
-            instrument_suit_label(upd.instrument_id),
-            upd.best_bid, upd.best_ask,
-            exchange_.current_seq()));
+        const auto  iid  = static_cast<exchange::instrument_id_t>(upd.instrument_id);
+        const auto  suit = engine::kAllSuits[upd.instrument_id];
+        const exchange::seq_t seq  = exchange_.current_seq();
+        outbound_.enqueue(GameBookUpdate{
+            serialise::book_update_payload(
+                instrument_suit_label(upd.instrument_id),
+                upd.best_bid, upd.best_ask, seq),
+            suit,
+            exchange_.bids_depth(iid, 100),
+            exchange_.asks_depth(iid, 100),
+            seq});
     }
 }
 
@@ -1260,11 +1277,17 @@ std::vector<CancelledOrder> GameSession::cancel_orders_for_slot(int slot_index) 
             const int si = static_cast<int>(cack->instrument_id);
             if (!active_suits_[si] || emitted[si]) continue;
             emitted[si] = true;
-            emit_broadcast(serialise::book_update_payload(
-                instrument_suit_label(cack->instrument_id),
-                exchange_.best_bid(cack->instrument_id),
-                exchange_.best_ask(cack->instrument_id),
-                exchange_.current_seq()));
+            const auto  iid  = static_cast<exchange::instrument_id_t>(si);
+            const auto  suit = engine::kAllSuits[si];
+            const exchange::seq_t seq  = exchange_.current_seq();
+            outbound_.enqueue(GameBookUpdate{
+                serialise::book_update_payload(
+                    instrument_suit_label(cack->instrument_id),
+                    exchange_.best_bid(iid), exchange_.best_ask(iid), seq),
+                suit,
+                exchange_.bids_depth(iid, 100),
+                exchange_.asks_depth(iid, 100),
+                seq});
         }
     }
     return cancelled;
@@ -1377,6 +1400,23 @@ void GameSession::handle_admit_queue(const NetAdmitQueue& ev) {
 
         server_log_.info("queue",
             "slot " + std::to_string(idx) + " admitted player=" + entry.username);
+    }
+}
+
+void GameSession::handle_send_feed_snapshot(int32_t slot, const std::string& tier) {
+    if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
+    const exchange::seq_t seq = exchange_.current_seq();
+    for (auto suit : engine::kAllSuits) {
+        const int si = engine::suit_index(suit);
+        if (!active_suits_[si]) continue;
+        const auto iid = static_cast<exchange::instrument_id_t>(si);
+        if (tier == "mbpn") {
+            emit_targeted(slot, wire::book_depth_snapshot(
+                suit,
+                exchange_.bids_depth(iid, 100),
+                exchange_.asks_depth(iid, 100),
+                seq));
+        }
     }
 }
 

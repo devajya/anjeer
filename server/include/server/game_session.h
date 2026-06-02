@@ -142,6 +142,7 @@ private:
     void send_spectator_snapshot(int32_t spectator_id);
 
     void handle_admit_queue(const NetAdmitQueue&);
+    void handle_send_feed_snapshot(int32_t slot, const std::string& tier);
 
     // ── Reconnect internal handlers (called on game-loop thread) ──────────────
     void handle_reconnect_disconnect(int32_t slot);
