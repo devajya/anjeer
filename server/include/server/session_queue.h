@@ -120,10 +120,14 @@ struct GameBookUpdate {
     exchange::seq_t                           seq;
 };
 
+// Pre-serialized MBO incremental event (order_added / order_executed /
+// order_cancelled). WsServer fans this out to sockets with FeedTier::MBO only.
+struct GameMboEvent { std::string json; };
+
 using GameEvent = std::variant<GameBroadcast, GameTargeted, GameDone,
                                GameSpectatorTargeted, GameSpectatorBroadcast,
                                GameSpawnBot, GameReconnectExpired,
                                GameRoundStarted, GameEvalOutput,
-                               GameBookUpdate>;
+                               GameBookUpdate, GameMboEvent>;
 
 } // namespace anjeer::server

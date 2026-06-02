@@ -3,6 +3,7 @@
 #include "server/game_session.h"
 #include "server/game_session_wire.h"
 #include "server/session_queue.h"
+#include "exchange/exchange_types.h"
 #include "server/config.h"
 #include "server/db.h"
 #include "server/logger.h"
@@ -24,6 +25,7 @@
 
 using namespace anjeer::server;
 using namespace anjeer::engine;
+using namespace anjeer::exchange;
 using namespace std::chrono_literals;
 
 // ─── Shared infrastructure ────────────────────────────────────────────────────
@@ -147,6 +149,7 @@ struct Harness {
                     if constexpr (std::is_same_v<T, GameBroadcast>)  return e.json;
                     if constexpr (std::is_same_v<T, GameTargeted>)   return e.json;
                     if constexpr (std::is_same_v<T, GameBookUpdate>) return e.mbp1_json;
+                    if constexpr (std::is_same_v<T, GameMboEvent>)   return e.json;
                     return "";
                 }, ev);
                 if (json_str.empty()) continue;
@@ -221,6 +224,47 @@ struct Harness {
             if (outbound.try_dequeue(ev)) {
                 if (auto* e = std::get_if<GameEvalOutput>(&ev))
                     return e->out;
+            } else {
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+        return std::nullopt;
+    }
+
+    // Drain outbound until a GameMboEvent whose JSON has the given type field arrives.
+    std::optional<nlohmann::json> recv_mbo(
+            const std::string& type,
+            std::chrono::milliseconds timeout = 2000ms) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            GameEvent ev;
+            if (outbound.try_dequeue(ev)) {
+                if (const auto* m = std::get_if<GameMboEvent>(&ev)) {
+                    auto j = nlohmann::json::parse(m->json);
+                    if (j.value("type", "") == type) return j;
+                }
+            } else {
+                std::this_thread::sleep_for(10ms);
+            }
+        }
+        return std::nullopt;
+    }
+
+    // Drain outbound until a GameTargeted GameMboEvent (targeted by slot) arrives.
+    std::optional<nlohmann::json> recv_targeted_mbo(
+            int32_t slot,
+            const std::string& type,
+            std::chrono::milliseconds timeout = 2000ms) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            GameEvent ev;
+            if (outbound.try_dequeue(ev)) {
+                if (const auto* t = std::get_if<GameTargeted>(&ev)) {
+                    if (t->slot == slot) {
+                        auto j = nlohmann::json::parse(t->json);
+                        if (j.value("type", "") == type) return j;
+                    }
+                }
             } else {
                 std::this_thread::sleep_for(10ms);
             }
@@ -770,4 +814,95 @@ TEST_CASE("G-E4: eval output routed to correct target_slot in outbound queue",
 
     REQUIRE(by_slot.count(-1));
     CHECK(by_slot.at(-1).payload.value("type", "") == "eval.accumulation_signal");
+}
+
+// ── T17 — MBO on-connect snapshot ────────────────────────────────────────────
+// NetSendFeedSnapshot{slot, "mbo"} → GameTargeted per instrument with
+// type="order_book_snapshot".
+TEST_CASE("T17: MBO on-connect snapshot emits order_book_snapshot per instrument",
+          "[game_session][mbo][T17]") {
+    run_migrations();
+    auto cfg = make_cfg();
+    cfg.order_book.active_suits = {"clubs", "diamonds", "hearts", "spades"};
+    Harness h(cfg);
+    h.connect_all();
+    h.push(NetStartGame{});
+    REQUIRE(h.recv_type("round_starting").has_value());
+    REQUIRE(h.recv_type("round_start").has_value());
+
+    h.push(NetSendFeedSnapshot{0, "mbo"});
+
+    int snapshots = 0;
+    const auto deadline = std::chrono::steady_clock::now() + 2000ms;
+    while (std::chrono::steady_clock::now() < deadline && snapshots < 4) {
+        GameEvent ev;
+        if (h.outbound.try_dequeue(ev)) {
+            if (const auto* t = std::get_if<GameTargeted>(&ev)) {
+                if (t->slot == 0) {
+                    auto j = nlohmann::json::parse(t->json);
+                    if (j.value("type", "") == "order_book_snapshot") {
+                        CHECK(j.contains("v"));
+                        CHECK(j.contains("seq"));
+                        CHECK(j.contains("suit"));
+                        CHECK(j.contains("bids"));
+                        CHECK(j.contains("asks"));
+                        ++snapshots;
+                    }
+                }
+            }
+        } else {
+            std::this_thread::sleep_for(10ms);
+        }
+    }
+    CHECK(snapshots == 4);
+}
+
+// ── T18 — MBO incremental events ─────────────────────────────────────────────
+// submit → GameMboEvent order_added; cancel → GameMboEvent order_cancelled;
+// crossing submit → GameMboEvent order_executed.
+TEST_CASE("T18: MBO incremental: order_added on submit, order_cancelled on cancel, order_executed on match",
+          "[game_session][mbo][T18]") {
+    run_migrations();
+    auto cfg = make_cfg();
+    cfg.order_book.active_suits = {"clubs"};
+    Harness h(cfg);
+    h.connect_all();
+    h.push(NetStartGame{});
+    REQUIRE(h.recv_type("round_starting").has_value());
+    REQUIRE(h.recv_type("round_start").has_value());
+
+    // Submit a resting bid → expect order_added
+    h.push(NetSubmit{0, "clubs", Side::Buy, 50});
+    auto added = h.recv_mbo("order_added");
+    REQUIRE(added.has_value());
+    CHECK(added->value("suit", "") == "clubs");
+    CHECK(added->value("side", "") == "buy");
+    CHECK(added->value("price", 0) == 50);
+    CHECK(added->contains("order_id"));
+    CHECK(added->contains("seq"));
+    CHECK(added->value("v", 0) == 1);
+
+    const int64_t order_id = (*added)["order_id"].get<int64_t>();
+
+    // Cancel that order → expect order_cancelled
+    h.push(NetCancel{0, order_id});
+    auto cancelled = h.recv_mbo("order_cancelled");
+    REQUIRE(cancelled.has_value());
+    CHECK(cancelled->value("order_id", int64_t{0}) == order_id);
+    CHECK(cancelled->value("suit", "") == "clubs");
+    CHECK(cancelled->contains("seq"));
+
+    // Place a new bid then a crossing ask → expect order_executed
+    h.push(NetSubmit{0, "clubs", Side::Buy, 60});
+    REQUIRE(h.recv_mbo("order_added").has_value());
+    h.push(NetSubmit{1, "clubs", Side::Sell, 60});
+    auto executed = h.recv_mbo("order_executed");
+    REQUIRE(executed.has_value());
+    CHECK(executed->value("suit", "") == "clubs");
+    CHECK(executed->value("price", 0) == 60);
+    CHECK(executed->contains("aggressor_side"));
+    CHECK(executed->contains("buyer_slot"));
+    CHECK(executed->contains("seller_slot"));
+    CHECK(executed->contains("seq"));
+    CHECK(executed->value("v", 0) == 1);
 }

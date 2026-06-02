@@ -737,7 +737,11 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
     }
 
     for (const auto& mev : result.market) {
-        if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
+        if (const auto* added = std::get_if<exchange::OrderAdded>(&mev)) {
+            const engine::Suit suit = engine::kAllSuits[added->instrument_id];
+            outbound_.enqueue(GameMboEvent{wire::order_added(
+                added->order_id, suit, added->side, added->price, added->seq)});
+        } else if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
             const std::string suit = instrument_suit_label(exec->instrument_id);
             engine_log_.info("trade",
                 "suit=" + suit + " price=" + std::to_string(exec->price));
@@ -766,6 +770,19 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 {"buyer_slot",     exec->buyer_slot},
                 {"seller_slot",    exec->seller_slot},
             }.dump());
+            outbound_.enqueue(GameMboEvent{wire::order_executed(
+                exec->order_id,
+                engine::kAllSuits[exec->instrument_id],
+                exec->price,
+                exec->aggressor_side,
+                exec->buyer_slot,
+                exec->seller_slot,
+                exec->seq)});
+        } else if (const auto* cxl = std::get_if<exchange::OrderCancelled>(&mev)) {
+            outbound_.enqueue(GameMboEvent{wire::order_cancelled(
+                cxl->order_id,
+                engine::kAllSuits[cxl->instrument_id],
+                cxl->seq)});
         }
     }
 
@@ -1415,6 +1432,12 @@ void GameSession::handle_send_feed_snapshot(int32_t slot, const std::string& tie
                 suit,
                 exchange_.bids_depth(iid, 100),
                 exchange_.asks_depth(iid, 100),
+                seq));
+        } else if (tier == "mbo") {
+            emit_targeted(slot, wire::order_book_snapshot(
+                suit,
+                exchange_.bids_mbo(iid),
+                exchange_.asks_mbo(iid),
                 seq));
         }
     }

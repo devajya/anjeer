@@ -926,6 +926,12 @@ void WsServer::drain_all_on_loop() {
                     for (auto& [sid, ws] : as.spectator_handles_)
                         ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
                     bot_manager_.dispatch_to_bots(lobby_id, arg.mbp1_json, -1);
+                } else if constexpr (std::is_same_v<T, GameMboEvent>) {
+                    for (auto& [slot, ws] : as.slot_to_ws_) {
+                        auto* d = ws->getUserData();
+                        if (d->feed_tier == FeedTier::MBO)
+                            ws->send(arg.json, uWS::OpCode::TEXT);
+                    }
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.
                     // For each bot displaced: stop the BotAdapter, deactivate the slot in
@@ -1456,6 +1462,8 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
     as.session->handle_player_reattach(slot, new_token, expires_at_ms);
     if (data->feed_tier == FeedTier::MBPN)
         as.inbound->enqueue(NetSendFeedSnapshot{slot, "mbpn"});
+    else if (data->feed_tier == FeedTier::MBO)
+        as.inbound->enqueue(NetSendFeedSnapshot{slot, "mbo"});
     game_slots_repo_.upsert_active(as.session_id_, data->player_id, slot);
 
     server_log_.info("open",
