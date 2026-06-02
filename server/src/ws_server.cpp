@@ -1058,6 +1058,7 @@ void WsServer::drain_all_on_loop() {
                         : std::string{};
                     for (auto& [slot, ws] : as.slot_to_ws_) {
                         auto* d = ws->getUserData();
+                        if (d->feed_tier == FeedTier::MBO) continue;
                         ws->send(d->feed_tier == FeedTier::MBPN ? mbpn_json : arg.mbp1_json,
                                  uWS::OpCode::TEXT);
                     }
