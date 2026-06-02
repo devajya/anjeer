@@ -914,23 +914,41 @@ void WsServer::drain_all_on_loop() {
                 } else if constexpr (std::is_same_v<T, GameEvalOutput>) {
                     dispatch_eval_output(as, arg.out);
                 } else if constexpr (std::is_same_v<T, GameBookUpdate>) {
+                    // Lazy: serialize book_depth only when at least one MBPN socket exists.
+                    // Avoids repeated JSON serialization in all-MBP1 sessions.
+                    bool has_mbpn = false;
+                    for (auto& [slot, ws] : as.slot_to_ws_) {
+                        if (ws->getUserData()->feed_tier == FeedTier::MBPN) {
+                            has_mbpn = true; break;
+                        }
+                    }
+                    if (!has_mbpn)
+                        server_log_.info("dispatch",
+                            "skipped MBPN serialization (0 subscribers)");
+                    const std::string mbpn_json = has_mbpn
+                        ? wire::book_depth(arg.suit, arg.bids, arg.asks, arg.seq)
+                        : std::string{};
                     for (auto& [slot, ws] : as.slot_to_ws_) {
                         auto* d = ws->getUserData();
-                        if (d->feed_tier == FeedTier::MBPN) {
-                            ws->send(wire::book_depth(arg.suit, arg.bids, arg.asks, arg.seq),
-                                     uWS::OpCode::TEXT);
-                        } else {
-                            ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
-                        }
+                        ws->send(d->feed_tier == FeedTier::MBPN ? mbpn_json : arg.mbp1_json,
+                                 uWS::OpCode::TEXT);
                     }
                     for (auto& [sid, ws] : as.spectator_handles_)
                         ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
                     bot_manager_.dispatch_to_bots(lobby_id, arg.mbp1_json, -1);
                 } else if constexpr (std::is_same_v<T, GameMboEvent>) {
+                    // Lazy: skip fan-out entirely if no MBO subscribers.
+                    bool has_mbo = false;
                     for (auto& [slot, ws] : as.slot_to_ws_) {
-                        auto* d = ws->getUserData();
-                        if (d->feed_tier == FeedTier::MBO)
-                            ws->send(arg.json, uWS::OpCode::TEXT);
+                        if (ws->getUserData()->feed_tier == FeedTier::MBO) {
+                            has_mbo = true; break;
+                        }
+                    }
+                    if (has_mbo) {
+                        for (auto& [slot, ws] : as.slot_to_ws_) {
+                            if (ws->getUserData()->feed_tier == FeedTier::MBO)
+                                ws->send(arg.json, uWS::OpCode::TEXT);
+                        }
                     }
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.

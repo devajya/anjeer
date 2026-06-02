@@ -1108,3 +1108,179 @@ TEST_CASE("WS server — script_log silently ignored outside api lobby", "[ws_se
     // Setup: connect player to UI-mode lobby, send script_log, verify nothing forwarded.
     WARN("TODO: implement when UI/API lobby mode test fixture is available");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 10 — Lazy serialization: game integration server (2-player, real round)
+//
+// AGENT-CTX: A separate event bus and auth service are required so that
+// game:start events from this server don't race against the mode/spectator
+// tests that share test_mode_event_bus(). Port 19013 is reserved for this
+// server; the config matches game_session_tests (2 players, 0s countdown,
+// clubs only) so a round starts immediately after both players connect.
+// ═══════════════════════════════════════════════════════════════════════════
+
+static constexpr int WS_GAME_PORT = 19013;
+
+static anjeer::server::LocalEventBus& test_game_event_bus() {
+    static anjeer::server::LocalEventBus bus;
+    return bus;
+}
+
+static anjeer::server::AuthService& test_game_auth_service() {
+    static ServerConfig cfg = make_test_server_config(WS_GAME_PORT);
+    static anjeer::server::AuthService svc(test_db_pool(), test_player_repo(), cfg);
+    return svc;
+}
+
+static void ensure_game_server_running() {
+    static std::atomic<bool> started{false};
+    if (started.exchange(true)) {
+        for (int i = 0; i < 200; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+            sockaddr_in addr{}; addr.sin_family = AF_INET;
+            addr.sin_port = htons(WS_GAME_PORT);
+            ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+            bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+            ::close(fd);
+            if (ok) return;
+        }
+        throw std::runtime_error("game server did not become ready");
+    }
+
+    static ServerConfig cfg = make_test_server_config(WS_GAME_PORT);
+    cfg.game.player_count      = 2;
+    cfg.game.countdown_seconds = 0;
+
+    std::thread([&cfg]() {
+        WsServer srv(cfg, anjeer::server::WsServerDeps{
+                         test_lobby_gateway(), test_db_pool(), test_lobby_repo(),
+                         test_game_auth_service(), test_api_key_repo(),
+                         test_game_event_bus(), test_bot_manager()});
+        srv.run();
+    }).detach();
+
+    for (int i = 0; i < 200; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        sockaddr_in addr{}; addr.sin_family = AF_INET;
+        addr.sin_port = htons(WS_GAME_PORT);
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        bool ok = (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0);
+        ::close(fd);
+        if (ok) return;
+    }
+    throw std::runtime_error("game server failed to start");
+}
+
+struct GameIntegSetup {
+    int64_t     player1_id, player2_id;
+    std::string lobby_id;
+    std::string api_key1, api_key2;
+};
+
+static GameIntegSetup setup_game_integ(const std::string& suffix) {
+    pqxx::connection direct(TEST_DB_CONN);
+    anjeer::server::DbMigrator m(direct, TEST_MIGRATIONS_DIR);
+    m.run();
+
+    auto make_player = [&](const std::string& tag) -> int64_t {
+        pqxx::work txn(direct);
+        auto r = txn.exec_params(
+            "INSERT INTO players (username, oauth_provider, oauth_id) "
+            "VALUES ($1, 'github', $2) "
+            "ON CONFLICT (oauth_provider, oauth_id) "
+            "DO UPDATE SET username = excluded.username "
+            "RETURNING id",
+            "gi_" + tag + "_" + suffix, "gh_gi_" + tag + "_" + suffix);
+        int64_t pid = r[0][0].as<int64_t>();
+        txn.exec_params(
+            "UPDATE api_keys SET revoked_at = NOW() "
+            "WHERE player_id = $1 AND revoked_at IS NULL", pid);
+        txn.commit();
+        return pid;
+    };
+
+    const int64_t p1 = make_player("p1");
+    const int64_t p2 = make_player("p2");
+
+    std::string lobby_id;
+    {
+        pqxx::work txn(direct);
+        txn.exec_params(
+            "DELETE FROM lobbies WHERE creator_id = $1 AND status IN ('waiting','starting')", p1);
+        auto lobby = test_lobby_repo().create(
+            txn, static_cast<int32_t>(p1), 2, 8, anjeer::server::LobbyMode::API);
+        test_lobby_repo().add_player(txn, lobby.id, p1);
+        test_lobby_repo().add_player(txn, lobby.id, p2);
+        txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);
+        lobby_id = lobby.id;
+        txn.commit();
+    }
+
+    auto make_key = [&](int64_t pid, const std::string& tag) -> std::string {
+        std::string err;
+        pqxx::work txn(direct);
+        auto key = test_api_key_repo().create(txn, static_cast<int32_t>(pid), tag, err);
+        txn.commit();
+        if (!key) throw std::runtime_error("api key create failed: " + err);
+        return *key;
+    };
+
+    const std::string k1 = make_key(p1, "gi-p1-" + suffix);
+    const std::string k2 = make_key(p2, "gi-p2-" + suffix);
+
+    nlohmann::json ev; ev["lobby_id"] = lobby_id;
+    test_game_event_bus().publish("game:start", ev.dump());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    return { p1, p2, lobby_id, k1, k2 };
+}
+
+// T10: MBP1 player receives book_update but NOT book_depth after order submit.
+// Verifies that dispatch_events() skips wire::book_depth() serialization when
+// no MBPN subscribers exist in the session.
+TEST_CASE("WS server — lazy MBPN: MBP1 session emits book_update not book_depth",
+          "[ws_server][feed_tier][lazy]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("lazy1");
+
+    WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    WsTestClient c2(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key2 + "\r\n");
+
+    // Drain c2's initial burst; game_state_snapshot confirms round is live.
+    bool c2_ready = false;
+    for (int i = 0; i < 20 && !c2_ready; ++i) {
+        try {
+            auto j = c2.recv_json();
+            if (j.value("type","") == "game_state_snapshot") c2_ready = true;
+        } catch (...) { break; }
+    }
+    REQUIRE(c2_ready);
+
+    // Drain c1's initial burst similarly.
+    for (int i = 0; i < 20; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "game_state_snapshot") break;
+        } catch (...) { break; }
+    }
+
+    // c1 submits an order — triggers a book_update broadcast (MBP1 path).
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",40}});
+
+    // Collect messages from c2 (the observer); verify book_update arrives, book_depth does not.
+    bool got_book_update = false;
+    bool got_book_depth  = false;
+    for (int i = 0; i < 15; ++i) {
+        try {
+            auto j = c2.recv_json();
+            const auto t = j.value("type","");
+            if (t == "book_update") got_book_update = true;
+            if (t == "book_depth")  got_book_depth  = true;
+        } catch (...) { break; }
+    }
+
+    CHECK(got_book_update);
+    CHECK_FALSE(got_book_depth);
+}
