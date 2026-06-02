@@ -462,6 +462,9 @@ void WsServer::run() {
                 } else if (type == "end_game") {
                     if (data->player_id == as.current_owner_player_id_)
                         as.inbound->enqueue(NetOwnerEndGame{});
+                } else if (type == "resync") {
+                    const std::string tier = feed_tier_to_string(data->feed_tier);
+                    as.inbound->enqueue(NetSendFeedSnapshot{slot, tier});
                 }
                 // Unknown game-command types are silently dropped — prevents log
                 // spam when old client versions send now-unknown messages.

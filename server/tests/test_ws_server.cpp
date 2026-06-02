@@ -1402,3 +1402,116 @@ TEST_CASE("WS server — MBPN snapshot seq matches last event seq; next event is
     }
     REQUIRE(incremental_seq == snapshot_seq + 1);
 }
+
+// ─── T22: resync on MBP-1 → one book_update per instrument ───────────────────
+// Player1 submits an order (seq→1). Sends {"type":"resync"}. Server must reply
+// with at least one book_update carrying v=1 and a seq field.
+TEST_CASE("WS server — resync on MBP1 returns book_update per instrument",
+          "[ws_server][feed_tier][resync]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("resync1");
+
+    WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    for (int i = 0; i < 20; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "game_state_snapshot") break;
+        } catch (...) { break; }
+    }
+
+    // Submit one order so seq > 0 before resyncing.
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",30}});
+    // Drain until we see the resulting book_update.
+    for (int i = 0; i < 30; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "book_update") break;
+        } catch (...) { break; }
+    }
+
+    // Send resync — server should emit book_update(s) for active instruments.
+    c1.send_json({{"type","resync"}});
+    bool got_book_update = false;
+    for (int i = 0; i < 30 && !got_book_update; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "book_update" && j.contains("seq") && j.contains("v")) {
+                REQUIRE(j["v"].get<int>() == 1);
+                got_book_update = true;
+            }
+        } catch (...) { break; }
+    }
+    REQUIRE(got_book_update);
+}
+
+// ─── T23: resync on MBP-N → one book_depth_snapshot per instrument ────────────
+TEST_CASE("WS server — resync on MBPN returns book_depth_snapshot",
+          "[ws_server][feed_tier][resync]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("resync2");
+
+    {
+        pqxx::connection direct(TEST_DB_CONN);
+        pqxx::work txn(direct);
+        txn.exec_params("UPDATE players SET feed_preference = 'mbpn' WHERE id = $1",
+                        setup.player1_id);
+        txn.commit();
+    }
+
+    WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    for (int i = 0; i < 20; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "game_state_snapshot") break;
+        } catch (...) { break; }
+    }
+
+    c1.send_json({{"type","resync"}});
+    bool got_snapshot = false;
+    for (int i = 0; i < 30 && !got_snapshot; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "book_depth_snapshot" && j.contains("seq") && j.contains("v")) {
+                REQUIRE(j["v"].get<int>() == 1);
+                got_snapshot = true;
+            }
+        } catch (...) { break; }
+    }
+    REQUIRE(got_snapshot);
+}
+
+// ─── T24: resync on MBO → one order_book_snapshot per instrument ──────────────
+TEST_CASE("WS server — resync on MBO returns order_book_snapshot",
+          "[ws_server][feed_tier][resync]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("resync3");
+
+    {
+        pqxx::connection direct(TEST_DB_CONN);
+        pqxx::work txn(direct);
+        txn.exec_params("UPDATE players SET feed_preference = 'mbo' WHERE id = $1",
+                        setup.player1_id);
+        txn.commit();
+    }
+
+    WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    for (int i = 0; i < 20; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "game_state_snapshot") break;
+        } catch (...) { break; }
+    }
+
+    c1.send_json({{"type","resync"}});
+    bool got_snapshot = false;
+    for (int i = 0; i < 30 && !got_snapshot; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "order_book_snapshot" && j.contains("seq") && j.contains("v")) {
+                REQUIRE(j["v"].get<int>() == 1);
+                got_snapshot = true;
+            }
+        } catch (...) { break; }
+    }
+    REQUIRE(got_snapshot);
+}

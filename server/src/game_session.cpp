@@ -1427,7 +1427,13 @@ void GameSession::handle_send_feed_snapshot(int32_t slot, const std::string& tie
         const int si = engine::suit_index(suit);
         if (!active_suits_[si]) continue;
         const auto iid = static_cast<exchange::instrument_id_t>(si);
-        if (tier == "mbpn") {
+        if (tier == "mbp1") {
+            emit_targeted(slot, serialise::book_update_payload(
+                std::string(engine::suit_name(suit)),
+                exchange_.best_bid(si), exchange_.best_ask(si),
+                seq,
+                exchange_.best_bid_slot(si), exchange_.best_ask_slot(si)));
+        } else if (tier == "mbpn") {
             emit_targeted(slot, wire::book_depth_snapshot(
                 suit,
                 exchange_.bids_depth(iid, 100),
