@@ -438,6 +438,46 @@ TEST_CASE("AuthService: issue_tokens produces valid access and refresh tokens",
     REQUIRE(refresh_id.value() == player.id);
 }
 
+// ---------------------------------------------------------------------------
+// PlayerRepo: feed_preference round-trip (T28 server-side DB path)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("PlayerRepo: get_feed_preference returns mbp1 default for new player",
+          "[integration][player_repo][feed]") {
+    TestDbFixture f;
+    int64_t player_id{};
+    {
+        pqxx::work txn(f.conn);
+        const auto p = f.repo.insert(txn, "feed_default_user", "github", "gh_fd1");
+        txn.commit();
+        player_id = p.id;
+    }
+    pqxx::work txn(f.conn);
+    const auto pref = f.repo.get_feed_preference(txn, player_id);
+    REQUIRE(pref == "mbp1");
+}
+
+TEST_CASE("PlayerRepo: update_feed_preference + get_feed_preference round-trip",
+          "[integration][player_repo][feed]") {
+    TestDbFixture f;
+    int64_t player_id{};
+    {
+        pqxx::work txn(f.conn);
+        const auto p = f.repo.insert(txn, "feed_rtrip_user", "github", "gh_fr2");
+        txn.commit();
+        player_id = p.id;
+    }
+    for (const auto* pref : {"mbpn", "mbo", "mbp1"}) {
+        {
+            pqxx::work txn(f.conn);
+            f.repo.update_feed_preference(txn, player_id, pref);
+            txn.commit();
+        }
+        pqxx::work txn(f.conn);
+        REQUIRE(f.repo.get_feed_preference(txn, player_id) == std::string(pref));
+    }
+}
+
 TEST_CASE("AuthService: validate_access_token rejects expired token",
           "[integration][auth_service]") {
     // AGENT-CTX: We build a JwtService with access_ttl=-1 directly to get an
