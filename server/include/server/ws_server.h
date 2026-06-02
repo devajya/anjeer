@@ -124,6 +124,14 @@ private:
                      int32_t slot, const std::string& lobby_id,
                      uWS::Loop* loop);
 
+    // Resolves player identity from an upgrade request.
+    // Tries Bearer API key, then ?api_key= query param (with warn), then JWT cookie.
+    // Returns player_id (-1 if unauthenticated). out_err is set on invalid key; out_type
+    // reflects the auth method used so callers can stamp PerSocketData correctly.
+    int64_t resolve_upgrade_auth(uWS::HttpRequest*           req,
+                                 std::optional<WsErrorCode>& out_err,
+                                 AuthType&                   out_type);
+
     // ── Dependencies ─────────────────────────────────────────────────────────
     ServerConfig   cfg_;
     LobbyGateway&  lobby_gateway_;

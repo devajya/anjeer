@@ -79,6 +79,52 @@ WsServer::WsServer(const ServerConfig& cfg, WsServerDeps deps)
     , rng_                  (std::random_device{}())
 {}
 
+// ─── resolve_upgrade_auth ─────────────────────────────────────────────────
+int64_t WsServer::resolve_upgrade_auth(uWS::HttpRequest*           req,
+                                       std::optional<WsErrorCode>& out_err,
+                                       AuthType&                   out_type) {
+    int64_t player_id = -1;
+
+    std::string_view auth_hdr   = req->getHeader("authorization");
+    std::string_view api_key_qp = req->getQuery("api_key");
+
+    auto try_api_key = [&](std::string_view raw_key) {
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+            auto maybe = api_key_repo_.find_valid_by_hash(txn, sha256_hex(raw_key));
+            if (maybe) {
+                player_id = maybe->player_id;
+                out_type  = AuthType::ApiKey;
+            } else {
+                out_err = WsErrorCode::ApiKeyInvalid;
+            }
+        } catch (const std::exception& e) {
+            server_log_.warn("upgrade", std::string("API key DB error: ") + e.what());
+            out_err = WsErrorCode::ApiKeyInvalid;
+        }
+    };
+
+    if (auth_hdr.size() > 7 && auth_hdr.substr(0, 7) == "Bearer ") {
+        try_api_key(auth_hdr.substr(7));
+    } else if (!api_key_qp.empty()) {
+        server_log_.warn("upgrade",
+            "API key supplied via query param — use Authorization: Bearer in production");
+        try_api_key(api_key_qp);
+    } else {
+        std::string_view cookie_hdr = req->getHeader("cookie");
+        if (!cookie_hdr.empty()) {
+            std::string token = parse_cookie_value(cookie_hdr, "access_token");
+            if (!token.empty()) {
+                auto opt = auth_service_.validate_access_token(token);
+                if (opt) player_id = *opt;
+            }
+        }
+    }
+
+    return player_id;
+}
+
 // ─── run() — blocks until SIGINT ──────────────────────────────────────────
 void WsServer::run() {
     server_log_.info("startup", "server starting — config loaded");
@@ -124,51 +170,11 @@ void WsServer::run() {
         .upgrade = [this, loop](uWS::HttpResponse<false>* res,
                                 uWS::HttpRequest*          req,
                                 us_socket_context_t*       ctx) {
-            int64_t    player_id   = -1;
             AuthType   auth_type   = AuthType::JWT;
             std::optional<WsErrorCode> pending_close;
+            std::string_view reconnect_qp = req->getQuery("token");
 
-            std::string_view auth_hdr      = req->getHeader("authorization");
-            std::string_view api_key_qp    = req->getQuery("api_key");
-            std::string_view reconnect_qp  = req->getQuery("token");
-
-            auto try_api_key = [&](std::string_view raw_key) {
-                try {
-                    auto handle = db_pool_.acquire();
-                    pqxx::work txn(handle.get());
-                    auto maybe = api_key_repo_.find_valid_by_hash(txn, sha256_hex(raw_key));
-                    if (maybe) {
-                        player_id = maybe->player_id;
-                        auth_type = AuthType::ApiKey;
-                    } else {
-                        pending_close = WsErrorCode::ApiKeyInvalid;
-                    }
-                } catch (...) {
-                    pending_close = WsErrorCode::ApiKeyInvalid;
-                }
-            };
-
-            // --- Bearer header (preferred) ---
-            if (auth_hdr.size() > 7 && auth_hdr.substr(0, 7) == "Bearer ") {
-                try_api_key(auth_hdr.substr(7));
-            }
-            // --- Query-param fallback (insecure) ---
-            else if (!api_key_qp.empty()) {
-                server_log_.warn("upgrade",
-                    "API key supplied via query param — use Authorization: Bearer in production");
-                try_api_key(api_key_qp);
-            }
-            // --- JWT cookie ---
-            else {
-                std::string_view cookie_hdr = req->getHeader("cookie");
-                if (!cookie_hdr.empty()) {
-                    std::string token = parse_cookie_value(cookie_hdr, "access_token");
-                    if (!token.empty()) {
-                        auto opt = auth_service_.validate_access_token(token);
-                        if (opt) player_id = *opt;
-                    }
-                }
-            }
+            int64_t player_id = resolve_upgrade_auth(req, pending_close, auth_type);
 
             // Reject suspended players before they re-enter
             if (player_id >= 0 && !pending_close &&
@@ -591,39 +597,10 @@ void WsServer::run() {
         .upgrade = [this](uWS::HttpResponse<false>* res,
                           uWS::HttpRequest*          req,
                           us_socket_context_t*       ctx) {
-            int64_t player_id = -1;
+            AuthType auth_type = AuthType::JWT;
             std::optional<WsErrorCode> pending_close;
 
-            std::string_view auth_hdr   = req->getHeader("authorization");
-            std::string_view api_key_qp = req->getQuery("api_key");
-
-            auto try_api_key_md = [&](std::string_view raw_key) {
-                try {
-                    auto handle = db_pool_.acquire();
-                    pqxx::work txn(handle.get());
-                    auto maybe = api_key_repo_.find_valid_by_hash(txn, sha256_hex(raw_key));
-                    if (maybe) player_id = maybe->player_id;
-                    else       pending_close = WsErrorCode::ApiKeyInvalid;
-                } catch (...) {
-                    pending_close = WsErrorCode::ApiKeyInvalid;
-                }
-            };
-
-            if (auth_hdr.size() > 7 && auth_hdr.substr(0, 7) == "Bearer ")
-                try_api_key_md(auth_hdr.substr(7));
-            else if (!api_key_qp.empty())
-                try_api_key_md(api_key_qp);
-            else {
-                // Try JWT cookie fallback
-                std::string_view cookie_hdr = req->getHeader("cookie");
-                if (!cookie_hdr.empty()) {
-                    std::string token = parse_cookie_value(cookie_hdr, "access_token");
-                    if (!token.empty()) {
-                        auto opt = auth_service_.validate_access_token(token);
-                        if (opt) player_id = *opt;
-                    }
-                }
-            }
+            int64_t player_id = resolve_upgrade_auth(req, pending_close, auth_type);
 
             // Reject unauthenticated connections immediately.
             if (player_id < 0 && !pending_close)
@@ -633,7 +610,7 @@ void WsServer::run() {
 
             PerSocketData psd;
             psd.player_id     = player_id;
-            psd.auth_type     = AuthType::ApiKey;
+            psd.auth_type     = auth_type;
             psd.pending_close = pending_close;
             psd.feed_tier     = FeedTier::MBO;
             psd.lobby_id      = lobby_id;
