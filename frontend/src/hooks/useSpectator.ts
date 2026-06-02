@@ -196,6 +196,13 @@ export function useSpectator(lobbyId: string): WsState {
         case 'eval_posterior_update':
         case 'eval_accumulation_signal':
         case 'eval_execution_guidance':
+        // Slice 14: market-data feed tier messages — no spectator UI yet
+        case 'book_depth':
+        case 'book_depth_snapshot':
+        case 'order_added':
+        case 'order_executed':
+        case 'order_cancelled':
+        case 'order_book_snapshot':
           break
 
         default: {

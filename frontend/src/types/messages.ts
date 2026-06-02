@@ -541,6 +541,79 @@ export interface LobbySettingsChangedMessage {
   bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
 }
 
+// ── Slice 14: Market data feed tiers ─────────────────────────────────────────
+
+/** MBP-N incremental: full depth snapshot per suit after any order event. */
+export interface BookDepthMessage {
+  type: 'book_depth'
+  v: number
+  seq: number
+  suit: string
+  bids: { price: number; qty: number }[]
+  asks: { price: number; qty: number }[]
+}
+
+/** MBP-N snapshot: sent on connect or resync for each instrument. */
+export interface BookDepthSnapshotMessage {
+  type: 'book_depth_snapshot'
+  v: number
+  seq: number
+  suit: string
+  bids: { price: number; qty: number }[]
+  asks: { price: number; qty: number }[]
+}
+
+/** MBO incremental: a new resting order entered the book. */
+export interface OrderAddedMessage {
+  type: 'order_added'
+  v: number
+  seq: number
+  order_id: number
+  suit: string
+  side: 'buy' | 'sell'
+  price: number
+}
+
+/**
+ * MBO incremental: an order was filled.
+ * AGENT-CTX: Use order_id to remove the resting order from a local MBO book.
+ * buyer_slot / seller_slot identify the counterparties for display purposes.
+ */
+export interface OrderExecutedMessage {
+  type: 'order_executed'
+  v: number
+  seq: number
+  order_id: number
+  suit: string
+  price: number
+  aggressor_side: 'buy' | 'sell'
+  buyer_slot: number
+  seller_slot: number
+}
+
+/** MBO incremental: a resting order was cancelled. */
+export interface OrderCancelledMessage {
+  type: 'order_cancelled'
+  v: number
+  seq: number
+  order_id: number
+  suit: string
+}
+
+/**
+ * MBO snapshot: full order-by-order book state per suit.
+ * Sent on connect and on resync for MBO connections (including /ws/marketdata).
+ * AGENT-CTX: seq equals the last applied exchange event; next incremental will be seq+1.
+ */
+export interface OrderBookSnapshotMessage {
+  type: 'order_book_snapshot'
+  v: number
+  seq: number
+  suit: string
+  bids: { order_id: number; price: number }[]
+  asks: { order_id: number; price: number }[]
+}
+
 /**
  * ServerMessage is the exhaustive union of all server-to-client message types.
  * AGENT-CTX: Every new server event type must be added here. The switch in
@@ -588,6 +661,13 @@ export type ServerMessage =
   | EvalPosteriorUpdateMessage
   | EvalAccumulationSignalMessage
   | EvalExecutionGuidanceMessage
+  // Slice 14
+  | BookDepthMessage
+  | BookDepthSnapshotMessage
+  | OrderAddedMessage
+  | OrderExecutedMessage
+  | OrderCancelledMessage
+  | OrderBookSnapshotMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)
@@ -698,6 +778,15 @@ export interface ReconnectGameCommand {
   token: string
 }
 
+/**
+ * Sent by a connected client to request a full snapshot for their current feed tier.
+ * MBP-1 → one book_update per instrument; MBP-N → book_depth_snapshot × 4;
+ * MBO → order_book_snapshot × 4.
+ */
+export interface ResyncCommand {
+  type: 'resync'
+}
+
 export type ClientCommand =
   | SubmitOrderCommand
   | NudgeCommand
@@ -716,6 +805,8 @@ export type ClientCommand =
   | ReconnectGameCommand
   | StartNextRoundCommand
   | EndGameCommand
+  // Slice 14
+  | ResyncCommand
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HTTP REST types (not WebSocket)

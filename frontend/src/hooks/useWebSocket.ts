@@ -671,6 +671,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({ ...s, evalExecutionGuidance: msg.action ? msg : null }))
           break
 
+        // Slice 14: market-data feed tier messages — no UI state yet; logged for script consumers
+        case 'book_depth':
+        case 'book_depth_snapshot':
+        case 'order_added':
+        case 'order_executed':
+        case 'order_cancelled':
+        case 'order_book_snapshot':
+          break
+
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new
           // ServerMessage variant is added but not handled above.
