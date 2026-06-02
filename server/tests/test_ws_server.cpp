@@ -20,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <nlohmann/json.hpp>
+#include <pqxx/pqxx>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -1283,4 +1284,121 @@ TEST_CASE("WS server — lazy MBPN: MBP1 session emits book_update not book_dept
 
     CHECK(got_book_update);
     CHECK_FALSE(got_book_depth);
+}
+
+// ─── T19: seq is monotonically increasing within a round ──────────────────────
+// Submits 3 buy orders from c1; collects book_update messages at c2 and
+// verifies each successive seq value is strictly greater than the previous.
+
+TEST_CASE("WS server — seq is monotonically increasing within a round",
+          "[ws_server][feed_tier][seq]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("seq1");
+
+    WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    WsTestClient c2(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key2 + "\r\n");
+
+    for (auto* c : {&c1, &c2}) {
+        for (int i = 0; i < 20; ++i) {
+            try {
+                auto j = c->recv_json();
+                if (j.value("type","") == "game_state_snapshot") break;
+            } catch (...) { break; }
+        }
+    }
+
+    // Three buy orders at different prices on the same side → no match, each
+    // generates an OrderAdded (seq++) and a BookUpdated (current_seq stamped).
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",30}});
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",31}});
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",32}});
+
+    std::vector<int64_t> seqs;
+    for (int i = 0; i < 40 && seqs.size() < 3; ++i) {
+        try {
+            auto j = c2.recv_json();
+            if (j.value("type","") == "book_update" && j.contains("seq"))
+                seqs.push_back(j.value("seq", int64_t{0}));
+        } catch (...) { break; }
+    }
+
+    REQUIRE(seqs.size() >= 2);
+    for (size_t i = 1; i < seqs.size(); ++i)
+        CHECK(seqs[i] > seqs[i - 1]);
+}
+
+// ─── T21: MBPN snapshot seq == last event seq; next incremental == snapshot+1 ──
+// Player2 has feed_preference='mbpn' in DB. Player1 submits 3 orders (seq→3).
+// Player2 connects → receives book_depth_snapshot with seq=3. Player1 submits
+// a 4th order → player2 receives book_depth with seq=4 (= snapshot_seq + 1).
+
+TEST_CASE("WS server — MBPN snapshot seq matches last event seq; next event is snapshot+1",
+          "[ws_server][feed_tier][seq]") {
+    ensure_game_server_running();
+    const auto setup = setup_game_integ("seq3");
+
+    // Stamp MBPN preference in DB before player2 connects so the WS upgrade
+    // handler reads it and sets FeedTier::MBPN on that socket.
+    {
+        pqxx::connection direct(TEST_DB_CONN);
+        pqxx::work txn(direct);
+        txn.exec_params("UPDATE players SET feed_preference = 'mbpn' WHERE id = $1",
+                        setup.player2_id);
+        txn.commit();
+    }
+
+    WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
+    for (int i = 0; i < 20; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "game_state_snapshot") break;
+        } catch (...) { break; }
+    }
+
+    // Advance seq to 3 via three non-crossing buy orders.
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",30}});
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",31}});
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",32}});
+
+    // Drain c1's book_updates until seq=3 is confirmed, ensuring the server has
+    // processed all 3 orders before player2 connects.
+    int got_updates = 0;
+    int64_t last_seq = 0;
+    for (int i = 0; i < 40 && got_updates < 3; ++i) {
+        try {
+            auto j = c1.recv_json();
+            if (j.value("type","") == "book_update" && j.contains("seq")) {
+                last_seq = j.value("seq", int64_t{0});
+                ++got_updates;
+            }
+        } catch (...) { break; }
+    }
+    REQUIRE(got_updates == 3);
+    REQUIRE(last_seq == 3);
+
+    // Connect player2 (MBPN) — server stamps FeedTier::MBPN from DB.
+    WsTestClient c2(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key2 + "\r\n");
+
+    // Collect c2 messages until book_depth_snapshot arrives.
+    int64_t snapshot_seq = -1;
+    for (int i = 0; i < 30 && snapshot_seq < 0; ++i) {
+        try {
+            auto j = c2.recv_json();
+            if (j.value("type","") == "book_depth_snapshot" && j.contains("seq"))
+                snapshot_seq = j.value("seq", int64_t{-1});
+        } catch (...) { break; }
+    }
+    REQUIRE(snapshot_seq == 3);
+
+    // 4th order → c2 must receive book_depth with seq = snapshot_seq + 1.
+    c1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",33}});
+    int64_t incremental_seq = -1;
+    for (int i = 0; i < 30 && incremental_seq < 0; ++i) {
+        try {
+            auto j = c2.recv_json();
+            if (j.value("type","") == "book_depth" && j.contains("seq"))
+                incremental_seq = j.value("seq", int64_t{-1});
+        } catch (...) { break; }
+    }
+    REQUIRE(incremental_seq == snapshot_seq + 1);
 }

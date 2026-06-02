@@ -906,3 +906,68 @@ TEST_CASE("T18: MBO incremental: order_added on submit, order_cancelled on cance
     CHECK(executed->contains("seq"));
     CHECK(executed->value("v", 0) == 1);
 }
+
+// ─── T20: seq resets after begin_round ────────────────────────────────────────
+// Verifies that reset_seq() is called in begin_round() so seq numbers are
+// round-relative. Submits 3 orders in round 1 (seq → 3), then waits for the
+// round to expire and a new round to begin, then verifies the first book_update
+// in round 2 has seq < final round-1 seq.
+
+TEST_CASE("T20: seq resets to near-zero after begin_round",
+          "[game_session][seq]") {
+    run_migrations();
+    ServerConfig cfg = make_cfg();
+    cfg.game.round_duration_seconds = 2;
+    cfg.game.inter_round_seconds    = 0;
+
+    Harness h(cfg);
+    h.advance_to_round_active();
+
+    // Submit 3 orders in round 1 so seq advances to 3.
+    h.push(NetSubmit{0, "clubs", Side::Buy, 30});
+    h.push(NetSubmit{0, "clubs", Side::Buy, 31});
+    h.push(NetSubmit{0, "clubs", Side::Buy, 32});
+
+    std::vector<int64_t> round1_seqs;
+    const auto collect_deadline = std::chrono::steady_clock::now() + 3000ms;
+    while (std::chrono::steady_clock::now() < collect_deadline && round1_seqs.size() < 3) {
+        GameEvent ev;
+        if (h.outbound.try_dequeue(ev)) {
+            if (const auto* bu = std::get_if<GameBookUpdate>(&ev)) {
+                auto j = nlohmann::json::parse(bu->mbp1_json);
+                round1_seqs.push_back(j.value("seq", int64_t{0}));
+            }
+        } else {
+            std::this_thread::sleep_for(10ms);
+        }
+    }
+    REQUIRE(round1_seqs.size() == 3);
+    const int64_t final_round1_seq = round1_seqs.back();
+    REQUIRE(final_round1_seq > 0);
+
+    // Wait for inter_round (round expires after 2 seconds).
+    REQUIRE(h.recv_type("inter_round", 5000ms).has_value());
+    // inter_round_seconds=0 → begin_round() fires on next tick directly (no begin_countdown).
+    // round_starting is only sent in begin_countdown(); after inter_round the session calls
+    // begin_round() directly, which sends targeted round_start to each connected slot.
+    REQUIRE(h.recv_targeted(0, "round_start", 3000ms).has_value());
+
+    // Submit one order in round 2 and capture its seq.
+    h.push(NetSubmit{0, "clubs", Side::Buy, 30});
+    std::optional<int64_t> round2_seq;
+    const auto r2_deadline = std::chrono::steady_clock::now() + 2000ms;
+    while (std::chrono::steady_clock::now() < r2_deadline && !round2_seq) {
+        GameEvent ev;
+        if (h.outbound.try_dequeue(ev)) {
+            if (const auto* bu = std::get_if<GameBookUpdate>(&ev)) {
+                auto j = nlohmann::json::parse(bu->mbp1_json);
+                round2_seq = j.value("seq", int64_t{0});
+            }
+        } else {
+            std::this_thread::sleep_for(10ms);
+        }
+    }
+    REQUIRE(round2_seq.has_value());
+    // After reset, seq starts from 1; must be less than round 1's final seq (3).
+    CHECK(*round2_seq < final_round1_seq);
+}
