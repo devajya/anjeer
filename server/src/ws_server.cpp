@@ -187,12 +187,20 @@ void WsServer::run() {
                     auto handle = db_pool_.acquire();
                     pqxx::work txn(handle.get());
                     auto rows = txn.exec_params(
-                        "SELECT username, feed_preference FROM players WHERE id = $1", player_id);
-                    if (!rows.empty()) {
-                        username  = rows[0][0].as<std::string>();
-                        feed_tier = feed_tier_from_string(rows[0][1].as<std::string>());
-                    }
+                        "SELECT username FROM players WHERE id = $1", player_id);
+                    if (!rows.empty())
+                        username = rows[0][0].as<std::string>();
                 } catch (...) {}
+
+                // Feed tier was cached at session start — no DB query needed here.
+                auto sit = active_sessions_.find(
+                    player_to_lobby_.count(player_id)
+                        ? player_to_lobby_.at(player_id) : "");
+                if (sit != active_sessions_.end()) {
+                    auto fit = sit->second.feed_tier_cache_.find(player_id);
+                    if (fit != sit->second.feed_tier_cache_.end())
+                        feed_tier = fit->second;
+                }
             }
 
             PerSocketData psd;
@@ -764,6 +772,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     bool        spawn_bots_on_leave   = false;
     std::string bot_spawn_difficulty  = "easy";
     int64_t     creator_id            = -1;
+    std::unordered_map<int64_t, FeedTier> feed_tier_cache;
     try {
         auto handle = db_pool_.acquire();
         pqxx::work txn(handle.get());
@@ -771,6 +780,23 @@ void WsServer::create_session(const std::string& lobby_id) {
         if (players.empty()) {
             server_log_.warn("create_session", "no players in lobby " + lobby_id);
             return;
+        }
+
+        // Batch-fetch feed preferences for all lobby players so .upgrade never
+        // queries the DB for feed tier again during this session.
+        if (!players.empty()) {
+            std::string q = "SELECT id, feed_preference FROM players WHERE id IN (";
+            for (size_t i = 0; i < players.size(); ++i) {
+                if (i) q += ',';
+                q += '$'; q += std::to_string(i + 1);
+            }
+            q += ')';
+            pqxx::params args;
+            for (const auto& p : players) args.append(p.player_id);
+            for (const auto& row : txn.exec_params(q, args)) {
+                const int64_t pid = row[0].as<int64_t>();
+                feed_tier_cache[pid] = feed_tier_from_string(row[1].as<std::string>());
+            }
         }
         if (auto lobby = lobby_repo_.find_by_id(txn, lobby_id)) {
             lobby_mode           = lobby->mode;
@@ -849,6 +875,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     as.spawn_bots_on_leave_      = spawn_bots_on_leave;
     as.bot_spawn_difficulty_     = bot_spawn_difficulty;
     as.session_id_               = session_id;
+    as.feed_tier_cache_          = std::move(feed_tier_cache);
     as.queue_                    = std::make_unique<LobbyQueue>(cfg_.reconnect.max_queue_size);
     as.current_owner_player_id_  = creator_id;
 
