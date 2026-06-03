@@ -59,6 +59,7 @@ const { user } = useAuth()
     evalExecutionGuidance,
     bookDepths,
     feedTier,
+    mboLogs,
   } = useWebSocket('/ws')
 
   const {
@@ -377,6 +378,7 @@ const { user } = useAuth()
                       onSelect={setSelectedSuit}
                       bookDepth={bookDepths[suit] ?? null}
                       feedTier={feedTier}
+                      mboLog={mboLogs[suit] ?? []}
                     />
                   </div>
                 ))

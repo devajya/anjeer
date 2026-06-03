@@ -199,10 +199,22 @@ export interface WsState {
   /** Top-of-book depth per suit. Populated by book_depth / book_depth_snapshot messages. */
   bookDepths: Record<string, { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] }>
   /**
-   * Feed tier inferred from first depth message received. null until known.
-   * 'mbpn' once book_depth or book_depth_snapshot arrives; stays null for MBP1/MBO.
+   * Feed tier inferred from first depth/MBO message received. null until known.
+   * 'mbpn' once book_depth or book_depth_snapshot arrives; 'mbo' once order_added
+   * / order_executed / order_cancelled arrives; stays null for MBP1.
    */
   feedTier: 'mbp1' | 'mbpn' | 'mbo' | null
+  // ── Slice 15 Task 16: MBO order event log ────────────────────────────────
+  /** Per-suit MBO event log, newest first, capped at 50. */
+  mboLogs: Record<string, MboLogEntry[]>
+}
+
+export interface MboLogEntry {
+  kind:     'added' | 'executed' | 'cancelled'
+  seq:      number
+  order_id: number
+  price:    number | null
+  side?:    'buy' | 'sell'
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -271,6 +283,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     evalExecutionGuidance: null,
     bookDepths: {},
     feedTier: null,
+    mboLogs: {},
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -697,9 +710,36 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           }))
           break
 
-        case 'order_added':
-        case 'order_executed':
-        case 'order_cancelled':
+        case 'order_added': {
+          const entry: MboLogEntry = { kind: 'added', seq: msg.seq, order_id: msg.order_id, price: msg.price, side: msg.side }
+          setState(s => ({
+            ...s,
+            feedTier: 'mbo',
+            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 50) },
+          }))
+          break
+        }
+
+        case 'order_executed': {
+          const entry: MboLogEntry = { kind: 'executed', seq: msg.seq, order_id: msg.order_id, price: msg.price }
+          setState(s => ({
+            ...s,
+            feedTier: 'mbo',
+            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 50) },
+          }))
+          break
+        }
+
+        case 'order_cancelled': {
+          const entry: MboLogEntry = { kind: 'cancelled', seq: msg.seq, order_id: msg.order_id, price: null }
+          setState(s => ({
+            ...s,
+            feedTier: 'mbo',
+            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 50) },
+          }))
+          break
+        }
+
         case 'order_book_snapshot':
           break
 

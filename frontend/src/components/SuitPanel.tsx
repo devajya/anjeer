@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState, useEffect, useCallback } from 'react'
-import type { BookState, MyOrder } from '../hooks/useWebSocket'
+import type { BookState, MyOrder, MboLogEntry } from '../hooks/useWebSocket'
 import type { ErrorMessage, ClientCommand } from '../types/messages'
 import { useOrderForm } from '../hooks/useOrderForm'
 import './SuitPanel.css'
@@ -78,8 +78,10 @@ interface Props {
    * the collapsible depth ladder is shown below the panel.
    */
   bookDepth?: { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] } | null
-  /** Feed tier inferred from server messages. 'mbpn' enables the depth ladder. */
+  /** Feed tier inferred from server messages. 'mbpn' enables the depth ladder; 'mbo' enables the event log. */
   feedTier?: 'mbp1' | 'mbpn' | 'mbo' | null
+  /** MBO event log for this suit, newest first. Rendered when feedTier === 'mbo'. */
+  mboLog?: MboLogEntry[]
 }
 
 const SUIT_SYMBOLS: Record<string, string> = {
@@ -114,6 +116,7 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   isSpectator = false,
   bookDepth = null,
   feedTier = null,
+  mboLog = [],
 }, ref) {
   const { bidInput, offerInput, qtyInput, setBidInput, setOfferInput, setQtyInput, submitBid, submitOffer, selfTradeError, parsedQty } =
     useOrderForm(suit, onSendMessage, myOrdersForSuit)
@@ -147,6 +150,9 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
 
   const [depthExpanded, setDepthExpanded] = useState(false)
   const toggleDepth = useCallback(() => setDepthExpanded(v => !v), [])
+
+  const [logExpanded, setLogExpanded] = useState(false)
+  const toggleLog = useCallback(() => setLogExpanded(v => !v), [])
 
   const disabled = playerId === null
   const hasBid = book.best_bid !== null
@@ -338,6 +344,39 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
       )}
       {!visibleError && visibleSelfTradeError && (
         <p className="sp__error">✗ {visibleSelfTradeError}</p>
+      )}
+
+      {feedTier === 'mbo' && (
+        <div className="sp__mbo">
+          <button
+            className="sp__depth-toggle"
+            type="button"
+            onClick={e => { e.stopPropagation(); toggleLog() }}
+            aria-expanded={logExpanded}
+            aria-label={logExpanded ? 'Collapse order log' : 'Expand order log'}
+          >
+            {logExpanded ? '▴ orders' : '▾ orders'}
+          </button>
+          {logExpanded && (
+            <div className="sp__mbo-log">
+              {mboLog.length === 0 ? (
+                <span className="sp__mbo-empty">no events</span>
+              ) : (
+                mboLog.map((e, i) => (
+                  <div key={i} className={`sp__mbo-row sp__mbo-row--${e.kind}`}>
+                    <span className="sp__mbo-icon">
+                      {e.kind === 'added' ? '+' : e.kind === 'executed' ? '×' : '–'}
+                    </span>
+                    <span className="sp__mbo-seq">{e.seq}</span>
+                    {e.price !== null && (
+                      <span className="sp__mbo-price">{e.price}</span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {feedTier === 'mbpn' && (

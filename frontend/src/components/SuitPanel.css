@@ -299,3 +299,51 @@
 .sp__depth-qty {
   color: #555;
 }
+
+/* ── MBO order event log ── */
+.sp__mbo {
+  border-top: 1px solid #2a2a2a;
+}
+
+.sp__mbo-log {
+  max-height: 120px;
+  overflow-y: auto;
+  background: #111;
+  padding: 0.2rem 0.4rem;
+}
+
+.sp__mbo-empty {
+  display: block;
+  font-size: 0.6rem;
+  color: #444;
+  text-align: center;
+  padding: 0.25rem 0;
+}
+
+.sp__mbo-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.63rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0;
+}
+
+.sp__mbo-icon {
+  width: 0.75rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.sp__mbo-row--added    .sp__mbo-icon { color: #4a9d6f; }
+.sp__mbo-row--executed .sp__mbo-icon { color: #c0392b; }
+.sp__mbo-row--cancelled .sp__mbo-icon { color: #666; }
+
+.sp__mbo-seq {
+  color: #444;
+  min-width: 2.5rem;
+}
+
+.sp__mbo-price {
+  color: #aaa;
+}
