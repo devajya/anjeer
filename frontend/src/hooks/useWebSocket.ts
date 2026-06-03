@@ -59,6 +59,8 @@ export interface TradeEntry {
   your_side: 'buy' | 'sell' | null
   buyer_slot: number
   seller_slot: number
+  qty_filled: number
+  qty_ordered: number
   ts: number  // Date.now() at receipt — used for display only
 }
 

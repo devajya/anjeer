@@ -62,6 +62,11 @@ export function TradeFeed({ trades, roster }: Props) {
                 </td>
                 <td className="trade-feed__td trade-feed__td--price">
                   {t.price}
+                  {t.qty_filled < t.qty_ordered && (
+                    <span className="trade-feed__qty">
+                      {t.qty_filled}/{t.qty_ordered}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}

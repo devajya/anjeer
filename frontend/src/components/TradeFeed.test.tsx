@@ -17,6 +17,8 @@ function makeEntry(overrides: Partial<TradeEntry> = {}): TradeEntry {
     your_side: null,
     buyer_slot: 0,
     seller_slot: 1,
+    qty_filled: 1,
+    qty_ordered: 1,
     ts: 0,
     ...overrides,
   }
@@ -105,6 +107,27 @@ describe('TradeFeed — mine highlighting', () => {
       <TradeFeed trades={[makeEntry({ your_side: null })]} roster={ROSTER} />
     )
     expect(container.querySelector('.trade-feed__row--mine')).toBeNull()
+  })
+})
+
+describe('TradeFeed — partial fill display', () => {
+  test('TradeFeed renders partial fill as "X filled of Y"', () => {
+    render(<TradeFeed trades={[makeEntry({ qty_filled: 3, qty_ordered: 5 })]} roster={ROSTER} />)
+    expect(screen.getByText('3/5')).toBeInTheDocument()
+  })
+
+  test('full fill (1/1) shows no qty ratio', () => {
+    const { container } = render(
+      <TradeFeed trades={[makeEntry({ qty_filled: 1, qty_ordered: 1 })]} roster={ROSTER} />
+    )
+    expect(container.querySelector('.trade-feed__qty')).toBeNull()
+  })
+
+  test('full fill of qty > 1 shows no qty ratio', () => {
+    const { container } = render(
+      <TradeFeed trades={[makeEntry({ qty_filled: 3, qty_ordered: 3 })]} roster={ROSTER} />
+    )
+    expect(container.querySelector('.trade-feed__qty')).toBeNull()
   })
 })
 

@@ -86,3 +86,12 @@
 .trade-feed__td--seller {
   text-align: right;
 }
+
+.trade-feed__qty {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: normal;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}

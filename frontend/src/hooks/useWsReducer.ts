@@ -45,6 +45,8 @@ export function applyMessage(
         your_side:      trade.your_side,
         buyer_slot:     trade.buyer_slot,
         seller_slot:    trade.seller_slot,
+        qty_filled:     trade.qty_filled,
+        qty_ordered:    trade.qty_ordered,
         ts:             Date.now(),
       }
       // Hand update: only when this player was a party to the trade.
