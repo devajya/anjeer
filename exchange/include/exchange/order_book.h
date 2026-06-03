@@ -16,6 +16,7 @@ struct OrderAckEvent {
     Side        side;
     int32_t     price;
     std::string suit;
+    int32_t     qty;
 };
 
 // Emitted when a buy and sell cross; server personalises your_side per recipient.
@@ -25,6 +26,7 @@ struct TradeEvent {
     int32_t     buyer_id;
     int32_t     seller_id;
     Side        aggressor_side;
+    int32_t     qty_filled;
 };
 
 // Broadcast after every mutation that changes best bid or ask.
@@ -87,7 +89,7 @@ public:
 
     // Returns: [OrderAckEvent] + optional [TradeEvent, BookUpdateEvent]
     //       or: [OrderErrorEvent] on validation failure.
-    [[nodiscard]] std::vector<OrderEvent> submit(int32_t player_id, Side side, int32_t price);
+    [[nodiscard]] std::vector<OrderEvent> submit(int32_t player_id, Side side, int32_t price, int32_t qty = 1);
 
     // Returns: [OrderCancelAckEvent, BookUpdateEvent]
     //       or: [OrderErrorEvent] (OrderNotFound or NotYourOrder).
@@ -111,6 +113,7 @@ private:
         int32_t player_id;
         Side    side;
         int32_t price;
+        int32_t qty;
     };
 
     Config  cfg_;
@@ -119,7 +122,7 @@ private:
     std::vector<Order> bids_;
     std::vector<Order> asks_;
 
-    std::optional<TradeEvent> try_match();
+    std::vector<TradeEvent> match_loop();
     [[nodiscard]] BookUpdateEvent make_book_update() const;
     [[nodiscard]] bool is_valid_price(int32_t price) const noexcept;
 };

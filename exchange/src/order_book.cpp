@@ -8,6 +8,34 @@ namespace anjeer::exchange {
 
 OrderBook::OrderBook(Config cfg) : cfg_(std::move(cfg)) {}
 
+// Consumes resting orders FIFO until the aggressor's qty reaches zero or no price cross exists.
+// Resting orders with remaining qty > 0 stay in the book.
+// Returns one TradeEvent per execution; may return zero (no match) or many (partial fills).
+std::vector<TradeEvent> OrderBook::match_loop() {
+    std::vector<TradeEvent> trades;
+    while (!bids_.empty() && !asks_.empty()) {
+        Order& bid = bids_.front();
+        Order& ask = asks_.front();
+        if (bid.price < ask.price) break;
+        if (bid.player_id == ask.player_id) break;
+
+        const bool    bid_is_aggressor = bid.id > ask.id;
+        const Side    aggressor_side   = bid_is_aggressor ? Side::Buy : Side::Sell;
+        const int32_t exec_price       = bid_is_aggressor ? ask.price : bid.price;
+        const int32_t fill             = std::min(bid.qty, ask.qty);
+
+        trades.push_back(TradeEvent{
+            cfg_.suit, exec_price, bid.player_id, ask.player_id, aggressor_side, fill});
+
+        bid.qty -= fill;
+        ask.qty -= fill;
+
+        if (bid.qty == 0) bids_.erase(bids_.begin());
+        if (ask.qty == 0) asks_.erase(asks_.begin());
+    }
+    return trades;
+}
+
 bool OrderBook::is_valid_price(int32_t price) const noexcept {
     return price >= cfg_.min_price && price <= cfg_.max_price;
 }
@@ -18,27 +46,6 @@ BookUpdateEvent OrderBook::make_book_update() const {
     return BookUpdateEvent{cfg_.suit, best_bid(), best_ask(), bid_pid, ask_pid};
 }
 
-std::optional<TradeEvent> OrderBook::try_match() {
-    if (bids_.empty() || asks_.empty()) return std::nullopt;
-    if (bids_.front().price < asks_.front().price) return std::nullopt;
-    if (bids_.front().player_id == asks_.front().player_id) return std::nullopt;
-
-    const Order& bid = bids_.front();
-    const Order& ask = asks_.front();
-
-    // The order with the higher id is always the aggressor (submitted later, caused the cross).
-    // Execution price is the maker's (resting) price.
-    const bool bid_is_aggressor = bid.id > ask.id;
-    const Side aggressor_side   = bid_is_aggressor ? Side::Buy : Side::Sell;
-    const int32_t exec_price    = bid_is_aggressor ? ask.price : bid.price;
-
-    TradeEvent ev{cfg_.suit, exec_price, bid.player_id, ask.player_id, aggressor_side};
-
-    bids_.erase(bids_.begin());
-    asks_.erase(asks_.begin());
-
-    return ev;
-}
 
 std::optional<int32_t> OrderBook::best_bid() const noexcept {
     if (bids_.empty()) return std::nullopt;
@@ -56,7 +63,7 @@ std::vector<OrderEvent> OrderBook::wipe() {
     return {make_book_update()};
 }
 
-std::vector<OrderEvent> OrderBook::submit(int32_t player_id, Side side, int32_t price) {
+std::vector<OrderEvent> OrderBook::submit(int32_t player_id, Side side, int32_t price, int32_t qty) {
     if (!is_valid_price(price)) {
         return {OrderErrorEvent{
             OrderErrorEvent::Code::PriceOutOfRange,
@@ -66,7 +73,7 @@ std::vector<OrderEvent> OrderBook::submit(int32_t player_id, Side side, int32_t 
         }};
     }
 
-    Order order{next_id_++, player_id, side, price};
+    Order order{next_id_++, player_id, side, price, qty};
 
     // lower_bound maintains price-time priority (descending price for bids, ascending for asks;
     // ascending id on ties for FIFO within a price level).
@@ -87,11 +94,11 @@ std::vector<OrderEvent> OrderBook::submit(int32_t player_id, Side side, int32_t 
     }
 
     std::vector<OrderEvent> events;
-    events.reserve(3);
-    events.emplace_back(OrderAckEvent{order.id, player_id, side, price, cfg_.suit});
+    events.reserve(4);
+    events.emplace_back(OrderAckEvent{order.id, player_id, side, price, cfg_.suit, qty});
 
-    if (auto trade = try_match()) {
-        events.emplace_back(std::move(*trade));
+    for (auto& trade : match_loop()) {
+        events.emplace_back(std::move(trade));
     }
 
     // BookUpdateEvent is always last; server reads trade events first, then book state.

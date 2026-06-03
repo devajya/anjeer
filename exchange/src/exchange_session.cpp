@@ -201,6 +201,7 @@ ExchangeResult ExchangeSession::translate(
                 fb.side          = ack.side;
                 fb.price         = ack.price;
                 fb.player_slot   = ack.player_id;
+                fb.qty           = ack.qty;
                 result.feedback.push_back(fb);
 
                 OrderAdded added;
@@ -222,6 +223,7 @@ ExchangeResult ExchangeSession::translate(
                 exec.buyer_slot     = trade.buyer_id;
                 exec.seller_slot    = trade.seller_id;
                 exec.seq            = seq;
+                exec.qty_filled     = trade.qty_filled;
                 result.market.push_back(exec);
             },
             [&](const BookUpdateEvent& bu) {

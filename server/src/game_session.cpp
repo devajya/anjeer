@@ -719,6 +719,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 {"suit",     instrument_suit_label(ack->instrument_id)},
                 {"side",     serialise::side(ack->side)},
                 {"price",    ack->price},
+                {"qty",      ack->qty},
             }.dump());
         }
         else if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
@@ -773,6 +774,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                     {"your_side",      your_side},
                     {"buyer_slot",     exec->buyer_slot},
                     {"seller_slot",    exec->seller_slot},
+                    {"qty_filled",     exec->qty_filled},
+                    {"qty_ordered",    exec->qty_filled},
                 }.dump());
             }
             emit_spectator_broadcast(nlohmann::json{
@@ -783,6 +786,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 {"your_side",      nullptr},
                 {"buyer_slot",     exec->buyer_slot},
                 {"seller_slot",    exec->seller_slot},
+                {"qty_filled",     exec->qty_filled},
+                {"qty_ordered",    exec->qty_filled},
             }.dump());
             outbound_.enqueue(GameMboEvent{wire::order_executed(
                 exec->order_id,

@@ -46,6 +46,7 @@ struct OrderExecuted {
     int32_t         buyer_slot;
     int32_t         seller_slot;
     seq_t           seq;
+    int32_t         qty_filled;
     uint8_t         v = 1;
 };
 
@@ -76,6 +77,7 @@ struct OrderAck {
     Side            side;
     price_t         price;
     int32_t         player_slot;
+    int32_t         qty;
 };
 
 // Broadcast to all clients after any mutation that changes best bid or ask.

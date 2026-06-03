@@ -384,3 +384,84 @@ TEST_CASE("cancel after wipe returns OrderNotFound (orders no longer exist)", "[
     REQUIRE(has_event<OrderErrorEvent>(cancel_events));
     CHECK(find_event<OrderErrorEvent>(cancel_events)->code == OrderErrorEvent::Code::OrderNotFound);
 }
+
+// ---------------------------------------------------------------------------
+// Partial fill tests (Slice 15 Task 3)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("submit qty=1 exact fill — backward compat", "[order_book][partial_fill]") {
+    OrderBook book{make_config()};
+    book.submit(/*player_id=*/2, Side::Sell, 50, 1);
+    auto events = book.submit(/*player_id=*/1, Side::Buy, 50, 1);
+
+    const auto* trade = find_event<TradeEvent>(events);
+    REQUIRE(trade != nullptr);
+    CHECK(trade->qty_filled == 1);
+    CHECK(book.bids_snapshot().empty());
+    CHECK(book.asks_snapshot().empty());
+}
+
+TEST_CASE("submit qty=3 partial against resting qty=1 — aggressor larger", "[order_book][partial_fill]") {
+    OrderBook book{make_config()};
+    book.submit(/*player_id=*/2, Side::Sell, 50, 1);
+    auto events = book.submit(/*player_id=*/1, Side::Buy, 50, 3);
+
+    const auto* trade = find_event<TradeEvent>(events);
+    REQUIRE(trade != nullptr);
+    CHECK(trade->qty_filled == 1);
+
+    // Aggressor (buy) has 2 remaining, resting sell fully consumed.
+    CHECK(book.asks_snapshot().empty());
+    REQUIRE(book.bids_snapshot().size() == 1);
+    CHECK(book.bids_snapshot().front().price == 50);
+}
+
+TEST_CASE("submit qty=5 consumes two resting orders", "[order_book][partial_fill]") {
+    OrderBook book{make_config()};
+    book.submit(/*player_id=*/2, Side::Sell, 50, 2);
+    book.submit(/*player_id=*/3, Side::Sell, 50, 2);
+    auto events = book.submit(/*player_id=*/1, Side::Buy, 50, 5);
+
+    int trade_count = 0;
+    int total_filled = 0;
+    for (const auto& ev : events) {
+        if (const auto* t = std::get_if<TradeEvent>(&ev)) {
+            ++trade_count;
+            total_filled += t->qty_filled;
+        }
+    }
+    CHECK(trade_count == 2);
+    CHECK(total_filled == 4);
+
+    // Aggressor (buy) has 1 remaining; both resting sells consumed.
+    CHECK(book.asks_snapshot().empty());
+    REQUIRE(book.bids_snapshot().size() == 1);
+}
+
+TEST_CASE("resting order partially filled by smaller aggressor", "[order_book][partial_fill]") {
+    OrderBook book{make_config()};
+    book.submit(/*player_id=*/2, Side::Sell, 50, 5);
+    auto events = book.submit(/*player_id=*/1, Side::Buy, 50, 2);
+
+    const auto* trade = find_event<TradeEvent>(events);
+    REQUIRE(trade != nullptr);
+    CHECK(trade->qty_filled == 2);
+
+    // Aggressor (buy) fully consumed; resting sell has 3 remaining.
+    CHECK(book.bids_snapshot().empty());
+    REQUIRE(book.asks_snapshot().size() == 1);
+    CHECK(book.asks_snapshot().front().price == 50);
+}
+
+TEST_CASE("submit qty=3 no match inserts full qty", "[order_book][partial_fill]") {
+    OrderBook book{make_config()};
+    auto events = book.submit(/*player_id=*/1, Side::Buy, 50, 3);
+
+    const auto* ack = find_event<OrderAckEvent>(events);
+    REQUIRE(ack != nullptr);
+    CHECK(ack->qty == 3);
+    REQUIRE(!find_event<TradeEvent>(events));
+
+    REQUIRE(book.bids_snapshot().size() == 1);
+    CHECK(book.bids_snapshot().front().price == 50);
+}
