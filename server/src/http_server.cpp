@@ -87,6 +87,7 @@ nlohmann::json lobby_view_json(const LobbyView& lv)
     j["created_at"]            = lv.lobby.created_at;
     j["spawn_bots_on_leave"]   = lv.lobby.spawn_bots_on_leave;
     j["bot_spawn_difficulty"]  = lv.lobby.bot_spawn_difficulty;
+    j["wipe_on_trade"]         = lv.lobby.wipe_on_trade;
     return j;
 }
 
@@ -391,6 +392,7 @@ void HttpServer::register_lobby_routes(App& app)
             LobbyMode   mode                 = LobbyMode::UI;
             bool        spawn_bots_on_leave  = false;
             std::string bot_spawn_difficulty = "easy";
+            bool        wipe_on_trade        = true;
             if (!req.body.empty()) {
                 try {
                     const auto body = nlohmann::json::parse(req.body);
@@ -403,6 +405,8 @@ void HttpServer::register_lobby_routes(App& app)
                         if (d == "easy" || d == "medium" || d == "hard" || d == "random")
                             bot_spawn_difficulty = d;
                     }
+                    if (body.contains("wipe_on_trade") && body["wipe_on_trade"].is_boolean())
+                        wipe_on_trade = body["wipe_on_trade"].get<bool>();
                 } catch (const std::exception&) {
                     return make_error(400, "MALFORMED_JSON");
                 }
@@ -417,7 +421,8 @@ void HttpServer::register_lobby_routes(App& app)
                 config_.lobby.max_players,
                 mode,
                 spawn_bots_on_leave,
-                bot_spawn_difficulty
+                bot_spawn_difficulty,
+                wipe_on_trade
             );
 
             const int count = lobby_repo_.player_count(txn, lobby.id);

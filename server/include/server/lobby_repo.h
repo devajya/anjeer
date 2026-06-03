@@ -34,6 +34,7 @@ struct Lobby {
     bool        spawn_bots_on_leave   = false;
     std::string bot_spawn_difficulty  = "easy"; // "easy"|"medium"|"hard"|"random"
     int         bot_count             = 0;
+    bool        wipe_on_trade         = true;
 };
 
 // AGENT-CTX: LobbyView is a read-only projection for list responses only.
@@ -57,7 +58,8 @@ public:
                  int min_players, int max_players,
                  LobbyMode mode = LobbyMode::UI,
                  bool spawn_bots_on_leave = false,
-                 std::string bot_spawn_difficulty = "easy");
+                 std::string bot_spawn_difficulty = "easy",
+                 bool wipe_on_trade = true);
 
     std::optional<Lobby> find_by_id  (DbTxn& txn,
                                       const std::string& lobby_id);

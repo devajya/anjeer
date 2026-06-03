@@ -23,6 +23,7 @@ Lobby LobbyRepo::row_to_lobby(const pqxx::row& row) {
     l.spawn_bots_on_leave  = row["spawn_bots_on_leave"].as<bool>();
     l.bot_spawn_difficulty = row["bot_spawn_difficulty"].as<std::string>();
     l.bot_count            = row["bot_count"].as<int>();
+    l.wipe_on_trade        = row["wipe_on_trade"].as<bool>();
     return l;
 }
 
@@ -92,7 +93,8 @@ std::string LobbyRepo::generate_code() {
 // (incompatible with our DbTxn = transaction_base signature).
 Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
                          int min_players, int max_players, LobbyMode mode,
-                         bool spawn_bots_on_leave, std::string bot_spawn_difficulty) {
+                         bool spawn_bots_on_leave, std::string bot_spawn_difficulty,
+                         bool wipe_on_trade) {
     for (int attempt = 0; attempt < 10; ++attempt) {
         const auto code = generate_code();
         const auto exists = txn.exec_params(
@@ -102,12 +104,12 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
 
         const auto r = txn.exec_params(
             "INSERT INTO lobbies (code, creator_id, min_players, max_players, mode, "
-            "                     spawn_bots_on_leave, bot_spawn_difficulty) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+            "                     spawn_bots_on_leave, bot_spawn_difficulty, wipe_on_trade) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
             "RETURNING id, code, creator_id, status, min_players, max_players, created_at, mode, "
-            "          spawn_bots_on_leave, bot_spawn_difficulty, bot_count",
+            "          spawn_bots_on_leave, bot_spawn_difficulty, bot_count, wipe_on_trade",
             code, creator_id, min_players, max_players, mode_str(mode),
-            spawn_bots_on_leave, bot_spawn_difficulty
+            spawn_bots_on_leave, bot_spawn_difficulty, wipe_on_trade
         );
         if (r.empty())
             throw std::runtime_error("LobbyRepo::create: INSERT RETURNING returned no rows");
@@ -131,7 +133,7 @@ std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
                                              const std::string& lobby_id) {
     const auto r = txn.exec_params(
         "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode, "
-        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count "
+        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count, wipe_on_trade "
         "FROM lobbies WHERE id = $1",
         lobby_id
     );
@@ -143,7 +145,7 @@ std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
                                                const std::string& code) {
     const auto r = txn.exec_params(
         "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode, "
-        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count "
+        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count, wipe_on_trade "
         "FROM lobbies WHERE code = $1",
         code
     );
@@ -155,7 +157,7 @@ std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn,
                                                   std::optional<LobbyMode> mode) {
     std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, "
+        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, l.wipe_on_trade, "
         "       COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
@@ -179,7 +181,7 @@ std::vector<LobbyView> LobbyRepo::list_active(pqxx::transaction_base& txn,
                                                 std::optional<LobbyMode> mode) {
     std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, "
+        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, l.wipe_on_trade, "
         "       COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
