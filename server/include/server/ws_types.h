@@ -60,6 +60,7 @@ struct PerSocketData {
     // validate and trigger the reattach path instead of a fresh NetConnect.
     std::string reconnect_token;
     FeedTier    feed_tier = FeedTier::MBP1;
+    Encoding    encoding  = Encoding::JSON;
 };
 
 using WsHandle = uWS::WebSocket<false, true, PerSocketData>*;

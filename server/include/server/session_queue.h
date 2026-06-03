@@ -23,7 +23,7 @@ struct SlotAdmitInfo {
     std::string username;
 };
 
-struct NetConnect    { int32_t slot; int64_t player_id; std::string username; };
+struct NetConnect    { int32_t slot; int64_t player_id; std::string username; Encoding encoding = Encoding::JSON; };
 struct NetDisconnect { int32_t slot; };
 struct NetSubmit     { int32_t slot; std::string suit; engine::Side side; int32_t price; int32_t qty = 1; };
 struct NetNudge      { int32_t slot; std::string suit; engine::Side side; };
@@ -56,6 +56,7 @@ struct NetReconnectReattach {
     int32_t     slot;
     std::string reconnect_token;
     int64_t     reconnect_expires_at_ms;
+    Encoding    encoding = Encoding::JSON;
 };
 
 // Routes queue admission through the SPSC inbound queue so GameSession's

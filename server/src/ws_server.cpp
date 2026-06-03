@@ -209,6 +209,10 @@ void WsServer::run() {
                 }
             }
 
+            std::string_view proto_hdr = req->getHeader("sec-websocket-protocol");
+            const Encoding encoding = (proto_hdr.find("anjeer-msgpack") != std::string_view::npos)
+                ? Encoding::MsgPack : Encoding::JSON;
+
             PerSocketData psd;
             psd.player_id       = player_id;
             psd.auth_type       = auth_type;
@@ -216,6 +220,7 @@ void WsServer::run() {
             psd.username        = username;
             psd.reconnect_token = std::string(reconnect_qp);
             psd.feed_tier       = feed_tier;
+            psd.encoding        = encoding;
 
             res->template upgrade<PerSocketData>(
                 std::move(psd),
@@ -967,15 +972,29 @@ void WsServer::drain_all_on_loop() {
             std::visit([&](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, GameBroadcast>) {
-                    for (auto& [slot, ws] : as.slot_to_ws_)
-                        ws->send(arg.json, uWS::OpCode::TEXT);
+                    for (auto& [slot, ws] : as.slot_to_ws_) {
+                        if (slot < static_cast<int>(as.slots_.size()) &&
+                            as.slots_[slot].encoding == Encoding::MsgPack) {
+                            auto bytes = nlohmann::json::to_msgpack(nlohmann::json::parse(arg.json));
+                            ws->send(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), uWS::OpCode::BINARY);
+                        } else {
+                            ws->send(arg.json, uWS::OpCode::TEXT);
+                        }
+                    }
                     for (auto& [sid, ws] : as.spectator_handles_)
                         ws->send(arg.json, uWS::OpCode::TEXT);
                     bot_manager_.dispatch_to_bots(lobby_id, arg.json, -1);
                 } else if constexpr (std::is_same_v<T, GameTargeted>) {
                     auto wh = as.slot_to_ws_.find(arg.slot);
-                    if (wh != as.slot_to_ws_.end())
-                        wh->second->send(arg.json, uWS::OpCode::TEXT);
+                    if (wh != as.slot_to_ws_.end()) {
+                        if (arg.slot < static_cast<int>(as.slots_.size()) &&
+                            as.slots_[arg.slot].encoding == Encoding::MsgPack) {
+                            auto bytes = nlohmann::json::to_msgpack(nlohmann::json::parse(arg.json));
+                            wh->second->send(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), uWS::OpCode::BINARY);
+                        } else {
+                            wh->second->send(arg.json, uWS::OpCode::TEXT);
+                        }
+                    }
                     bot_manager_.dispatch_to_bots(lobby_id, arg.json, arg.slot);
                 } else if constexpr (std::is_same_v<T, GameSpectatorTargeted>) {
                     auto wh = as.spectator_handles_.find(arg.spectator_id);
@@ -1614,7 +1633,7 @@ bool WsServer::attach_slot(WsHandle ws, ActiveSession& as,
         server_log_.warn("attach_slot", "no owner set for session in lobby " + lobby_id);
     }
 
-    as.session->handle_player_reattach(slot, new_token, expires_at_ms);
+    as.session->handle_player_reattach(slot, new_token, expires_at_ms, data->encoding);
     if (data->feed_tier != FeedTier::MBP1)
         as.inbound->enqueue(NetSendFeedSnapshot{slot, data->feed_tier});
     game_slots_repo_.upsert_active(as.session_id_, data->player_id, slot);

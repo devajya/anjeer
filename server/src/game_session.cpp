@@ -213,7 +213,7 @@ void GameSession::process_inbound() {
             else if constexpr (std::is_same_v<T, NetReconnectDisconnect>)
                 handle_reconnect_disconnect(e.slot);
             else if constexpr (std::is_same_v<T, NetReconnectReattach>)
-                handle_reconnect_reattach(e.slot, e.reconnect_token, e.reconnect_expires_at_ms);
+                handle_reconnect_reattach(e.slot, e.reconnect_token, e.reconnect_expires_at_ms, e.encoding);
             else if constexpr (std::is_same_v<T, NetAdmitQueue>)
                 handle_admit_queue(e);
             else if constexpr (std::is_same_v<T, NetSendFeedSnapshot>)
@@ -239,6 +239,7 @@ void GameSession::handle_connect(const NetConnect& ev) {
     slot.connected  = true;
     slot.player_id  = ev.player_id;
     slot.username   = ev.username;
+    slot.encoding   = ev.encoding;
     all_disconnected_ = false;
 
     server_log_.info("connect",
@@ -1186,11 +1187,13 @@ void GameSession::handle_player_disconnect(int slot_index) {
 
 void GameSession::handle_player_reattach(int slot_index,
                                           const std::string& reconnect_token,
-                                          int64_t reconnect_expires_at_ms) {
+                                          int64_t reconnect_expires_at_ms,
+                                          Encoding encoding) {
     inbound_.enqueue(NetReconnectReattach{
         static_cast<int32_t>(slot_index),
         reconnect_token,
-        reconnect_expires_at_ms});
+        reconnect_expires_at_ms,
+        encoding});
 }
 
 
@@ -1228,12 +1231,14 @@ void GameSession::handle_reconnect_disconnect(int32_t slot) {
 
 void GameSession::handle_reconnect_reattach(int32_t slot,
                                              const std::string& token,
-                                             int64_t expires_at_ms) {
+                                             int64_t expires_at_ms,
+                                             Encoding encoding) {
     if (slot < 0 || slot >= static_cast<int32_t>(slots_.size())) return;
     auto& s = slots_[slot];
 
     reconnect_deadlines_[slot].reset();
     s.connected       = true;
+    s.encoding        = encoding;
     all_disconnected_ = false;
 
     server_log_.info("session", "slot " + std::to_string(slot) + " reattached");

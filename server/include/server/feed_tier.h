@@ -5,7 +5,8 @@
 
 namespace anjeer::server {
 
-enum class FeedTier { MBP1, MBPN, MBO };
+enum class FeedTier  { MBP1, MBPN, MBO };
+enum class Encoding  { JSON, MsgPack };
 
 inline FeedTier feed_tier_from_string(std::string_view s) {
     if (s == "mbp1") return FeedTier::MBP1;

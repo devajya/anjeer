@@ -37,6 +37,7 @@ struct SlotInfo {
     int         balance   = 0;
     bool        connected = false;
     bool        active    = true;
+    Encoding    encoding  = Encoding::JSON;
 };
 
 // Returned by cancel_orders_for_slot to let the caller (WsServer) log or
@@ -99,7 +100,8 @@ public:
     // WsServer creates the token BEFORE calling this so the snapshot includes it.
     void handle_player_reattach(int slot_index,
                                 const std::string& reconnect_token,
-                                int64_t reconnect_expires_at_ms);
+                                int64_t reconnect_expires_at_ms,
+                                Encoding encoding = Encoding::JSON);
 
     // Cancels all open orders for the slot across all books; broadcasts book
     // updates to remaining players. Returns the cancelled orders.
@@ -150,7 +152,8 @@ private:
     void handle_reconnect_disconnect(int32_t slot);
     void handle_reconnect_reattach  (int32_t slot,
                                      const std::string& token,
-                                     int64_t expires_at_ms);
+                                     int64_t expires_at_ms,
+                                     Encoding encoding = Encoding::JSON);
     // Checks per-slot reconnect timers each tick; fires expiry logic when window lapses.
     void check_reconnect_expirations();
 
