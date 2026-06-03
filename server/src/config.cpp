@@ -108,6 +108,7 @@ ServerConfig load_config(const std::string& path) {
         cfg.bots.scheduler_tick_ms    = bo.at("scheduler_tick_ms").get<int>();
         cfg.bots.sim_network_delay_ms = bo.at("sim_network_delay_ms").get<int>();
         cfg.bots.spawn_bots_on_leave  = bo.at("spawn_bots_on_leave").get<bool>();
+        cfg.bots.default_feed         = bo.value("default_feed", "mbp1");
 
         auto parse_difficulty = [](const nlohmann::json& d)
             -> ServerConfig::BotsConfig::PerDifficultyParams {

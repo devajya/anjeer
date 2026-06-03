@@ -282,9 +282,11 @@ void BotManager::spawn_replacement(
     );
 
     // Enqueue NetConnect so GameSession re-activates the slot for this bot.
+    // Follow with NetSendFeedSnapshot so the session sends the right book snapshot type.
     const int64_t bot_pid    = -(static_cast<int64_t>(slot) + 1);
     const std::string bot_name = bot_username(diff, slot);
     session_inbound.enqueue(NetConnect{slot, bot_pid, bot_name});
+    session_inbound.enqueue(NetSendFeedSnapshot{slot, ctx.feed});
 
     bots.push_back(std::move(entry));
 }

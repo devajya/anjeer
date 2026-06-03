@@ -1,5 +1,7 @@
 #pragma once
 
+#include "server/feed_tier.h"
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -17,6 +19,7 @@ struct BotSpawnContext {
     int32_t            points_per_card;
     int32_t            buy_in;
     int                round_duration_s;
+    FeedTier           feed = FeedTier::MBP1;
 };
 
 } // namespace anjeer::server

@@ -65,6 +65,7 @@
     "scheduler_tick_ms": 150,
     "sim_network_delay_ms": 50,
     "spawn_bots_on_leave": false,
+    "default_feed": "mbp1",
     "easy": {
       "tick_interval_ms": 5000, "tick_jitter_ms": 1500,
       "thinking_min_ms": 2000, "thinking_max_ms": 4000,

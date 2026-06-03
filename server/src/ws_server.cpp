@@ -848,10 +848,12 @@ void WsServer::create_session(const std::string& lobby_id) {
             cfg_.game.round_duration_seconds,
             lobby_mode == LobbyMode::UI
         );
+        const FeedTier bot_feed = feed_tier_from_string(cfg_.bots.default_feed);
         for (int i = 0; i < static_cast<int>(bot_list.size()); ++i) {
             const int     slot    = human_count + i;
             const int64_t bot_pid = -(static_cast<int64_t>(slot) + 1);
             as.inbound->enqueue(NetConnect{slot, bot_pid, bot_list[i].username});
+            as.inbound->enqueue(NetSendFeedSnapshot{slot, bot_feed});
         }
     }
 
@@ -1018,6 +1020,7 @@ void WsServer::drain_all_on_loop() {
                                 cfg_.scoring.points_per_card,
                                 cfg_.scoring.pot_size / static_cast<int>(as.slots_.size()),
                                 cfg_.game.round_duration_seconds,
+                                feed_tier_from_string(cfg_.bots.default_feed),
                             },
                             *as.inbound,
                             as.lobby_mode_ == LobbyMode::UI

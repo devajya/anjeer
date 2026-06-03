@@ -106,10 +106,11 @@ struct ServerConfig {
     std::string event_bus;  // "local" | "redis" (redis = Slice 16)
 
     struct BotsConfig {
-        int  scheduler_threads    = 4;
-        int  scheduler_tick_ms    = 150;  // global BotScheduler fire rate; per-bot decide rate is in PerDifficultyParams
-        int  sim_network_delay_ms = 50;
-        bool spawn_bots_on_leave  = false;
+        int         scheduler_threads    = 4;
+        int         scheduler_tick_ms    = 150;  // global BotScheduler fire rate; per-bot decide rate is in PerDifficultyParams
+        int         sim_network_delay_ms = 50;
+        bool        spawn_bots_on_leave  = false;
+        std::string default_feed         = "mbp1";
 
         struct PerDifficultyParams {
             int   tick_interval_ms;       // base decide cadence
