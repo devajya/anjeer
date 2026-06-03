@@ -126,6 +126,7 @@ struct Harness {
         ctx.eval_modules = std::move(eval_mods);
         session = std::make_unique<GameSession>(
             session_id, lobby_id, std::move(slots),
+            /*wipe_on_trade=*/true,
             std::move(ctx),
             inbound, outbound);
         session->start();

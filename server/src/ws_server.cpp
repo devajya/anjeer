@@ -747,6 +747,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     LobbyMode   lobby_mode            = LobbyMode::UI;
     bool        spawn_bots_on_leave   = false;
     std::string bot_spawn_difficulty  = "easy";
+    bool        wipe_on_trade         = true;
     int64_t     creator_id            = -1;
     std::unordered_map<int64_t, FeedTier> feed_tier_cache;
     try {
@@ -778,6 +779,7 @@ void WsServer::create_session(const std::string& lobby_id) {
             lobby_mode           = lobby->mode;
             spawn_bots_on_leave  = lobby->spawn_bots_on_leave;
             bot_spawn_difficulty = lobby->bot_spawn_difficulty;
+            wipe_on_trade        = lobby->wipe_on_trade;
             creator_id           = lobby->creator_id;
         }
         session_id = session_repo_.create_session(txn, lobby_id);
@@ -871,6 +873,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     as.session = std::make_unique<GameSession>(
         session_id, lobby_id,
         as.slots_,          // copy: GameSession owns its own SlotInfo vector
+        wipe_on_trade,
         std::move(gs_ctx),
         *as.inbound, *as.outbound);
 

@@ -68,6 +68,7 @@ public:
         std::string                                       session_id,
         std::string                                       lobby_id,
         std::vector<SlotInfo>                             slots,
+        bool                                              wipe_on_trade,
         GameSessionContext                                ctx,
         moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
         moodycamel::ReaderWriterQueue<GameEvent>&         outbound);
@@ -251,6 +252,9 @@ private:
     bool                                       all_disconnected_      = false;
     std::chrono::steady_clock::time_point      all_disconnected_since_{};
     static constexpr std::chrono::milliseconds kReconnectGrace{500};
+
+    // ── Lobby-level config ────────────────────────────────────────────────────
+    bool wipe_on_trade_ = true;
 
     // ── Round state ───────────────────────────────────────────────────────────
     SessionPhase phase_        = SessionPhase::Lobby;

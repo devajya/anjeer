@@ -63,6 +63,7 @@ GameSession::GameSession(
     std::string                                       session_id,
     std::string                                       lobby_id,
     std::vector<SlotInfo>                             slots,
+    bool                                              wipe_on_trade,
     GameSessionContext                                ctx,
     moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
     moodycamel::ReaderWriterQueue<GameEvent>&         outbound)
@@ -76,6 +77,7 @@ GameSession::GameSession(
     , session_id_(std::move(session_id))
     , lobby_id_(std::move(lobby_id))
     , slots_(std::move(slots))
+    , wipe_on_trade_(wipe_on_trade)
     , exchange_(build_exchange(ctx.cfg))
 {
     funded_this_round_.assign(slots_.size(), false);
@@ -314,7 +316,7 @@ void GameSession::handle_submit(const NetSubmit& ev) {
     const bool had_trade = dispatch_result(ev.slot, result);
     if (had_trade) {
         apply_post_trade_state(result);
-        apply_global_wipe();
+        if (wipe_on_trade_) apply_global_wipe();
     } else {
         push_book_updates_to_eval(result);
     }
@@ -350,7 +352,7 @@ void GameSession::handle_nudge(const NetNudge& ev) {
     const bool had_trade = dispatch_result(ev.slot, result);
     if (had_trade) {
         apply_post_trade_state(result);
-        apply_global_wipe();
+        if (wipe_on_trade_) apply_global_wipe();
     } else {
         push_book_updates_to_eval(result);
     }
@@ -383,7 +385,7 @@ void GameSession::handle_cancel(const NetCancel& ev) {
         }
         if (not_found) continue;
         handled = true;
-        if (dispatch_result(ev.slot, result)) apply_global_wipe();
+        if (dispatch_result(ev.slot, result) && wipe_on_trade_) apply_global_wipe();
         break;
     }
     if (!handled)

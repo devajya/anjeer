@@ -162,6 +162,7 @@ TEST_CASE("headless sim: 5 bots play a full game to completion", "[bots][headles
 
     GameSession session(
         session_id, lobby_id, slots,
+        /*wipe_on_trade=*/true,
         GameSessionContext{cfg, server_log, engine_log, rng, test_db()},
         inbound, outbound);
     session.start();
