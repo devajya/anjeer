@@ -164,6 +164,13 @@ public:
 
     nlohmann::json recv_json() { return nlohmann::json::parse(recv_text()); }
 
+    // Decode a binary msgpack frame as JSON (for /ws/marketdata which always sends msgpack).
+    nlohmann::json recv_msgpack() {
+        const std::string raw = recv_text();
+        return nlohmann::json::from_msgpack(
+            std::vector<uint8_t>(raw.begin(), raw.end()));
+    }
+
     // Drain incoming messages until one with the expected "type" field is found.
     // Skips unrelated message types (e.g. heartbeats) so tests are order-tolerant.
     nlohmann::json recv_of_type(const std::string& want) {
@@ -1558,10 +1565,10 @@ TEST_CASE("WS /ws/marketdata — authenticated connection receives MBO events",
         catch (...) { break; }
     }
 
-    // Drain on-connect snapshots from the market data connection.
+    // Drain on-connect snapshots from the market data connection (binary msgpack).
     for (int i = 0; i < 10; ++i) {
         try {
-            auto j = md.recv_json();
+            auto j = md.recv_msgpack();
             if (j.value("type","") != "order_book_snapshot") break;
         } catch (...) { break; }
     }
@@ -1569,11 +1576,11 @@ TEST_CASE("WS /ws/marketdata — authenticated connection receives MBO events",
     // Submit an order on the main game socket.
     game1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","buy"},{"price",30}});
 
-    // The /ws/marketdata socket must receive an MBO order_added event.
+    // The /ws/marketdata socket must receive an MBO order_added event (binary msgpack).
     bool got_mbo = false;
     for (int i = 0; i < 30 && !got_mbo; ++i) {
         try {
-            auto j = md.recv_json();
+            auto j = md.recv_msgpack();
             if (j.value("type","") == "order_added") got_mbo = true;
         } catch (...) { break; }
     }
@@ -1602,10 +1609,11 @@ TEST_CASE("WS /ws/marketdata — snapshot on connect then incremental MBO events
     }
 
     // First messages on /ws/marketdata must be order_book_snapshot (one per active suit).
+    // Frames are binary msgpack — decode with recv_msgpack().
     int snapshot_count = 0;
     for (int i = 0; i < 10; ++i) {
         try {
-            auto j = md.recv_json();
+            auto j = md.recv_msgpack();
             if (j.value("type","") == "order_book_snapshot") {
                 REQUIRE(j.contains("v"));
                 REQUIRE(j.contains("seq"));
@@ -1620,12 +1628,12 @@ TEST_CASE("WS /ws/marketdata — snapshot on connect then incremental MBO events
     }
     REQUIRE(snapshot_count >= 1);  // at least one suit active
 
-    // Submit an order; /ws/marketdata must receive order_added MBO event.
+    // Submit an order; /ws/marketdata must receive order_added MBO event (binary msgpack).
     game1.send_json({{"type","submit_order"},{"suit","clubs"},{"side","sell"},{"price",60}});
     bool got_incremental = false;
     for (int i = 0; i < 30 && !got_incremental; ++i) {
         try {
-            auto j = md.recv_json();
+            auto j = md.recv_msgpack();
             const std::string t = j.value("type","");
             if (t == "order_added" || t == "order_executed" || t == "order_cancelled")
                 got_incremental = true;

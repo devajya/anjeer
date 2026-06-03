@@ -1099,13 +1099,21 @@ void WsServer::drain_all_on_loop() {
                                 ws->send(arg.json, uWS::OpCode::TEXT);
                         }
                     }
-                    // /ws/marketdata connections always receive all MBO events.
-                    for (auto& [md_id, ws] : as.marketdata_handles_)
-                        ws->send(arg.json, uWS::OpCode::TEXT);
+                    // /ws/marketdata always receives binary msgpack (no negotiation).
+                    if (!as.marketdata_handles_.empty()) {
+                        auto mp = nlohmann::json::to_msgpack(nlohmann::json::parse(arg.json));
+                        std::string_view sv(reinterpret_cast<const char*>(mp.data()), mp.size());
+                        for (auto& [md_id, ws] : as.marketdata_handles_)
+                            ws->send(sv, uWS::OpCode::BINARY);
+                    }
                 } else if constexpr (std::is_same_v<T, GameMarketDataTargeted>) {
                     auto wh = as.marketdata_handles_.find(arg.md_id);
-                    if (wh != as.marketdata_handles_.end())
-                        wh->second->send(arg.json, uWS::OpCode::TEXT);
+                    if (wh != as.marketdata_handles_.end()) {
+                        auto mp = nlohmann::json::to_msgpack(nlohmann::json::parse(arg.json));
+                        wh->second->send(
+                            std::string_view(reinterpret_cast<const char*>(mp.data()), mp.size()),
+                            uWS::OpCode::BINARY);
+                    }
                 } else if constexpr (std::is_same_v<T, GameRoundStarted>) {
                     // Phase 1: Displace bots to make room for queue players.
                     // For each bot displaced: stop the BotAdapter, deactivate the slot in

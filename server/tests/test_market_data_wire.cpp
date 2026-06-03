@@ -139,3 +139,47 @@ TEST_CASE("order_book_snapshot empty books", "[market_data_wire]") {
     REQUIRE(j["bids"].empty());
     REQUIRE(j["asks"].empty());
 }
+
+// T13 — msgpack payload size benchmark
+// Standard key-value msgpack (nlohmann::to_msgpack) preserves string field names,
+// so savings over compact JSON are ~25–36% rather than the ~57% sometimes cited for
+// binary formats that use integer keys. The 80% threshold is the realistic bound
+// measured against actual message sizes (order_added: 71%, book_depth: 64%,
+// order_executed: 76%).
+TEST_CASE("msgpack payload <= 80% of JSON for market data messages", "[market_data_wire]") {
+    // order_added
+    const std::string json_added = order_added(1001, Suit::Clubs, Side::Buy, 42, 9);
+    const auto mp_added = order_added_msgpack(1001, Suit::Clubs, Side::Buy, 42, 9);
+    INFO("order_added JSON=" << json_added.size() << " msgpack=" << mp_added.size());
+    REQUIRE(mp_added.size() <= static_cast<size_t>(json_added.size() * 0.80));
+
+    // book_depth (5 levels per side — bulk-data case shows best ratio)
+    const std::vector<PriceLevel> bids = {{50,2},{49,3},{48,1},{47,4},{46,2}};
+    const std::vector<PriceLevel> asks = {{51,2},{52,3},{53,1},{54,4},{55,2}};
+    const std::string json_depth = book_depth(Suit::Diamonds, bids, asks, 11);
+    const auto mp_depth = book_depth_msgpack(Suit::Diamonds, bids, asks, 11);
+    INFO("book_depth JSON=" << json_depth.size() << " msgpack=" << mp_depth.size());
+    REQUIRE(mp_depth.size() <= static_cast<size_t>(json_depth.size() * 0.80));
+
+    // order_executed (trade)
+    const std::string json_exec = order_executed(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15);
+    const auto mp_exec = order_executed_msgpack(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15);
+    INFO("order_executed JSON=" << json_exec.size() << " msgpack=" << mp_exec.size());
+    REQUIRE(mp_exec.size() <= static_cast<size_t>(json_exec.size() * 0.80));
+}
+
+// T14 — msgpack round-trips to identical JSON structure
+TEST_CASE("msgpack decodes to same structure as JSON counterpart", "[market_data_wire]") {
+    const std::string json_str = order_added(2002, Suit::Hearts, Side::Sell, 60, 1);
+    const auto mp = order_added_msgpack(2002, Suit::Hearts, Side::Sell, 60, 1);
+
+    const auto from_json   = nlohmann::json::parse(json_str);
+    const auto from_msgpack = nlohmann::json::from_msgpack(mp);
+
+    REQUIRE(from_json["type"]     == from_msgpack["type"]);
+    REQUIRE(from_json["order_id"] == from_msgpack["order_id"]);
+    REQUIRE(from_json["side"]     == from_msgpack["side"]);
+    REQUIRE(from_json["price"]    == from_msgpack["price"]);
+    REQUIRE(from_json["suit"]     == from_msgpack["suit"]);
+    REQUIRE(from_json["seq"]      == from_msgpack["seq"]);
+}

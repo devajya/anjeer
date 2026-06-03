@@ -4,6 +4,7 @@
 #include "exchange/exchange_types.h"
 #include "engine/suit.h"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -56,5 +57,44 @@ std::string order_book_snapshot(anjeer::engine::Suit suit,
                                 const std::vector<anjeer::exchange::OrderEntry>& bids,
                                 const std::vector<anjeer::exchange::OrderEntry>& asks,
                                 anjeer::exchange::seq_t seq);
+
+// msgpack variants — binary-encoded equivalents of the JSON functions above
+std::vector<uint8_t> book_update_msgpack(anjeer::engine::Suit suit,
+                                          std::optional<anjeer::exchange::price_t> bid,
+                                          std::optional<anjeer::exchange::price_t> ask,
+                                          anjeer::exchange::seq_t seq);
+
+std::vector<uint8_t> book_depth_msgpack(anjeer::engine::Suit suit,
+                                         const std::vector<anjeer::exchange::PriceLevel>& bids,
+                                         const std::vector<anjeer::exchange::PriceLevel>& asks,
+                                         anjeer::exchange::seq_t seq);
+
+std::vector<uint8_t> book_depth_snapshot_msgpack(anjeer::engine::Suit suit,
+                                                   const std::vector<anjeer::exchange::PriceLevel>& bids,
+                                                   const std::vector<anjeer::exchange::PriceLevel>& asks,
+                                                   anjeer::exchange::seq_t seq);
+
+std::vector<uint8_t> order_added_msgpack(anjeer::exchange::order_id_t order_id,
+                                          anjeer::engine::Suit suit,
+                                          anjeer::exchange::Side side,
+                                          anjeer::exchange::price_t price,
+                                          anjeer::exchange::seq_t seq);
+
+std::vector<uint8_t> order_executed_msgpack(anjeer::exchange::order_id_t order_id,
+                                             anjeer::engine::Suit suit,
+                                             anjeer::exchange::price_t price,
+                                             anjeer::exchange::Side aggressor,
+                                             int buyer_slot,
+                                             int seller_slot,
+                                             anjeer::exchange::seq_t seq);
+
+std::vector<uint8_t> order_cancelled_msgpack(anjeer::exchange::order_id_t order_id,
+                                              anjeer::engine::Suit suit,
+                                              anjeer::exchange::seq_t seq);
+
+std::vector<uint8_t> order_book_snapshot_msgpack(anjeer::engine::Suit suit,
+                                                   const std::vector<anjeer::exchange::OrderEntry>& bids,
+                                                   const std::vector<anjeer::exchange::OrderEntry>& asks,
+                                                   anjeer::exchange::seq_t seq);
 
 } // namespace anjeer::server::wire
