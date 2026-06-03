@@ -44,7 +44,7 @@ export function AppNav() {
           API Keys
         </NavLink>
         <NavLink
-          to="/settings/keybinds"
+          to="/settings"
           className={({ isActive }) =>
             `app-nav__link${isActive ? ' app-nav__link--active' : ''}`
           }
