@@ -75,6 +75,26 @@
   margin-left: auto;
 }
 
+
+.lp__wipe-badge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.lp__wipe-badge--persists {
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
+  border-color: var(--color-border);
+}
+
 /* ── Tab content area ────────────────────────────────────────────────────── */
 
 .lp__content {

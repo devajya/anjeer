@@ -641,15 +641,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
         case 'lobby_settings_changed': {
           const changed = msg as LobbySettingsChangedMessage
-          logger.info('ws/recv', `lobby_settings_changed lobby_id=${changed.lobby_id} spawn_bots_on_leave=${changed.spawn_bots_on_leave}`)
+          logger.info('ws/recv', `lobby_settings_changed lobby_id=${changed.lobby_id} spawn_bots_on_leave=${changed.spawn_bots_on_leave} wipe_on_trade=${changed.wipe_on_trade}`)
           setState(s => {
             if (!s.lobbyState || s.lobbyState.lobby_id !== changed.lobby_id) return s
             return {
               ...s,
               lobbyState: {
                 ...s.lobbyState,
-                spawn_bots_on_leave: changed.spawn_bots_on_leave,
-                bot_spawn_difficulty: changed.bot_spawn_difficulty,
+                spawn_bots_on_leave: changed.spawn_bots_on_leave ?? s.lobbyState.spawn_bots_on_leave,
+                bot_spawn_difficulty: changed.bot_spawn_difficulty ?? s.lobbyState.bot_spawn_difficulty,
+                wipe_on_trade: changed.wipe_on_trade ?? s.lobbyState.wipe_on_trade,
               },
             }
           })

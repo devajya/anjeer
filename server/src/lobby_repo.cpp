@@ -310,6 +310,15 @@ void LobbyRepo::update_bot_settings(pqxx::transaction_base& txn,
     );
 }
 
+void LobbyRepo::update_wipe_on_trade(pqxx::transaction_base& txn,
+                                      const std::string& lobby_id,
+                                      bool wipe_on_trade) {
+    txn.exec_params(
+        "UPDATE lobbies SET wipe_on_trade = $2 WHERE id = $1",
+        lobby_id, wipe_on_trade
+    );
+}
+
 void LobbyRepo::adjust_bot_count(pqxx::transaction_base& txn,
                                   const std::string& lobby_id,
                                   int delta) {

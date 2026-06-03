@@ -90,7 +90,7 @@ export function LobbyBrowser() {
         headers:     { 'Content-Type': 'application/json' },
         // spawn_bots_on_leave defaults to false; owner toggles it in LobbyRoom.
         // bot_spawn_difficulty always medium — difficulty picker removed from creation.
-        body:        JSON.stringify({ mode: 'ui', spawn_bots_on_leave: false, bot_spawn_difficulty: 'medium' }),
+        body:        JSON.stringify({ mode: 'ui', spawn_bots_on_leave: false, bot_spawn_difficulty: 'medium', wipe_on_trade: true }),
       })
       if (res.ok) {
         const lobby: LobbyView = await res.json()
@@ -199,6 +199,9 @@ export function LobbyBrowser() {
                           <span className="lp__card-code">{lobby.code}</span>
                           <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
                             {(lobby.mode ?? 'ui').toUpperCase()}
+                          </span>
+                          <span className={`lp__wipe-badge${lobby.wipe_on_trade ? '' : ' lp__wipe-badge--persists'}`}>
+                            {lobby.wipe_on_trade ? 'Book Wipes' : 'Book Persists'}
                           </span>
                         </div>
                         <span className="lp__card-meta">

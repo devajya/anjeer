@@ -725,6 +725,57 @@ void HttpServer::register_lobby_routes(App& app)
             return make_error(500, "INTERNAL_ERROR");
         }
     });
+
+    CROW_ROUTE(app, "/lobbies/<string>/wipe-settings").methods(crow::HTTPMethod::Patch)
+    ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
+        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
+        if (auto* err = std::get_if<crow::response>(&auth))
+            return std::move(*err);
+        const auto& player = std::get<Player>(auth);
+
+        bool wipe_on_trade = true;
+        try {
+            const auto body = nlohmann::json::parse(req.body);
+            if (!body.contains("wipe_on_trade") || !body["wipe_on_trade"].is_boolean())
+                return make_error(400, "MALFORMED_MESSAGE");
+            wipe_on_trade = body["wipe_on_trade"].get<bool>();
+        } catch (...) {
+            return make_error(400, "MALFORMED_MESSAGE");
+        }
+
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::work txn(handle.get());
+
+            const auto lobby_opt = lobby_repo_.find_by_id(txn, lobby_id);
+            if (!lobby_opt)
+                return make_error(404, "LOBBY_NOT_FOUND");
+            if (lobby_opt->creator_id != player.id)
+                return make_error(403, "NOT_LOBBY_OWNER");
+            if (lobby_opt->status != LobbyStatus::Waiting)
+                return make_error(409, "GAME_ALREADY_STARTED");
+
+            lobby_repo_.update_wipe_on_trade(txn, lobby_id, wipe_on_trade);
+            txn.commit();
+
+            nlohmann::json ev;
+            ev["type"]                = "lobby_settings_changed";
+            ev["lobby_id"]            = lobby_id;
+            ev["spawn_bots_on_leave"] = lobby_opt->spawn_bots_on_leave;
+            ev["bot_spawn_difficulty"]= lobby_opt->bot_spawn_difficulty;
+            ev["wipe_on_trade"]       = wipe_on_trade;
+            event_bus_.publish("lobby:" + lobby_id, ev.dump());
+
+            nlohmann::json res_j;
+            res_j["wipe_on_trade"] = wipe_on_trade;
+            crow::response res(200, res_j.dump());
+            res.set_header("Content-Type", "application/json");
+            return res;
+        } catch (const std::exception& e) {
+            http_log_.error("lobbies", std::string("wipe-settings update failed: ") + e.what());
+            return make_error(500, "INTERNAL_ERROR");
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------

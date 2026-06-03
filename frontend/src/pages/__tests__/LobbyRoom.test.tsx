@@ -42,6 +42,7 @@ const BASE_LOBBY_STATE: LobbyStateMessage = {
   mode: 'ui',
   spawn_bots_on_leave: false,
   bot_spawn_difficulty: 'easy',
+  wipe_on_trade: true,
   players: [
     { player_id: 1, username: 'owner', joined_at: '2026-04-23T00:00:00Z', is_bot: false },
     { player_id: 2, username: 'alice', joined_at: '2026-04-23T00:00:00Z', is_bot: false },
@@ -444,8 +445,7 @@ describe('LobbyRoom — bot autofill toggle propagation', () => {
   test('toggle shows "Off" when lobbyState.spawn_bots_on_leave is false', async () => {
     const { unmount } = renderRoom()
     await waitFor(() => screen.getByText('Bot auto-fill'))
-    expect(screen.getByText('Off')).toBeInTheDocument()
-    expect(screen.queryByText('On')).toBeNull()
+    expect(screen.getByRole('switch', { name: /auto-fill/i })).toHaveAttribute('aria-checked', 'false')
     vi.useFakeTimers()
     try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
   })
@@ -458,8 +458,7 @@ describe('LobbyRoom — bot autofill toggle propagation', () => {
     }))
     const { unmount } = renderRoom()
     await waitFor(() => screen.getByText('Bot auto-fill'))
-    expect(screen.getByText('On')).toBeInTheDocument()
-    expect(screen.queryByText('Off')).toBeNull()
+    expect(screen.getByRole('switch', { name: /auto-fill/i })).toHaveAttribute('aria-checked', 'true')
     vi.useFakeTimers()
     try { unmount(); act(() => { vi.advanceTimersByTime(200) }) } finally { vi.useRealTimers() }
   })
@@ -495,13 +494,13 @@ describe('LobbyRoom — bot autofill toggle propagation', () => {
 
     const { unmount } = renderRoom()
     await waitFor(() => screen.getByRole('switch', { name: /auto-fill/i }))
-    expect(screen.getByText('Off')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: /auto-fill/i })).toHaveAttribute('aria-checked', 'false')
 
     await act(async () => {
       fireEvent.click(screen.getByRole('switch', { name: /auto-fill/i }))
     })
 
-    expect(screen.getByText('On')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: /auto-fill/i })).toHaveAttribute('aria-checked', 'true')
     const patchCall = vi.mocked(fetch).mock.calls.find(
       ([url]) => typeof url === 'string' && url.includes('bot-settings')
     )

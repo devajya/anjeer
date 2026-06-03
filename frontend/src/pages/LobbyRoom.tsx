@@ -189,6 +189,7 @@ export function LobbyRoom() {
   const [startError, setStartError]         = useState<string | null>(null)
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null)
   const [botAutofill, setBotAutofill]       = useState(false)
+  const [wipeOnTrade, setWipeOnTrade]       = useState(true)
 
   // AGENT-CTX: Refs let the unmount cleanup read current lobbyId / connected
   // without adding them as deps (which would re-run the cleanup on every
@@ -269,7 +270,10 @@ export function LobbyRoom() {
   // Sync botAutofill from every lobby_state update so all players (including
   // non-owners) see the current value after the owner toggles it via PATCH.
   useEffect(() => {
-    if (lobbyState) setBotAutofill(lobbyState.spawn_bots_on_leave)
+    if (lobbyState) {
+      setBotAutofill(lobbyState.spawn_bots_on_leave)
+      setWipeOnTrade(lobbyState.wipe_on_trade)
+    }
   }, [lobbyState])
 
   useEffect(() => {
@@ -326,6 +330,23 @@ export function LobbyRoom() {
     if (!lobbyId) return
     sendMessage({ type: 'remove_bot', lobby_id: lobbyId, bot_uuid: uuid })
     sendMessage({ type: 'add_bot',    lobby_id: lobbyId, difficulty: to })
+  }
+
+  async function handleToggleWipe() {
+    if (!isOwner || !lobbyId) return
+    const next = !wipeOnTrade
+    setWipeOnTrade(next)
+    try {
+      const res = await fetch(`/lobbies/${lobbyId}/wipe-settings`, {
+        method:      'PATCH',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ wipe_on_trade: next }),
+      })
+      if (!res.ok) setWipeOnTrade(!next)
+    } catch {
+      setWipeOnTrade(!next)
+    }
   }
 
   async function handleToggleAutofill() {
@@ -425,6 +446,21 @@ export function LobbyRoom() {
           </div>
           <span className={`lr__join-state${botAutofill ? ' lr__join-state--on' : ''}`}>
             {botAutofill ? 'On' : 'Off'}
+          </span>
+        </div>
+        <div className="lr__join-row">
+          <span className="lr__join-label">Clear book on trade</span>
+          <div
+            className={`lr__toggle${wipeOnTrade ? ' lr__toggle--on' : ''}${isOwner ? ' lr__toggle--interactive' : ''}`}
+            aria-label="Clear all orders after each trade"
+            role="switch"
+            aria-checked={wipeOnTrade}
+            onClick={isOwner ? handleToggleWipe : undefined}
+          >
+            <span className="lr__toggle-thumb" />
+          </div>
+          <span className={`lr__join-state${wipeOnTrade ? ' lr__join-state--on' : ''}`}>
+            {wipeOnTrade ? 'On' : 'Off'}
           </span>
         </div>
 

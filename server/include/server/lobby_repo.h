@@ -100,6 +100,10 @@ public:
                              bool spawn_bots_on_leave,
                              const std::string& bot_spawn_difficulty);
 
+    void update_wipe_on_trade(DbTxn& txn,
+                              const std::string& lobby_id,
+                              bool wipe_on_trade);
+
     void adjust_bot_count(DbTxn& txn, const std::string& lobby_id, int delta);
 
 private:
