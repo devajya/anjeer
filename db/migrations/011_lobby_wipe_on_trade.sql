@@ -1,0 +1,2 @@
+ALTER TABLE lobbies
+  ADD COLUMN wipe_on_trade BOOLEAN NOT NULL DEFAULT TRUE;
