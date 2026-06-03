@@ -5,8 +5,10 @@ import type { MyOrder } from './useWebSocket'
 export interface OrderFormState {
   bidInput: string
   offerInput: string
+  qtyInput: string
   setBidInput: (v: string) => void
   setOfferInput: (v: string) => void
+  setQtyInput: (v: string) => void
   submitBid: (e: React.FormEvent) => void
   submitOffer: (e: React.FormEvent) => void
   // null when no self-trade conflict; set to a human-readable message when blocked.
@@ -14,6 +16,8 @@ export interface OrderFormState {
   // When the server sends per-order player IDs in a future slice, remove this check
   // and let the server reject self-trades with an error code instead.
   selfTradeError: string | null
+  /** Parsed qty ≥ 1, or 1 if input is empty/invalid. */
+  parsedQty: number
 }
 
 // AGENT-CTX: useOrderForm owns the price-input state and integer-parse
@@ -31,7 +35,10 @@ export function useOrderForm(
 ): OrderFormState {
   const [bidInput, setBidInputRaw] = useState('')
   const [offerInput, setOfferInputRaw] = useState('')
+  const [qtyInput, setQtyInputRaw] = useState('')
   const [selfTradeError, setSelfTradeError] = useState<string | null>(null)
+
+  const parsedQty = Math.max(1, parseInt(qtyInput, 10) || 1)
 
   // Clear the self-trade error whenever the user edits an input so the message
   // doesn't linger after they correct the price.
@@ -43,6 +50,10 @@ export function useOrderForm(
   function setOfferInput(v: string) {
     setOfferInputRaw(v)
     if (selfTradeError) setSelfTradeError(null)
+  }
+
+  function setQtyInput(v: string) {
+    setQtyInputRaw(v)
   }
 
   function submitBid(e: React.FormEvent) {
@@ -59,7 +70,7 @@ export function useOrderForm(
       setSelfTradeError('Cannot buy your own sell order')
       return
     }
-    onSendMessage({ type: 'submit_order', suit, side: 'buy', price: p })
+    onSendMessage({ type: 'submit_order', suit, side: 'buy', price: p, qty: parsedQty })
     setBidInputRaw('')
     setSelfTradeError(null)
   }
@@ -78,15 +89,16 @@ export function useOrderForm(
       setSelfTradeError('Cannot sell to your own buy order')
       return
     }
-    onSendMessage({ type: 'submit_order', suit, side: 'sell', price: p })
+    onSendMessage({ type: 'submit_order', suit, side: 'sell', price: p, qty: parsedQty })
     setOfferInputRaw('')
     setSelfTradeError(null)
   }
 
   return {
-    bidInput, offerInput,
-    setBidInput, setOfferInput,
+    bidInput, offerInput, qtyInput,
+    setBidInput, setOfferInput, setQtyInput,
     submitBid, submitOffer,
     selfTradeError,
+    parsedQty,
   }
 }

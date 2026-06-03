@@ -165,7 +165,8 @@ const { user } = useAuth()
     if (!selectedSuit) return
     const bid = books[selectedSuit]?.best_bid
     if (bid == null) return
-    sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'sell', price: bid })
+    const qty = suitPanelRefs.current[selectedSuit]?.getQty() ?? 1
+    sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'sell', price: bid, qty })
   }, [selectedSuit, books, sendMessage])
 
   // Accept the standing ask = buy from the seller at their price (lift the offer).
@@ -173,7 +174,8 @@ const { user } = useAuth()
     if (!selectedSuit) return
     const ask = books[selectedSuit]?.best_ask
     if (ask == null) return
-    sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'buy', price: ask })
+    const qty = suitPanelRefs.current[selectedSuit]?.getQty() ?? 1
+    sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'buy', price: ask, qty })
   }, [selectedSuit, books, sendMessage])
 
   const handleNudgeBuy = useCallback(() => {

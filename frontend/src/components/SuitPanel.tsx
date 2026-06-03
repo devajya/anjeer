@@ -21,6 +21,7 @@ export const PLAYER_COLORS: Record<number, string> = {
 export interface SuitPanelHandle {
   focusBid:   () => void
   focusOffer: () => void
+  getQty:     () => number
 }
 
 interface Props {
@@ -105,16 +106,18 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   onSelect,
   isSpectator = false,
 }, ref) {
-  const { bidInput, offerInput, setBidInput, setOfferInput, submitBid, submitOffer, selfTradeError } =
+  const { bidInput, offerInput, qtyInput, setBidInput, setOfferInput, setQtyInput, submitBid, submitOffer, selfTradeError, parsedQty } =
     useOrderForm(suit, onSendMessage, myOrdersForSuit)
 
   const bidInputRef   = useRef<HTMLInputElement>(null)
   const offerInputRef = useRef<HTMLInputElement>(null)
+  const qtyInputRef   = useRef<HTMLInputElement>(null)
 
   useImperativeHandle(ref, () => ({
     focusBid:   () => { bidInputRef.current?.focus(); bidInputRef.current?.select() },
     focusOffer: () => { offerInputRef.current?.focus(); offerInputRef.current?.select() },
-  }))
+    getQty:     () => parsedQty,
+  }), [parsedQty])
 
   // Ephemeral server error — auto-clears after 2 seconds so it never blocks interaction.
   const [visibleError, setVisibleError] = useState<ErrorMessage | null>(null)
@@ -202,6 +205,7 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
                     suit,
                     side: 'sell',
                     price: book.best_bid!,
+                    qty: parsedQty,
                   })
                 }
               >
@@ -225,13 +229,27 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
           )}
         </div>
 
-        {/* ── MIDDLE: suit badge + last trade ── */}
+        {/* ── MIDDLE: suit badge + last trade + qty input ── */}
         <div className="sp__col sp__col--centre">
           <div className={`sp__badge sp__badge--${suit}`}>{SUIT_SYMBOLS[suit] ?? suit}</div>
           {lastTradePrice !== null ? (
             <span className="sp__last-trade">{lastTradePrice}</span>
           ) : (
             <span className="sp__last-trade sp__last-trade--empty" />
+          )}
+          {!isSpectator && (
+            <input
+              ref={qtyInputRef}
+              className="sp__qty-input"
+              type="number"
+              min={1}
+              step={1}
+              value={qtyInput}
+              onChange={e => setQtyInput(e.target.value)}
+              placeholder="qty"
+              disabled={disabled}
+              aria-label={`Order quantity for ${suit}`}
+            />
           )}
         </div>
 
@@ -291,6 +309,7 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
                     suit,
                     side: 'buy',
                     price: book.best_ask!,
+                    qty: parsedQty,
                   })
                 }
               >

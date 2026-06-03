@@ -149,7 +149,7 @@ describe('SuitPanel — interactions', () => {
     const { onSendMessage } = renderPanel({ book: BOOK_FULL })
     fireEvent.click(screen.getByRole('button', { name: /BUY/i }))
     expect(onSendMessage).toHaveBeenCalledWith({
-      type: 'submit_order', suit: 'S1', side: 'buy', price: 55,
+      type: 'submit_order', suit: 'S1', side: 'buy', price: 55, qty: 1,
     })
   })
 
@@ -157,7 +157,7 @@ describe('SuitPanel — interactions', () => {
     const { onSendMessage } = renderPanel({ book: BOOK_FULL })
     fireEvent.click(screen.getByRole('button', { name: /SELL/i }))
     expect(onSendMessage).toHaveBeenCalledWith({
-      type: 'submit_order', suit: 'S1', side: 'sell', price: 45,
+      type: 'submit_order', suit: 'S1', side: 'sell', price: 45, qty: 1,
     })
   })
 
@@ -167,7 +167,7 @@ describe('SuitPanel — interactions', () => {
     fireEvent.change(input, { target: { value: '42' } })
     fireEvent.submit(input.closest('form')!)
     expect(onSendMessage).toHaveBeenCalledWith({
-      type: 'submit_order', suit: 'S1', side: 'buy', price: 42,
+      type: 'submit_order', suit: 'S1', side: 'buy', price: 42, qty: 1,
     })
   })
 
@@ -177,7 +177,7 @@ describe('SuitPanel — interactions', () => {
     fireEvent.change(input, { target: { value: '58' } })
     fireEvent.submit(input.closest('form')!)
     expect(onSendMessage).toHaveBeenCalledWith({
-      type: 'submit_order', suit: 'S1', side: 'sell', price: 58,
+      type: 'submit_order', suit: 'S1', side: 'sell', price: 58, qty: 1,
     })
   })
 
@@ -249,7 +249,43 @@ describe('SuitPanel — self-trade prevention', () => {
     fireEvent.change(input, { target: { value: '40' } })
     fireEvent.submit(input.closest('form')!)
     expect(onSendMessage).toHaveBeenCalledWith({
-      type: 'submit_order', suit: 'S1', side: 'buy', price: 40,
+      type: 'submit_order', suit: 'S1', side: 'buy', price: 40, qty: 1,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Qty input
+// ---------------------------------------------------------------------------
+
+describe('SuitPanel — order qty input', () => {
+  test('order form includes qty input', () => {
+    renderPanel()
+    expect(screen.getByRole('spinbutton', { name: /Order quantity for S1/i })).toBeInTheDocument()
+  })
+
+  test('qty defaults to 1 when input is empty', () => {
+    const { onSendMessage } = renderPanel({ book: BOOK_FULL })
+    fireEvent.click(screen.getByRole('button', { name: /BUY/i }))
+    expect(onSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ qty: 1 })
+    )
+  })
+
+  test('setting qty input sends correct qty with price form', () => {
+    const { onSendMessage } = renderPanel()
+    const qtyInput = screen.getByRole('spinbutton', { name: /Order quantity for S1/i })
+    fireEvent.change(qtyInput, { target: { value: '3' } })
+    const priceInput = screen.getByRole('spinbutton', { name: /Bid price for S1/i })
+    fireEvent.change(priceInput, { target: { value: '42' } })
+    fireEvent.submit(priceInput.closest('form')!)
+    expect(onSendMessage).toHaveBeenCalledWith({
+      type: 'submit_order', suit: 'S1', side: 'buy', price: 42, qty: 3,
+    })
+  })
+
+  test('qty input is hidden in spectator mode', () => {
+    renderPanel({ isSpectator: true })
+    expect(screen.queryByRole('spinbutton', { name: /Order quantity for S1/i })).toBeNull()
   })
 })

@@ -83,6 +83,32 @@
   /* reserves space so badge doesn't shift when a trade arrives */
 }
 
+.sp__qty-input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: 0.25rem 0.35rem;
+  border-radius: 5px;
+  font-size: var(--font-size-xs);
+  width: 3.2rem;
+  text-align: center;
+  margin-top: 0.3rem;
+}
+
+.sp__qty-input:focus   { outline: none; border-color: var(--color-muted); }
+.sp__qty-input:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.sp__qty-input::-webkit-inner-spin-button,
+.sp__qty-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.sp__qty-input[type=number] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* ── Price rows ── */
 .sp__price-row {
   display: flex;
