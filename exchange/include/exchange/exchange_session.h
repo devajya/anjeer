@@ -57,7 +57,7 @@ public:
     // If the result market contains OrderExecuted, the caller (GameSession) must
     // call wipe() on all instruments — this is the global-wipe game mechanic.
     [[nodiscard]] ExchangeResult submit_order(
-        instrument_id_t instrument_id, Side side, price_t price, int32_t player_slot);
+        instrument_id_t instrument_id, Side side, price_t price, int32_t player_slot, int32_t qty = 1);
 
     // Cancel a resting order by id. On success, feedback contains CancelAck and
     // BookUpdated; market contains OrderCancelled. On failure, feedback contains

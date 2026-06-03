@@ -457,7 +457,7 @@ void WsServer::run() {
                     if (!f) { serialise::error(ws, WsErrorCode::MalformedMessage, "bad submit_order", server_log_); return; }
                     auto side = parse::side(f->side);
                     if (!side) { serialise::error(ws, WsErrorCode::MalformedMessage, "bad side", server_log_); return; }
-                    as.inbound->enqueue(NetSubmit{slot, f->suit, *side, f->price});
+                    as.inbound->enqueue(NetSubmit{slot, f->suit, *side, f->price, f->qty});
                 } else if (type == "nudge") {
                     auto f = parse::nudge(j);
                     if (!f) { serialise::error(ws, WsErrorCode::MalformedMessage, "bad nudge", server_log_); return; }

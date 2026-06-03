@@ -47,6 +47,7 @@ struct OrderExecuted {
     int32_t         seller_slot;
     seq_t           seq;
     int32_t         qty_filled;
+    int32_t         qty_ordered;
     uint8_t         v = 1;
 };
 

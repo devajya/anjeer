@@ -36,7 +36,7 @@ WsErrorCode to_ws_error_code(exchange::OrderRejected::Code c) noexcept;
 // ═══════════════════════════════════════════════════════════════════════════
 namespace parse {
 
-struct SubmitOrderFields { std::string suit; std::string side; int32_t price; };
+struct SubmitOrderFields { std::string suit; std::string side; int32_t price; int32_t qty = 1; };
 struct NudgeFields        { std::string suit; std::string side; };
 struct CancelFields       { int64_t order_id; };
 struct LeaveLobbyFields   { std::string lobby_id; };

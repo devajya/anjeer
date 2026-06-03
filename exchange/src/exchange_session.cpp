@@ -25,7 +25,7 @@ ExchangeSession::ExchangeSession(std::vector<InstrumentConfig> instruments) {
 
 
 ExchangeResult ExchangeSession::submit_order(
-        instrument_id_t instrument_id, Side side, price_t price, int32_t player_slot) {
+        instrument_id_t instrument_id, Side side, price_t price, int32_t player_slot, int32_t qty) {
     if (instrument_id >= static_cast<instrument_id_t>(books_.size())) {
         ExchangeResult r;
         r.feedback.push_back(OrderRejected{OrderRejected::Code::InvalidInstrument,
@@ -33,7 +33,7 @@ ExchangeResult ExchangeSession::submit_order(
         return r;
     }
     return translate(instrument_id,
-                     books_[instrument_id].submit(player_slot, side, price));
+                     books_[instrument_id].submit(player_slot, side, price, qty));
 }
 
 ExchangeResult ExchangeSession::cancel_order(
@@ -224,6 +224,7 @@ ExchangeResult ExchangeSession::translate(
                 exec.seller_slot    = trade.seller_id;
                 exec.seq            = seq;
                 exec.qty_filled     = trade.qty_filled;
+                exec.qty_ordered    = trade.qty_ordered;
                 result.market.push_back(exec);
             },
             [&](const BookUpdateEvent& bu) {

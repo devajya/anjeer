@@ -25,7 +25,7 @@ struct SlotAdmitInfo {
 
 struct NetConnect    { int32_t slot; int64_t player_id; std::string username; };
 struct NetDisconnect { int32_t slot; };
-struct NetSubmit     { int32_t slot; std::string suit; engine::Side side; int32_t price; };
+struct NetSubmit     { int32_t slot; std::string suit; engine::Side side; int32_t price; int32_t qty = 1; };
 struct NetNudge      { int32_t slot; std::string suit; engine::Side side; };
 struct NetCancel     { int32_t slot; int64_t order_id; };
 struct NetStartGame     {};

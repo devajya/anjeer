@@ -23,9 +23,10 @@ std::vector<TradeEvent> OrderBook::match_loop() {
         const Side    aggressor_side   = bid_is_aggressor ? Side::Buy : Side::Sell;
         const int32_t exec_price       = bid_is_aggressor ? ask.price : bid.price;
         const int32_t fill             = std::min(bid.qty, ask.qty);
+        const int32_t qty_ordered      = bid_is_aggressor ? bid.original_qty : ask.original_qty;
 
         trades.push_back(TradeEvent{
-            cfg_.suit, exec_price, bid.player_id, ask.player_id, aggressor_side, fill});
+            cfg_.suit, exec_price, bid.player_id, ask.player_id, aggressor_side, fill, qty_ordered});
 
         bid.qty -= fill;
         ask.qty -= fill;
@@ -73,7 +74,7 @@ std::vector<OrderEvent> OrderBook::submit(int32_t player_id, Side side, int32_t 
         }};
     }
 
-    Order order{next_id_++, player_id, side, price, qty};
+    Order order{next_id_++, player_id, side, price, qty, qty};
 
     // lower_bound maintains price-time priority (descending price for bids, ascending for asks;
     // ascending id on ties for FIFO within a price level).

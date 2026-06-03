@@ -312,7 +312,7 @@ void GameSession::handle_submit(const NetSubmit& ev) {
     }
     const int si = engine::suit_index(*suit_opt);
     auto result = exchange_.submit_order(
-        static_cast<exchange::instrument_id_t>(si), ev.side, ev.price, ev.slot);
+        static_cast<exchange::instrument_id_t>(si), ev.side, ev.price, ev.slot, ev.qty);
     const bool had_trade = dispatch_result(ev.slot, result);
     if (had_trade) {
         apply_post_trade_state(result);
@@ -777,7 +777,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                     {"buyer_slot",     exec->buyer_slot},
                     {"seller_slot",    exec->seller_slot},
                     {"qty_filled",     exec->qty_filled},
-                    {"qty_ordered",    exec->qty_filled},
+                    {"qty_ordered",    exec->qty_ordered},
                 }.dump());
             }
             emit_spectator_broadcast(nlohmann::json{

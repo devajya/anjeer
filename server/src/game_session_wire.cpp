@@ -275,10 +275,13 @@ namespace parse {
 
 std::optional<SubmitOrderFields> submit_order(const nlohmann::json& j) {
     try {
+        const int32_t qty = j.contains("qty") ? j.at("qty").get<int32_t>() : 1;
+        if (qty <= 0) return std::nullopt;
         return SubmitOrderFields{
             j.at("suit").get<std::string>(),
             j.at("side").get<std::string>(),
             j.at("price").get<int32_t>(),
+            qty,
         };
     } catch (const nlohmann::json::exception&) { return std::nullopt; }
 }
