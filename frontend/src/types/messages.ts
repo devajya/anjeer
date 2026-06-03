@@ -25,6 +25,7 @@ export interface OrderAckMessage {
   suit: string
   side: 'buy' | 'sell'
   price: number
+  qty: number
 }
 
 /**
@@ -48,8 +49,6 @@ export interface BookUpdateMessage {
 /**
  * A trade has executed. Broadcast to all clients.
  * your_side is personalised per recipient by the server.
- * AGENT-CTX: qty is absent — every trade is for exactly 1 card (Slice 2 mechanic).
- * When multi-card orders are added, insert qty: number here and update the display.
  */
 export interface TradeMessage {
   type: 'trade'
@@ -60,6 +59,8 @@ export interface TradeMessage {
   your_side: 'buy' | 'sell' | null
   buyer_slot: number
   seller_slot: number
+  qty_filled: number
+  qty_ordered: number
 }
 
 /** Confirms a successfully cancelled order. Sent only to the cancelling client. */
@@ -180,6 +181,7 @@ export interface LobbyStateMessage {
   mode: 'ui' | 'api'
   spawn_bots_on_leave: boolean
   bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
+  wipe_on_trade: boolean
   players: LobbyPlayer[]
 }
 
@@ -539,6 +541,7 @@ export interface LobbySettingsChangedMessage {
   lobby_id: string
   spawn_bots_on_leave: boolean
   bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
+  wipe_on_trade?: boolean
 }
 
 // ── Slice 14: Market data feed tiers ─────────────────────────────────────────
@@ -680,6 +683,7 @@ export interface SubmitOrderCommand {
   suit: string
   side: 'buy' | 'sell'
   price: number
+  qty: number
 }
 
 export interface NudgeCommand {
