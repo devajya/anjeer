@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState, useEffect } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, useEffect, useCallback } from 'react'
 import type { BookState, MyOrder } from '../hooks/useWebSocket'
 import type { ErrorMessage, ClientCommand } from '../types/messages'
 import { useOrderForm } from '../hooks/useOrderForm'
@@ -73,6 +73,13 @@ interface Props {
   onSelect?: (suit: string) => void
   /** Spectator mode — hides order forms and nudge buttons; shows prices only. */
   isSpectator?: boolean
+  /**
+   * MBP-N depth snapshot for this suit. When provided alongside feedTier='mbpn',
+   * the collapsible depth ladder is shown below the panel.
+   */
+  bookDepth?: { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] } | null
+  /** Feed tier inferred from server messages. 'mbpn' enables the depth ladder. */
+  feedTier?: 'mbp1' | 'mbpn' | 'mbo' | null
 }
 
 const SUIT_SYMBOLS: Record<string, string> = {
@@ -105,6 +112,8 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   selected = false,
   onSelect,
   isSpectator = false,
+  bookDepth = null,
+  feedTier = null,
 }, ref) {
   const { bidInput, offerInput, qtyInput, setBidInput, setOfferInput, setQtyInput, submitBid, submitOffer, selfTradeError, parsedQty } =
     useOrderForm(suit, onSendMessage, myOrdersForSuit)
@@ -135,6 +144,9 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
     const t = setTimeout(() => setVisibleSelfTradeError(null), 2000)
     return () => clearTimeout(t)
   }, [selfTradeError])
+
+  const [depthExpanded, setDepthExpanded] = useState(false)
+  const toggleDepth = useCallback(() => setDepthExpanded(v => !v), [])
 
   const disabled = playerId === null
   const hasBid = book.best_bid !== null
@@ -326,6 +338,40 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
       )}
       {!visibleError && visibleSelfTradeError && (
         <p className="sp__error">✗ {visibleSelfTradeError}</p>
+      )}
+
+      {feedTier === 'mbpn' && (
+        <div className="sp__depth">
+          <button
+            className="sp__depth-toggle"
+            type="button"
+            onClick={e => { e.stopPropagation(); toggleDepth() }}
+            aria-expanded={depthExpanded}
+            aria-label={depthExpanded ? 'Collapse depth ladder' : 'Expand depth ladder'}
+          >
+            {depthExpanded ? '▴ depth' : '▾ depth'}
+          </button>
+          {depthExpanded && bookDepth && (
+            <div className="sp__depth-ladder">
+              <div className="sp__depth-col sp__depth-col--bids">
+                {bookDepth.bids.slice(0, 5).map((lvl, i) => (
+                  <div key={i} className="sp__depth-row sp__depth-row--bid">
+                    <span className="sp__depth-qty">{lvl.qty}</span>
+                    <span className="sp__depth-price">{lvl.price}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="sp__depth-col sp__depth-col--asks">
+                {bookDepth.asks.slice(0, 5).map((lvl, i) => (
+                  <div key={i} className="sp__depth-row sp__depth-row--ask">
+                    <span className="sp__depth-price">{lvl.price}</span>
+                    <span className="sp__depth-qty">{lvl.qty}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

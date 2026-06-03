@@ -41,6 +41,8 @@ const INITIAL_STATE: WsState = {
   evalPosteriorUpdate:    null,
   evalAccumulationSignal: null,
   evalExecutionGuidance:  null,
+  bookDepths: {},
+  feedTier:   null,
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and

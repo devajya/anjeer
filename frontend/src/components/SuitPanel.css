@@ -233,3 +233,69 @@
   background: rgba(21, 8, 8, 0.92);
   backdrop-filter: blur(2px);
 }
+
+/* ── MBP-N depth ladder ── */
+.sp__depth {
+  border-top: 1px solid #2a2a2a;
+}
+
+.sp__depth-toggle {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.5rem;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sp__depth-toggle:hover {
+  color: #999;
+}
+
+.sp__depth-ladder {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1px;
+  background: #1a1a1a;
+  padding: 0.25rem 0;
+}
+
+.sp__depth-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sp__depth-col--bids { padding-right: 0.5rem; }
+.sp__depth-col--asks { padding-left:  0.5rem; }
+
+.sp__depth-row {
+  display: flex;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.25rem;
+}
+
+.sp__depth-row--bid {
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.sp__depth-row--ask {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.sp__depth-price--bid { color: #4a9d6f; }
+.sp__depth-price--ask { color: #c0392b; }
+
+.sp__depth-row--bid .sp__depth-price { color: #4a9d6f; }
+.sp__depth-row--ask .sp__depth-price { color: #c0392b; }
+
+.sp__depth-qty {
+  color: #555;
+}

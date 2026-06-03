@@ -57,6 +57,8 @@ const { user } = useAuth()
     evalPosteriorUpdate,
     evalAccumulationSignal,
     evalExecutionGuidance,
+    bookDepths,
+    feedTier,
   } = useWebSocket('/ws')
 
   const {
@@ -373,6 +375,8 @@ const { user } = useAuth()
                       onSendMessage={sendMessage}
                       selected={suit === selectedSuit}
                       onSelect={setSelectedSuit}
+                      bookDepth={bookDepths[suit] ?? null}
+                      feedTier={feedTier}
                     />
                   </div>
                 ))

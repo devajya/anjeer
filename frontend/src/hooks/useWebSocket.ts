@@ -195,6 +195,14 @@ export interface WsState {
   evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
   evalAccumulationSignal: import('../types/messages').EvalAccumulationSignalMessage | null
   evalExecutionGuidance: import('../types/messages').EvalExecutionGuidanceMessage | null
+  // ── Slice 15: MBP-N depth data ────────────────────────────────────────────
+  /** Top-of-book depth per suit. Populated by book_depth / book_depth_snapshot messages. */
+  bookDepths: Record<string, { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] }>
+  /**
+   * Feed tier inferred from first depth message received. null until known.
+   * 'mbpn' once book_depth or book_depth_snapshot arrives; stays null for MBP1/MBO.
+   */
+  feedTier: 'mbp1' | 'mbpn' | 'mbo' | null
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -261,6 +269,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     evalPosteriorUpdate: null,
     evalAccumulationSignal: null,
     evalExecutionGuidance: null,
+    bookDepths: {},
+    feedTier: null,
   })
 
   // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
@@ -674,9 +684,19 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({ ...s, evalExecutionGuidance: msg.action ? msg : null }))
           break
 
-        // Slice 14: market-data feed tier messages — no UI state yet; logged for script consumers
+        // Slice 14/15: market-data feed tier messages
         case 'book_depth':
         case 'book_depth_snapshot':
+          setState(s => ({
+            ...s,
+            feedTier: 'mbpn',
+            bookDepths: {
+              ...s.bookDepths,
+              [msg.suit]: { bids: msg.bids, asks: msg.asks },
+            },
+          }))
+          break
+
         case 'order_added':
         case 'order_executed':
         case 'order_cancelled':
