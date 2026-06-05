@@ -71,3 +71,12 @@
   /* ── Inverted-surface text (light bg sections) ─────────── */
   --color-invert-muted: #555555;
 }
+
+/* ── Global suit color utility classes ──────────────────────
+   Apply suit--{name} to any element that should take the
+   canonical suit color. Centralised here so all components
+   reference the same token. */
+.suit--clubs    { color: var(--suit-clubs); }
+.suit--diamonds { color: var(--suit-diamonds); }
+.suit--hearts   { color: var(--suit-hearts); }
+.suit--spades   { color: var(--suit-spades); }

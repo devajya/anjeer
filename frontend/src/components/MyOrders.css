@@ -50,9 +50,20 @@
 .my-orders__side--buy  { background: #14532d; color: var(--color-success); }
 .my-orders__side--sell { background: #450a0a; color: var(--color-danger); }
 
+.my-orders__suit-sym {
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
 .my-orders__suit {
   color: var(--color-muted);
   font-weight: 600;
+}
+
+.my-orders__qty {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-xs);
 }
 
 .my-orders__price {

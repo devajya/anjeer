@@ -4,7 +4,7 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
 import { findLobbyByCode } from '../api/lobbyApi'
 import { StaleLobbyModal } from '../components/StaleLobbyModal'
-import type { LobbyPlayer } from '../types/messages'
+import type { LobbyPlayer, GameMode } from '../types/messages'
 import './LobbyRoom.css'
 
 // ─── Seat geometry ────────────────────────────────────────────────────────────
@@ -189,7 +189,7 @@ export function LobbyRoom() {
   const [startError, setStartError]         = useState<string | null>(null)
   const [pendingSeatIdx, setPendingSeatIdx] = useState<number | null>(null)
   const [botAutofill, setBotAutofill]       = useState(false)
-  const [wipeOnTrade, setWipeOnTrade]       = useState(true)
+  const [gameMode, setGameMode]             = useState<GameMode>('simple')
 
   // AGENT-CTX: Refs let the unmount cleanup read current lobbyId / connected
   // without adding them as deps (which would re-run the cleanup on every
@@ -267,12 +267,10 @@ export function LobbyRoom() {
     return () => { unsubscribeLobby(lobbyId) }
   }, [lobbyId, connected, subscribeLobby, unsubscribeLobby])
 
-  // Sync botAutofill from every lobby_state update so all players (including
-  // non-owners) see the current value after the owner toggles it via PATCH.
   useEffect(() => {
     if (lobbyState) {
       setBotAutofill(lobbyState.spawn_bots_on_leave)
-      setWipeOnTrade(lobbyState.wipe_on_trade)
+      setGameMode(lobbyState.game_mode)
     }
   }, [lobbyState])
 
@@ -332,20 +330,20 @@ export function LobbyRoom() {
     sendMessage({ type: 'add_bot',    lobby_id: lobbyId, difficulty: to })
   }
 
-  async function handleToggleWipe() {
+  async function handleGameModeChange(mode: GameMode) {
     if (!isOwner || !lobbyId) return
-    const next = !wipeOnTrade
-    setWipeOnTrade(next)
+    const prev = gameMode
+    setGameMode(mode)
     try {
-      const res = await fetch(`/lobbies/${lobbyId}/wipe-settings`, {
+      const res = await fetch(`/lobbies/${lobbyId}/game-mode`, {
         method:      'PATCH',
         credentials: 'include',
         headers:     { 'Content-Type': 'application/json' },
-        body:        JSON.stringify({ wipe_on_trade: next }),
+        body:        JSON.stringify({ game_mode: mode }),
       })
-      if (!res.ok) setWipeOnTrade(!next)
+      if (!res.ok) setGameMode(prev)
     } catch {
-      setWipeOnTrade(!next)
+      setGameMode(prev)
     }
   }
 
@@ -448,20 +446,27 @@ export function LobbyRoom() {
             {botAutofill ? 'On' : 'Off'}
           </span>
         </div>
-        <div className="lr__join-row">
-          <span className="lr__join-label">Clear book on trade</span>
-          <div
-            className={`lr__toggle${wipeOnTrade ? ' lr__toggle--on' : ''}${isOwner ? ' lr__toggle--interactive' : ''}`}
-            aria-label="Clear all orders after each trade"
-            role="switch"
-            aria-checked={wipeOnTrade}
-            onClick={isOwner ? handleToggleWipe : undefined}
-          >
-            <span className="lr__toggle-thumb" />
+        <div className="lr__mode-selector">
+          <span className="lr__join-label">Game mode</span>
+          <div className="lr__mode-cards">
+            {([
+              { mode: 'simple'       as GameMode, label: 'Simple',       desc: 'Best bid/ask · 1 card · Book wipes after trade' },
+              { mode: 'intermediate' as GameMode, label: 'Intermediate', desc: 'Full depth · Multi-card orders · Book wipes after trade' },
+              { mode: 'advanced'     as GameMode, label: 'Advanced',     desc: 'Order feed · Multi-card orders · Resting orders persist' },
+            ]).map(({ mode, label, desc }) => (
+              <button
+                key={mode}
+                type="button"
+                className={`lr__mode-card${gameMode === mode ? ' lr__mode-card--active' : ''}${!isOwner ? ' lr__mode-card--disabled' : ''}`}
+                onClick={isOwner ? () => handleGameModeChange(mode) : undefined}
+                disabled={!isOwner}
+                aria-pressed={gameMode === mode}
+              >
+                <span className="lr__mode-label">{label}</span>
+                <span className="lr__mode-desc">{desc}</span>
+              </button>
+            ))}
           </div>
-          <span className={`lr__join-state${wipeOnTrade ? ' lr__join-state--on' : ''}`}>
-            {wipeOnTrade ? 'On' : 'Off'}
-          </span>
         </div>
 
         <div className="lr__footer-btns">

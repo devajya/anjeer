@@ -52,6 +52,37 @@
   grid-template-columns: 300px 1fr 280px;
 }
 
+/* 3-column layout: left + depth/MBO center + right + eval */
+.app__layout--center-col {
+  grid-template-columns: 260px 220px 1fr 32px;
+}
+
+.app__layout--center-col.app__layout--eval-open {
+  grid-template-columns: 260px 220px 1fr 280px;
+}
+
+/* Advanced mode: narrow collapsed-feed left + order feed center + right + eval */
+.app__layout--advanced {
+  grid-template-columns: 200px 2fr 3fr 32px;
+}
+
+.app__layout--advanced.app__layout--eval-open {
+  grid-template-columns: 200px 2fr 3fr 280px;
+}
+
+/* Center column: depth/MBO panel, scrolls independently */
+.app__center-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app__center-col .panel--center {
+  flex: 1;
+  min-height: 0;
+}
+
 /* ── Left column: Trade feed (flex: 1) + My Orders (fixed) ───────────────── */
 .app__left-col {
   display: flex;
@@ -65,6 +96,11 @@
 .app__left-col .panel--feed {
   flex: 1;
   min-height: 0;
+}
+
+/* When collapsed, shrink to header only (overrides the flex:1 above). */
+.app__left-col .panel--feed.panel--collapsed {
+  flex: none;
 }
 
 /* My Orders: fixed height at bottom of left column, never steals from feed */
@@ -150,6 +186,12 @@
   color: var(--color-muted);
 }
 
+.panel__collapse-icon {
+  font-size: 0.65rem;
+  color: var(--color-muted);
+  opacity: 0.6;
+}
+
 /* Scrollable content zone. overflow-y: auto here — never on .panel or .app.  */
 .panel__body {
   flex: 1;
@@ -181,6 +223,10 @@
   scrollbar-width: thin;
   scrollbar-color: #333 transparent;
 }
+
+/* Collapsed panel: hide body, shrink to header only. */
+.panel--collapsed .panel__body { display: none; }
+.panel--collapsed { flex: none; }
 
 /* Feed panel: left column, stretches to fill full grid row height by default
    (grid align-items defaults to stretch). No additional CSS needed.          */

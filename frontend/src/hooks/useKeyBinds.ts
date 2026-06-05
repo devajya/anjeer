@@ -19,9 +19,12 @@ export const DEFAULT_BINDS: Record<string, string> = {
   accept_sell:      'Shift+A',
   nudge_buy:        'ArrowUp',
   nudge_sell:       'ArrowDown',
-  cancel_best_buy:  'Control+z',
-  cancel_best_sell: 'Control+x',
-  toggle_shortcuts: '?',
+  cancel_best_buy:    'Control+z',
+  cancel_best_sell:   'Control+x',
+  toggle_shortcuts:   '?',
+  focus_trade_feed:   'f',
+  focus_center_panel: 'g',
+  toggle_panel:       '`',
 }
 
 export interface UseKeyBindsResult {

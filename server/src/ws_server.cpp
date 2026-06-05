@@ -752,7 +752,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     LobbyMode   lobby_mode            = LobbyMode::UI;
     bool        spawn_bots_on_leave   = false;
     std::string bot_spawn_difficulty  = "easy";
-    bool        wipe_on_trade         = true;
+    GameMode    game_mode             = GameMode::Simple;
     int64_t     creator_id            = -1;
     std::unordered_map<int64_t, FeedTier> feed_tier_cache;
     try {
@@ -764,28 +764,19 @@ void WsServer::create_session(const std::string& lobby_id) {
             return;
         }
 
-        // Batch-fetch feed preferences for all lobby players so .upgrade never
-        // queries the DB for feed tier again during this session.
-        if (!players.empty()) {
-            std::string q = "SELECT id, feed_preference FROM players WHERE id IN (";
-            for (size_t i = 0; i < players.size(); ++i) {
-                if (i) q += ',';
-                q += '$'; q += std::to_string(i + 1);
-            }
-            q += ')';
-            pqxx::params args;
-            for (const auto& p : players) args.append(p.player_id);
-            for (const auto& row : txn.exec_params(q, args)) {
-                const int64_t pid = row[0].as<int64_t>();
-                feed_tier_cache[pid] = feed_tier_from_string(row[1].as<std::string>());
-            }
-        }
         if (auto lobby = lobby_repo_.find_by_id(txn, lobby_id)) {
             lobby_mode           = lobby->mode;
             spawn_bots_on_leave  = lobby->spawn_bots_on_leave;
             bot_spawn_difficulty = lobby->bot_spawn_difficulty;
-            wipe_on_trade        = lobby->wipe_on_trade;
+            game_mode            = lobby->game_mode;
             creator_id           = lobby->creator_id;
+
+            // Derive feed tier from game_mode for all players in this lobby.
+            // Feed tier is now lobby-level, not per-player — no DB query needed.
+            const FeedTier tier = (game_mode == GameMode::Intermediate) ? FeedTier::MBPN
+                                : (game_mode == GameMode::Advanced)     ? FeedTier::MBO
+                                                                        : FeedTier::MBP1;
+            for (const auto& p : players) feed_tier_cache[p.player_id] = tier;
         }
         session_id = session_repo_.create_session(txn, lobby_id);
         //Transition Starting→InGame here (not in HttpServer) because
@@ -880,7 +871,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     as.session = std::make_unique<GameSession>(
         session_id, lobby_id,
         as.slots_,          // copy: GameSession owns its own SlotInfo vector
-        wipe_on_trade,
+        game_mode,
         std::move(gs_ctx),
         *as.inbound, *as.outbound);
 
@@ -1081,9 +1072,9 @@ void WsServer::drain_all_on_loop() {
                         : std::string{};
                     for (auto& [slot, ws] : as.slot_to_ws_) {
                         auto* d = ws->getUserData();
-                        if (d->feed_tier == FeedTier::MBO) continue;
-                        ws->send(d->feed_tier == FeedTier::MBPN ? mbpn_json : arg.mbp1_json,
-                                 uWS::OpCode::TEXT);
+                        ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
+                        if (d->feed_tier == FeedTier::MBPN && !mbpn_json.empty())
+                            ws->send(mbpn_json, uWS::OpCode::TEXT);
                     }
                     for (auto& [sid, ws] : as.spectator_handles_)
                         ws->send(arg.mbp1_json, uWS::OpCode::TEXT);
@@ -1186,6 +1177,14 @@ void WsServer::drain_all_on_loop() {
                             auto* d = entry.ws->getUserData();
                             d->lobby_id    = lobby_id;
                             d->player_slot = slot;
+                            // Stamp feed tier from lobby game mode so MBO/MBPN events
+                            // reach this player. Queue players connect before admission,
+                            // so onOpen sets MBP1 (player not yet in feed_tier_cache_).
+                            if (!as.feed_tier_cache_.empty()) {
+                                const FeedTier lt = as.feed_tier_cache_.begin()->second;
+                                d->feed_tier = lt;
+                                as.feed_tier_cache_[info.player_id] = lt;
+                            }
                             as.available_slots_.erase(slot);
                             // Issue a fresh in-memory reconnect token for this slot.
                             const std::string q_token = generate_reconnect_token();
@@ -1205,6 +1204,8 @@ void WsServer::drain_all_on_loop() {
                             }.dump(), uWS::OpCode::TEXT);
                             game_slots_repo_.upsert_active(
                                 as.session_id_, entry.player_id, slot);
+                            if (d->feed_tier != FeedTier::MBP1)
+                                as.inbound->enqueue(NetSendFeedSnapshot{slot, d->feed_tier});
                             // Broadcast bot replacement so clients clear the bot from
                             // departedSlots and update the roster with the new player.
                             auto bot_it = displaced_bot_uuids.find(slot);

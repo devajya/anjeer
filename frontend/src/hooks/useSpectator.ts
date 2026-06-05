@@ -41,8 +41,8 @@ const INITIAL_STATE: WsState = {
   evalPosteriorUpdate:    null,
   evalAccumulationSignal: null,
   evalExecutionGuidance:  null,
+  gameMode:   null,
   bookDepths: {},
-  feedTier:   null,
   mboLogs:    {},
 }
 
@@ -199,13 +199,16 @@ export function useSpectator(lobbyId: string): WsState {
         case 'eval_posterior_update':
         case 'eval_accumulation_signal':
         case 'eval_execution_guidance':
-        // Slice 14: market-data feed tier messages — no spectator UI yet
+        // Market-data feed messages — spectators receive MBP-1 only; drop the rest
         case 'book_depth':
         case 'book_depth_snapshot':
         case 'order_added':
         case 'order_executed':
         case 'order_cancelled':
         case 'order_book_snapshot':
+        // Slice 15: game mode + partial fill — not delivered to spectators
+        case 'book_state_snapshot':
+        case 'order_partially_filled':
           break
 
         default: {

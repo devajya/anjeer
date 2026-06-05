@@ -117,7 +117,8 @@ struct Harness {
                      std::vector<SlotInfo> slots = make_slots(2),
                      const std::string& session_id = "test-session",
                      const std::string& lobby_id   = "test-lobby",
-                     std::vector<std::unique_ptr<eval::EvalModule>> eval_mods = {})
+                     std::vector<std::unique_ptr<eval::EvalModule>> eval_mods = {},
+                     GameMode mode = GameMode::Simple)
         : server_log("logs/gs_test_server.txt")
         , engine_log("logs/gs_test_engine.txt")
         , cfg(std::move(c))
@@ -126,7 +127,7 @@ struct Harness {
         ctx.eval_modules = std::move(eval_mods);
         session = std::make_unique<GameSession>(
             session_id, lobby_id, std::move(slots),
-            /*wipe_on_trade=*/true,
+            mode,
             std::move(ctx),
             inbound, outbound);
         session->start();
@@ -913,6 +914,85 @@ TEST_CASE("T18: MBO incremental: order_added on submit, order_cancelled on cance
 // round-relative. Submits 3 orders in round 1 (seq → 3), then waits for the
 // round to expire and a new round to begin, then verifies the first book_update
 // in round 2 has seq < final round-1 seq.
+
+// ─── MQ1: Intermediate mode — multi-qty order_ack ───────────────────────────
+
+TEST_CASE("MQ1: Intermediate mode order_ack carries submitted qty",
+          "[game_session][multi_qty]") {
+    run_migrations();
+    Harness h(make_cfg(), make_slots(2), "mq1-session", "mq1-lobby",
+              {}, GameMode::Intermediate);
+    h.advance_to_round_active();
+
+    h.push(NetSubmit{0, "clubs", Side::Buy, 30, 5});
+
+    const auto ack = h.recv_targeted(0, "order_ack");
+    REQUIRE(ack.has_value());
+    CHECK(ack->value("qty", 0) == 5);
+    CHECK(ack->value("price", 0) == 30);
+}
+
+// ─── MQ2: Simple mode clamps qty to 1 regardless of submission ───────────────
+
+TEST_CASE("MQ2: Simple mode clamps submitted qty to 1",
+          "[game_session][multi_qty]") {
+    run_migrations();
+    Harness h;
+    h.advance_to_round_active();
+
+    h.push(NetSubmit{0, "clubs", Side::Buy, 30, 5});
+
+    const auto ack = h.recv_targeted(0, "order_ack");
+    REQUIRE(ack.has_value());
+    CHECK(ack->value("qty", 0) == 1);
+}
+
+// ─── MQ3: Intermediate mode — crossing multi-qty fills fully ─────────────────
+
+TEST_CASE("MQ3: Intermediate mode crossing multi-qty orders fill correctly",
+          "[game_session][multi_qty]") {
+    run_migrations();
+    Harness h(make_cfg(), make_slots(2), "mq3-session", "mq3-lobby",
+              {}, GameMode::Intermediate);
+    h.advance_to_round_active();
+
+    // Resting bid at 50 for qty=4
+    h.push(NetSubmit{0, "clubs", Side::Buy, 50, 4});
+    h.recv_targeted(0, "order_ack");
+
+    // Crossing sell at 50 for qty=4 — full fill
+    h.push(NetSubmit{1, "clubs", Side::Sell, 50, 4});
+    h.recv_targeted(1, "order_ack");
+
+    const auto trade = h.recv_type("trade");
+    REQUIRE(trade.has_value());
+    CHECK(trade->value("qty_filled",  0) == 4);
+    CHECK(trade->value("qty_ordered", 0) == 4);
+    CHECK(trade->value("price",       0) == 50);
+}
+
+// ─── MQ4: Intermediate mode — partial fill emits correct qty fields ──────────
+
+TEST_CASE("MQ4: Intermediate mode partial fill has correct qty_filled and qty_ordered",
+          "[game_session][multi_qty]") {
+    run_migrations();
+    Harness h(make_cfg(), make_slots(2), "mq4-session", "mq4-lobby",
+              {}, GameMode::Intermediate);
+    h.advance_to_round_active();
+
+    // Resting bid at 50 for qty=3
+    h.push(NetSubmit{0, "clubs", Side::Buy, 50, 3});
+    h.recv_targeted(0, "order_ack");
+
+    // Crossing sell at 50 for qty=5 — partial fill (3 of 5)
+    h.push(NetSubmit{1, "clubs", Side::Sell, 50, 5});
+    h.recv_targeted(1, "order_ack");
+
+    const auto trade = h.recv_type("trade");
+    REQUIRE(trade.has_value());
+    CHECK(trade->value("qty_filled",  0) == 3);
+    CHECK(trade->value("qty_ordered", 0) == 5);
+}
 
 TEST_CASE("T20: seq resets to near-zero after begin_round",
           "[game_session][seq]") {

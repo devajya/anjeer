@@ -90,7 +90,7 @@ export function LobbyBrowser() {
         headers:     { 'Content-Type': 'application/json' },
         // spawn_bots_on_leave defaults to false; owner toggles it in LobbyRoom.
         // bot_spawn_difficulty always medium — difficulty picker removed from creation.
-        body:        JSON.stringify({ mode: 'ui', spawn_bots_on_leave: false, bot_spawn_difficulty: 'medium', wipe_on_trade: true }),
+        body:        JSON.stringify({ mode: 'ui', spawn_bots_on_leave: false, bot_spawn_difficulty: 'medium', game_mode: 'simple' }),
       })
       if (res.ok) {
         const lobby: LobbyView = await res.json()
@@ -200,8 +200,8 @@ export function LobbyBrowser() {
                           <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
                             {(lobby.mode ?? 'ui').toUpperCase()}
                           </span>
-                          <span className={`lp__wipe-badge${lobby.wipe_on_trade ? '' : ' lp__wipe-badge--persists'}`}>
-                            {lobby.wipe_on_trade ? 'Book Wipes' : 'Book Persists'}
+                          <span className={`lp__game-mode-badge lp__game-mode-badge--${lobby.game_mode ?? 'simple'}`}>
+                            {lobby.game_mode ? lobby.game_mode.charAt(0).toUpperCase() + lobby.game_mode.slice(1) : 'Simple'}
                           </span>
                         </div>
                         <span className="lp__card-meta">
@@ -248,6 +248,9 @@ export function LobbyBrowser() {
                           <span className="lp__card-title">Game {lobby.code}</span>
                           <span className={`lp__mode-badge lp__mode-badge--${lobby.mode ?? 'ui'}`}>
                             {(lobby.mode ?? 'ui').toUpperCase()}
+                          </span>
+                          <span className={`lp__game-mode-badge lp__game-mode-badge--${lobby.game_mode ?? 'simple'}`}>
+                            {lobby.game_mode ? lobby.game_mode.charAt(0).toUpperCase() + lobby.game_mode.slice(1) : 'Simple'}
                           </span>
                         </div>
                         <span className="lp__card-meta">

@@ -18,9 +18,15 @@ enum class LobbyStatus { Waiting, Starting, InGame, Finished, Closed };
 // string ↔ enum mapping — never inline "ui" / "api" elsewhere in the server.
 enum class LobbyMode { UI, API };
 
+// GameMode bundles feed tier, multi-qty policy, and wipe-on-trade policy.
+// Mirrors the DB CHECK constraint on lobbies.game_mode.
+enum class GameMode { Simple, Intermediate, Advanced };
+
 std::string lobby_status_string(LobbyStatus s);
 std::string lobby_mode_string  (LobbyMode m);
 LobbyMode   parse_lobby_mode   (const std::string& s);
+std::string game_mode_string   (GameMode m);
+GameMode    parse_game_mode    (const std::string& s);
 
 struct Lobby {
     std::string id;           // UUID as string
@@ -34,7 +40,7 @@ struct Lobby {
     bool        spawn_bots_on_leave   = false;
     std::string bot_spawn_difficulty  = "easy"; // "easy"|"medium"|"hard"|"random"
     int         bot_count             = 0;
-    bool        wipe_on_trade         = true;
+    GameMode    game_mode             = GameMode::Simple;
 };
 
 // AGENT-CTX: LobbyView is a read-only projection for list responses only.
@@ -59,7 +65,7 @@ public:
                  LobbyMode mode = LobbyMode::UI,
                  bool spawn_bots_on_leave = false,
                  std::string bot_spawn_difficulty = "easy",
-                 bool wipe_on_trade = true);
+                 GameMode game_mode = GameMode::Simple);
 
     std::optional<Lobby> find_by_id  (DbTxn& txn,
                                       const std::string& lobby_id);
@@ -100,9 +106,9 @@ public:
                              bool spawn_bots_on_leave,
                              const std::string& bot_spawn_difficulty);
 
-    void update_wipe_on_trade(DbTxn& txn,
-                              const std::string& lobby_id,
-                              bool wipe_on_trade);
+    void update_game_mode(DbTxn& txn,
+                          const std::string& lobby_id,
+                          GameMode game_mode);
 
     void adjust_bot_count(DbTxn& txn, const std::string& lobby_id, int delta);
 

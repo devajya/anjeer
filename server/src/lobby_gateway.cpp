@@ -96,6 +96,7 @@ void LobbyGateway::handle_subscribe(WsHandle ws, const std::string& lobby_id,
         {"mode",                   lobby.mode == LobbyMode::API ? "api" : "ui"},
         {"spawn_bots_on_leave",    lobby.spawn_bots_on_leave},
         {"bot_spawn_difficulty",   lobby.bot_spawn_difficulty},
+        {"game_mode",              game_mode_string(lobby.game_mode)},
         {"players",                players_arr},
     };
     ws->send(snap.dump(), uWS::OpCode::TEXT);

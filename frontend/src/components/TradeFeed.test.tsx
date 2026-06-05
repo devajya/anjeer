@@ -116,18 +116,18 @@ describe('TradeFeed — partial fill display', () => {
     expect(screen.getByText('3/5')).toBeInTheDocument()
   })
 
-  test('full fill (1/1) shows no qty ratio', () => {
-    const { container } = render(
+  test('full fill (1/1) always shows qty ratio', () => {
+    render(
       <TradeFeed trades={[makeEntry({ qty_filled: 1, qty_ordered: 1 })]} roster={ROSTER} />
     )
-    expect(container.querySelector('.trade-feed__qty')).toBeNull()
+    expect(screen.getByText('1/1')).toBeInTheDocument()
   })
 
-  test('full fill of qty > 1 shows no qty ratio', () => {
-    const { container } = render(
+  test('full fill of qty > 1 shows qty ratio', () => {
+    render(
       <TradeFeed trades={[makeEntry({ qty_filled: 3, qty_ordered: 3 })]} roster={ROSTER} />
     )
-    expect(container.querySelector('.trade-feed__qty')).toBeNull()
+    expect(screen.getByText('3/3')).toBeInTheDocument()
   })
 })
 

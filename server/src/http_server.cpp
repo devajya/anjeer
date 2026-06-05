@@ -87,7 +87,7 @@ nlohmann::json lobby_view_json(const LobbyView& lv)
     j["created_at"]            = lv.lobby.created_at;
     j["spawn_bots_on_leave"]   = lv.lobby.spawn_bots_on_leave;
     j["bot_spawn_difficulty"]  = lv.lobby.bot_spawn_difficulty;
-    j["wipe_on_trade"]         = lv.lobby.wipe_on_trade;
+    j["game_mode"]             = game_mode_string(lv.lobby.game_mode);
     return j;
 }
 
@@ -392,7 +392,7 @@ void HttpServer::register_lobby_routes(App& app)
             LobbyMode   mode                 = LobbyMode::UI;
             bool        spawn_bots_on_leave  = false;
             std::string bot_spawn_difficulty = "easy";
-            bool        wipe_on_trade        = true;
+            GameMode    game_mode            = GameMode::Simple;
             if (!req.body.empty()) {
                 try {
                     const auto body = nlohmann::json::parse(req.body);
@@ -405,8 +405,10 @@ void HttpServer::register_lobby_routes(App& app)
                         if (d == "easy" || d == "medium" || d == "hard" || d == "random")
                             bot_spawn_difficulty = d;
                     }
-                    if (body.contains("wipe_on_trade") && body["wipe_on_trade"].is_boolean())
-                        wipe_on_trade = body["wipe_on_trade"].get<bool>();
+                    if (body.contains("game_mode") && body["game_mode"].is_string()) {
+                        try { game_mode = parse_game_mode(body["game_mode"].get<std::string>()); }
+                        catch (...) {}
+                    }
                 } catch (const std::exception&) {
                     return make_error(400, "MALFORMED_JSON");
                 }
@@ -422,7 +424,7 @@ void HttpServer::register_lobby_routes(App& app)
                 mode,
                 spawn_bots_on_leave,
                 bot_spawn_difficulty,
-                wipe_on_trade
+                game_mode
             );
 
             const int count = lobby_repo_.player_count(txn, lobby.id);
@@ -726,19 +728,21 @@ void HttpServer::register_lobby_routes(App& app)
         }
     });
 
-    CROW_ROUTE(app, "/lobbies/<string>/wipe-settings").methods(crow::HTTPMethod::Patch)
+    CROW_ROUTE(app, "/lobbies/<string>/game-mode").methods(crow::HTTPMethod::Patch)
     ([this](const crow::request& req, const std::string& lobby_id) -> crow::response {
         auto auth = require_auth(req, auth_service_, db_pool_, player_repo_, api_key_repo_);
         if (auto* err = std::get_if<crow::response>(&auth))
             return std::move(*err);
         const auto& player = std::get<Player>(auth);
 
-        bool wipe_on_trade = true;
+        GameMode game_mode = GameMode::Simple;
         try {
             const auto body = nlohmann::json::parse(req.body);
-            if (!body.contains("wipe_on_trade") || !body["wipe_on_trade"].is_boolean())
+            if (!body.contains("game_mode") || !body["game_mode"].is_string())
                 return make_error(400, "MALFORMED_MESSAGE");
-            wipe_on_trade = body["wipe_on_trade"].get<bool>();
+            game_mode = parse_game_mode(body["game_mode"].get<std::string>());
+        } catch (const std::runtime_error&) {
+            return make_error(400, "INVALID_GAME_MODE");
         } catch (...) {
             return make_error(400, "MALFORMED_MESSAGE");
         }
@@ -755,24 +759,25 @@ void HttpServer::register_lobby_routes(App& app)
             if (lobby_opt->status != LobbyStatus::Waiting)
                 return make_error(409, "GAME_ALREADY_STARTED");
 
-            lobby_repo_.update_wipe_on_trade(txn, lobby_id, wipe_on_trade);
+            lobby_repo_.update_game_mode(txn, lobby_id, game_mode);
             txn.commit();
 
+            const std::string gm_str = game_mode_string(game_mode);
             nlohmann::json ev;
             ev["type"]                = "lobby_settings_changed";
             ev["lobby_id"]            = lobby_id;
             ev["spawn_bots_on_leave"] = lobby_opt->spawn_bots_on_leave;
             ev["bot_spawn_difficulty"]= lobby_opt->bot_spawn_difficulty;
-            ev["wipe_on_trade"]       = wipe_on_trade;
+            ev["game_mode"]           = gm_str;
             event_bus_.publish("lobby:" + lobby_id, ev.dump());
 
             nlohmann::json res_j;
-            res_j["wipe_on_trade"] = wipe_on_trade;
+            res_j["game_mode"] = gm_str;
             crow::response res(200, res_j.dump());
             res.set_header("Content-Type", "application/json");
             return res;
         } catch (const std::exception& e) {
-            http_log_.error("lobbies", std::string("wipe-settings update failed: ") + e.what());
+            http_log_.error("lobbies", std::string("game-mode update failed: ") + e.what());
             return make_error(500, "INTERNAL_ERROR");
         }
     });

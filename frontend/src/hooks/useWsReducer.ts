@@ -55,7 +55,7 @@ export function applyMessage(
       if (trade.your_side !== null && hand !== null) {
         const key = trade.suit as keyof typeof hand
         if (key in hand) {
-          const delta = trade.your_side === 'buy' ? 1 : -1
+          const delta = trade.your_side === 'buy' ? trade.qty_filled : -trade.qty_filled
           hand = { ...hand, [key]: hand[key] + delta }
         }
       }
@@ -63,7 +63,7 @@ export function applyMessage(
         ...s,
         hand,
         trades:   [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
-        myOrders: [],
+        myOrders: s.gameMode === 'advanced' ? s.myOrders : [],
       }
     }
 

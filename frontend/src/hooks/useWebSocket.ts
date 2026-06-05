@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { decode } from '@msgpack/msgpack'
 import type {
   ServerMessage,
   ErrorMessage,
@@ -40,10 +41,12 @@ export interface BookState {
 // is also cleared entirely. If per-suit-only wipe is adopted in a future slice,
 // change the trade handler to filter by suit instead of clearing the whole array.
 export interface MyOrder {
-  order_id: number
-  suit: string
-  side: 'buy' | 'sell'
-  price: number
+  order_id:      number
+  suit:          string
+  side:          'buy' | 'sell'
+  price:         number
+  qty:           number
+  qty_remaining: number
 }
 
 /**
@@ -195,17 +198,12 @@ export interface WsState {
   evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
   evalAccumulationSignal: import('../types/messages').EvalAccumulationSignalMessage | null
   evalExecutionGuidance: import('../types/messages').EvalExecutionGuidanceMessage | null
-  // ── Slice 15: MBP-N depth data ────────────────────────────────────────────
+  // ── Slice 15: game mode + market data ────────────────────────────────────
+  /** Game mode for the active round. Populated from round_start.game_mode. */
+  gameMode: import('../types/messages').GameMode | null
   /** Top-of-book depth per suit. Populated by book_depth / book_depth_snapshot messages. */
   bookDepths: Record<string, { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] }>
-  /**
-   * Feed tier inferred from first depth/MBO message received. null until known.
-   * 'mbpn' once book_depth or book_depth_snapshot arrives; 'mbo' once order_added
-   * / order_executed / order_cancelled arrives; stays null for MBP1.
-   */
-  feedTier: 'mbp1' | 'mbpn' | 'mbo' | null
-  // ── Slice 15 Task 16: MBO order event log ────────────────────────────────
-  /** Per-suit MBO event log, newest first, capped at 50. */
+  /** Per-suit MBO event log, newest first, capped at 100. */
   mboLogs: Record<string, MboLogEntry[]>
 }
 
@@ -281,8 +279,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     evalPosteriorUpdate: null,
     evalAccumulationSignal: null,
     evalExecutionGuidance: null,
+    gameMode: null,
     bookDepths: {},
-    feedTier: null,
     mboLogs: {},
   })
 
@@ -304,7 +302,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     const fullUrl = `${protocol}//${window.location.host}${url}`
     logger.info('ws', `connecting to ${fullUrl}`)
 
-    const ws = new WebSocket(fullUrl)
+    const ws = new WebSocket(fullUrl, 'anjeer-msgpack')
+    ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -332,7 +331,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     ws.onmessage = (event: MessageEvent) => {
       let msg: ServerMessage
       try {
-        msg = JSON.parse(event.data as string) as ServerMessage
+        if (event.data instanceof ArrayBuffer) {
+          msg = decode(event.data) as ServerMessage
+        } else {
+          msg = JSON.parse(event.data as string) as ServerMessage
+        }
       } catch (err) {
         logger.error('ws', 'failed to parse server message', { raw: event.data, err })
         return
@@ -349,13 +352,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
 
         case 'order_ack':
-          logger.info('ws/recv', `order_ack order_id=${msg.order_id} suit=${msg.suit} side=${msg.side} price=${msg.price}`)
+          logger.info('ws/recv', `order_ack order_id=${msg.order_id} suit=${msg.suit} side=${msg.side} price=${msg.price} qty=${msg.qty}`)
           setState(s => ({
             ...s,
             errors: { ...s.errors, [msg.suit]: null },
             myOrders: [
               ...s.myOrders,
-              { order_id: msg.order_id, suit: msg.suit, side: msg.side, price: msg.price },
+              { order_id: msg.order_id, suit: msg.suit, side: msg.side, price: msg.price, qty: msg.qty, qty_remaining: msg.qty },
             ],
           }))
           break
@@ -407,7 +410,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
 
         case 'round_start':
-          logger.info('ws/recv', `round_start player_slot=${msg.player_slot} round_end_at=${msg.round_end_at} balance=${msg.balance}`)
+          logger.info('ws/recv', `round_start player_slot=${msg.player_slot} round_end_at=${msg.round_end_at} balance=${msg.balance} game_mode=${msg.game_mode}`)
           setState(s => ({
             ...s,
             hand: msg.hand,
@@ -417,12 +420,17 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             roundEndAt: msg.round_end_at,
             roundEnd: null,
             balance: msg.balance,
-            // AGENT-CTX: Clear inter-round screen when the next round begins.
             interRound: null,
             roster: msg.roster,
             deltas: [],
             allHandTotals: msg.all_hand_totals ?? [],
             allBalances: msg.all_balances ?? [],
+            gameMode: msg.game_mode ?? null,
+            trades: [],
+            books: {},
+            myOrders: [],
+            bookDepths: {},
+            mboLogs: {},
           }))
           break
 
@@ -569,11 +577,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             }
             for (const bid of book.bids) {
               if (bid.player_slot === snap.player_slot)
-                myOrders.push({ order_id: bid.order_id, suit, side: 'buy', price: bid.price })
+                myOrders.push({ order_id: bid.order_id, suit, side: 'buy', price: bid.price, qty: 1, qty_remaining: 1 })
             }
             for (const ask of book.asks) {
               if (ask.player_slot === snap.player_slot)
-                myOrders.push({ order_id: ask.order_id, suit, side: 'sell', price: ask.price })
+                myOrders.push({ order_id: ask.order_id, suit, side: 'sell', price: ask.price, qty: 1, qty_remaining: 1 })
             }
           }
 
@@ -593,6 +601,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             roster:        snap.roster,
             books,
             myOrders,
+            gameMode:      snap.game_mode ?? s.gameMode,
             gameStateSnapshot: snap,
           }))
           break
@@ -666,16 +675,16 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
         case 'lobby_settings_changed': {
           const changed = msg as LobbySettingsChangedMessage
-          logger.info('ws/recv', `lobby_settings_changed lobby_id=${changed.lobby_id} spawn_bots_on_leave=${changed.spawn_bots_on_leave} wipe_on_trade=${changed.wipe_on_trade}`)
+          logger.info('ws/recv', `lobby_settings_changed lobby_id=${changed.lobby_id} spawn_bots_on_leave=${changed.spawn_bots_on_leave} game_mode=${changed.game_mode}`)
           setState(s => {
             if (!s.lobbyState || s.lobbyState.lobby_id !== changed.lobby_id) return s
             return {
               ...s,
               lobbyState: {
                 ...s.lobbyState,
-                spawn_bots_on_leave: changed.spawn_bots_on_leave ?? s.lobbyState.spawn_bots_on_leave,
+                spawn_bots_on_leave:  changed.spawn_bots_on_leave  ?? s.lobbyState.spawn_bots_on_leave,
                 bot_spawn_difficulty: changed.bot_spawn_difficulty ?? s.lobbyState.bot_spawn_difficulty,
-                wipe_on_trade: changed.wipe_on_trade ?? s.lobbyState.wipe_on_trade,
+                game_mode:            changed.game_mode            ?? s.lobbyState.game_mode,
               },
             }
           })
@@ -697,16 +706,12 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           setState(s => ({ ...s, evalExecutionGuidance: msg.action ? msg : null }))
           break
 
-        // Slice 14/15: market-data feed tier messages
+        // Slice 14/15: market-data feed messages
         case 'book_depth':
         case 'book_depth_snapshot':
           setState(s => ({
             ...s,
-            feedTier: 'mbpn',
-            bookDepths: {
-              ...s.bookDepths,
-              [msg.suit]: { bids: msg.bids, asks: msg.asks },
-            },
+            bookDepths: { ...s.bookDepths, [msg.suit]: { bids: msg.bids, asks: msg.asks } },
           }))
           break
 
@@ -714,8 +719,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           const entry: MboLogEntry = { kind: 'added', seq: msg.seq, order_id: msg.order_id, price: msg.price, side: msg.side }
           setState(s => ({
             ...s,
-            feedTier: 'mbo',
-            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 50) },
+            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
           }))
           break
         }
@@ -724,8 +728,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           const entry: MboLogEntry = { kind: 'executed', seq: msg.seq, order_id: msg.order_id, price: msg.price }
           setState(s => ({
             ...s,
-            feedTier: 'mbo',
-            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 50) },
+            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
           }))
           break
         }
@@ -734,14 +737,37 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           const entry: MboLogEntry = { kind: 'cancelled', seq: msg.seq, order_id: msg.order_id, price: null }
           setState(s => ({
             ...s,
-            feedTier: 'mbo',
-            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 50) },
+            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
           }))
           break
         }
 
         case 'order_book_snapshot':
           break
+
+        case 'book_state_snapshot': {
+          const snap = msg
+          setState(s => {
+            const newBooks = { ...s.books }
+            for (const st of snap.suits) {
+              newBooks[st.suit] = { best_bid: st.best_bid, best_ask: st.best_ask, best_bid_slot: st.best_bid_slot, best_ask_slot: st.best_ask_slot }
+            }
+            return { ...s, books: newBooks }
+          })
+          break
+        }
+
+        case 'order_partially_filled': {
+          const pfMsg = msg
+          logger.info('ws/recv', `order_partially_filled order_id=${pfMsg.order_id} qty_remaining=${pfMsg.qty_remaining}`)
+          setState(s => {
+            const updated = s.myOrders.map(o =>
+              o.order_id === pfMsg.order_id ? { ...o, qty_remaining: pfMsg.qty_remaining } : o
+            ).filter(o => o.qty_remaining > 0)
+            return { ...s, myOrders: updated }
+          })
+          break
+        }
 
         default: {
           // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new

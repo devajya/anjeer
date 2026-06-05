@@ -18,6 +18,9 @@ export interface UseKeyboardShortcutsOptions {
   onCancelBestBuy: () => void
   onCancelBestSell: () => void
   onToggleShortcuts: () => void
+  onFocusTradeFeed?:   () => void
+  onFocusCenterPanel?: () => void
+  onTogglePanel?:      () => void
 }
 
 // AGENT-CTX: Serializes a KeyboardEvent into the same canonical format used in
@@ -42,6 +45,9 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions): void {
     onNudgeBuy, onNudgeSell,
     onCancelBestBuy, onCancelBestSell,
     onToggleShortcuts,
+    onFocusTradeFeed,
+    onFocusCenterPanel,
+    onTogglePanel,
   } = opts
 
   // AGENT-CTX: Inverted map built once per binds change (useMemo, not useCallback —
@@ -59,19 +65,22 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions): void {
     if (!enabled) return
 
     const dispatch: Record<string, () => void> = {
-      suit_clubs:        () => onSuitFocus('clubs'),
-      suit_diamonds:     () => onSuitFocus('diamonds'),
-      suit_hearts:       () => onSuitFocus('hearts'),
-      suit_spades:       () => onSuitFocus('spades'),
-      submit_buy:        onSubmitBuy,
-      submit_sell:       onSubmitSell,
-      accept_buy:        onAcceptBuy,
-      accept_sell:       onAcceptSell,
-      nudge_buy:         onNudgeBuy,
-      nudge_sell:        onNudgeSell,
-      cancel_best_buy:   onCancelBestBuy,
-      cancel_best_sell:  onCancelBestSell,
-      toggle_shortcuts:  onToggleShortcuts,
+      suit_clubs:          () => onSuitFocus('clubs'),
+      suit_diamonds:       () => onSuitFocus('diamonds'),
+      suit_hearts:         () => onSuitFocus('hearts'),
+      suit_spades:         () => onSuitFocus('spades'),
+      submit_buy:          onSubmitBuy,
+      submit_sell:         onSubmitSell,
+      accept_buy:          onAcceptBuy,
+      accept_sell:         onAcceptSell,
+      nudge_buy:           onNudgeBuy,
+      nudge_sell:          onNudgeSell,
+      cancel_best_buy:     onCancelBestBuy,
+      cancel_best_sell:    onCancelBestSell,
+      toggle_shortcuts:    onToggleShortcuts,
+      focus_trade_feed:    onFocusTradeFeed   ?? (() => {}),
+      focus_center_panel:  onFocusCenterPanel ?? (() => {}),
+      toggle_panel:        onTogglePanel      ?? (() => {}),
     }
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -100,6 +109,6 @@ export function useKeyboardShortcuts(opts: UseKeyboardShortcutsOptions): void {
     onSuitFocus, onSubmitBuy, onSubmitSell, onAcceptBuy, onAcceptSell,
     onNudgeBuy, onNudgeSell,
     onCancelBestBuy, onCancelBestSell,
-    onToggleShortcuts,
+    onToggleShortcuts, onFocusTradeFeed, onFocusCenterPanel, onTogglePanel,
   ])
 }

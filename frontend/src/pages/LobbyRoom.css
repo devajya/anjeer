@@ -456,6 +456,60 @@
   margin: 0;
 }
 
+/* ── Game mode selector ──────────────────────────────────────────────────── */
+
+.lr__mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.lr__mode-cards {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lr__mode-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.lr__mode-card:hover:not(:disabled) {
+  border-color: var(--color-muted);
+  background: #1a1a1a;
+}
+
+.lr__mode-card--active {
+  border-color: var(--color-accent);
+  background: #1a1600;
+}
+
+.lr__mode-card--disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.lr__mode-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-text);
+}
+
+.lr__mode-desc {
+  font-size: 0.65rem;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
 /* ── Error page ──────────────────────────────────────────────────────────── */
 
 .lr__error-page {

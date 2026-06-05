@@ -1,18 +1,17 @@
 import type { MyOrder } from '../hooks/useWebSocket'
+import { useGameConfig } from '../contexts/GameConfigContext'
 import './MyOrders.css'
+
+const SUIT_SYMBOLS: Record<string, string> = { clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠' }
 
 interface Props {
   orders: MyOrder[]
   onCancel: (orderId: number) => void
 }
 
-// AGENT-CTX: Shows the player's resting orders as tracked by the client
-// (populated from order_ack, pruned on order_cancel_ack, cleared on trade).
-// Cancel is one-click — no need to type an order ID.
-// Slice 8 will add a "cancel all" button and sorting by suit/side/price.
-// AGENT-CTX: order_id is the key because it is server-assigned and guaranteed
-// unique within a session. Do not use array index as key — the list mutates.
 export function MyOrders({ orders, onCancel }: Props) {
+  const { allowMultiQty } = useGameConfig()
+
   return (
     <div className="my-orders">
       {orders.length === 0 ? (
@@ -21,10 +20,17 @@ export function MyOrders({ orders, onCancel }: Props) {
         <ul className="my-orders__list">
           {orders.map(o => (
             <li key={o.order_id} className="my-orders__item">
+              <span className="my-orders__suit-sym">{SUIT_SYMBOLS[o.suit] ?? o.suit}</span>
               <span className={`my-orders__side my-orders__side--${o.side}`}>
                 {o.side.toUpperCase()}
               </span>
-              <span className="my-orders__suit">{o.suit}</span>
+              {allowMultiQty ? (
+                <span className="my-orders__qty">
+                  {o.qty_remaining < o.qty
+                    ? `${o.qty_remaining}/${o.qty}`
+                    : String(o.qty)}
+                </span>
+              ) : null}
               <span className="my-orders__price">@ {o.price}</span>
               <span className="my-orders__id">#{o.order_id}</span>
               <button

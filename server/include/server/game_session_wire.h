@@ -4,6 +4,7 @@
 // No game state; no side effects beyond socket I/O in the send functions.
 // Editing the wire format requires changes only in this header and game_session_wire.cpp.
 #include "server/ws_types.h"
+#include "server/lobby_repo.h"
 #include "server/logger.h"
 #include "engine/engine.h"
 #include "exchange/exchange_types.h"
@@ -105,7 +106,8 @@ std::string round_start_payload(int                             slot,
                                  int                             effective_balance,
                                  const std::vector<std::string>& usernames,
                                  const std::vector<int>&         all_hand_totals,
-                                 const std::vector<int>&         all_balances);
+                                 const std::vector<int>&         all_balances,
+                                 GameMode                        game_mode = GameMode::Simple);
 
 void error      (WsHandle ws, WsErrorCode code, std::string_view msg, Logger& slog);
 

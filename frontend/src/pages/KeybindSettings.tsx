@@ -5,17 +5,22 @@ import './KeybindSettings.css'
 // AGENT-CTX: Action keys are stable DB identifiers — never rename them without a
 // migration. Labels here are display-only and may change freely.
 const ACTION_LABELS: Record<string, string> = {
-  suit_clubs:       'Focus Clubs',
-  suit_diamonds:    'Focus Diamonds',
-  suit_hearts:      'Focus Hearts',
-  suit_spades:      'Focus Spades',
-  submit_buy:       'Submit Buy',
-  submit_sell:      'Submit Sell',
-  nudge_buy:        'Nudge Buy (+1)',
-  nudge_sell:       'Nudge Sell (−1)',
-  cancel_best_buy:  'Cancel Best Buy',
-  cancel_best_sell: 'Cancel Best Sell',
-  toggle_shortcuts: 'Toggle Shortcut Help',
+  suit_clubs:         'Focus Clubs',
+  suit_diamonds:      'Focus Diamonds',
+  suit_hearts:        'Focus Hearts',
+  suit_spades:        'Focus Spades',
+  submit_buy:         'Submit Buy',
+  submit_sell:        'Submit Sell',
+  accept_buy:         'Accept Best Ask (Buy)',
+  accept_sell:        'Accept Best Bid (Sell)',
+  nudge_buy:          'Nudge Buy (+1)',
+  nudge_sell:         'Nudge Sell (−1)',
+  cancel_best_buy:    'Cancel Best Buy',
+  cancel_best_sell:   'Cancel Best Sell',
+  toggle_shortcuts:   'Toggle Shortcut Help',
+  focus_trade_feed:   'Focus Trade History',
+  focus_center_panel: 'Focus Depth / Order Feed',
+  toggle_panel:       'Collapse / Expand Focused Panel',
 }
 
 // AGENT-CTX: Display order: suits first (motor memory), then trade actions, then utility.

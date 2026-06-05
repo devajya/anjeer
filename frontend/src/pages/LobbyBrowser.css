@@ -76,7 +76,7 @@
 }
 
 
-.lp__wipe-badge {
+.lp__game-mode-badge {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semi);
@@ -84,15 +84,24 @@
   border-radius: var(--radius-sm);
   letter-spacing: 0.03em;
   flex-shrink: 0;
+}
+
+.lp__game-mode-badge--simple {
+  background: var(--color-surface-alt);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+
+.lp__game-mode-badge--intermediate {
+  background: rgba(100, 149, 237, 0.12);
+  color: #8ba7d4;
+  border: 1px solid rgba(100, 149, 237, 0.35);
+}
+
+.lp__game-mode-badge--advanced {
   background: var(--color-accent-dim);
   color: var(--color-accent);
   border: 1px solid var(--color-accent);
-}
-
-.lp__wipe-badge--persists {
-  background: var(--color-surface-alt);
-  color: var(--color-muted);
-  border-color: var(--color-border);
 }
 
 /* ── Tab content area ────────────────────────────────────────────────────── */

@@ -166,7 +166,8 @@ std::string round_start_payload(
         int                             effective_balance,
         const std::vector<std::string>& usernames,
         const std::vector<int>&         all_hand_totals,
-        const std::vector<int>&         all_balances) {
+        const std::vector<int>&         all_balances,
+        GameMode                        game_mode) {
     auto roster_arr = nlohmann::json::array();
     for (int i = 0; i < static_cast<int>(usernames.size()); ++i) {
         roster_arr.push_back({
@@ -181,6 +182,7 @@ std::string round_start_payload(
         {"player_slot",      slot},
         {"round_end_at",     round_end_at},
         {"balance",          effective_balance},
+        {"game_mode",        game_mode_string(game_mode)},
         {"hand", {
             {"clubs",    hand.suit_counts[engine::suit_index(engine::Suit::Clubs)]},
             {"diamonds", hand.suit_counts[engine::suit_index(engine::Suit::Diamonds)]},

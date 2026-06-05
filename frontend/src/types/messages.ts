@@ -1,4 +1,6 @@
 // AGENT-CTX: Single source of truth for all WebSocket message shapes.
+export type GameMode = 'simple' | 'intermediate' | 'advanced'
+
 // Discriminated union on `type` — add new variants as slices introduce new events.
 // Do not add UI-only data here; this file mirrors the wire protocol exactly.
 // The server serialises these from C++ engine event structs in ws_server.cpp.
@@ -61,6 +63,8 @@ export interface TradeMessage {
   seller_slot: number
   qty_filled: number
   qty_ordered: number
+  /** Order ID of the resting (passive) order that was hit by this aggressor. */
+  passive_order_id: number
 }
 
 /** Confirms a successfully cancelled order. Sent only to the cancelling client. */
@@ -123,6 +127,7 @@ export interface RoundStartMessage {
   all_hand_totals: number[]
   /** Balance for every slot at round start (after buy-in), indexed by slot. */
   all_balances: number[]
+  game_mode: GameMode
 }
 
 /** Per-player entry in round_end standings. */
@@ -181,7 +186,7 @@ export interface LobbyStateMessage {
   mode: 'ui' | 'api'
   spawn_bots_on_leave: boolean
   bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
-  wipe_on_trade: boolean
+  game_mode: GameMode
   players: LobbyPlayer[]
 }
 
@@ -460,6 +465,7 @@ export interface GameStateSnapshotMessage {
   roster: Array<{ player_slot: number; username: string }>
   reconnect_token: string
   reconnect_expires_at: number
+  game_mode?: GameMode
 }
 
 /**
@@ -541,7 +547,7 @@ export interface LobbySettingsChangedMessage {
   lobby_id: string
   spawn_bots_on_leave: boolean
   bot_spawn_difficulty: 'easy' | 'medium' | 'hard' | 'random'
-  wipe_on_trade?: boolean
+  game_mode: GameMode
 }
 
 // ── Slice 14: Market data feed tiers ─────────────────────────────────────────
@@ -601,6 +607,34 @@ export interface OrderCancelledMessage {
   seq: number
   order_id: number
   suit: string
+}
+
+/**
+ * Emitted at begin_round() — bulk best-bid/ask reset for all 4 suits.
+ * Fixes stale book state at round start (wipe clears all orders; this snapshot
+ * confirms the cleared state to all clients immediately).
+ */
+export interface BookStateSnapshotMessage {
+  type: 'book_state_snapshot'
+  suits: Array<{
+    suit:          string
+    best_bid:      number | null
+    best_ask:      number | null
+    best_bid_slot: number | null
+    best_ask_slot: number | null
+  }>
+}
+
+/**
+ * Emitted after a partial fill in advanced mode (wipe_on_trade = false).
+ * Sent only to the order owner. Carries the remaining unfilled qty so the
+ * client can update its myOrders display without clearing the whole list.
+ */
+export interface OrderPartiallyFilledMessage {
+  type: 'order_partially_filled'
+  order_id:      number
+  suit:          string
+  qty_remaining: number
 }
 
 /**
@@ -671,6 +705,9 @@ export type ServerMessage =
   | OrderExecutedMessage
   | OrderCancelledMessage
   | OrderBookSnapshotMessage
+  // Slice 15
+  | BookStateSnapshotMessage
+  | OrderPartiallyFilledMessage
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Client → Server (outbound commands)

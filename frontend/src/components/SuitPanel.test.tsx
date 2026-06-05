@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, test, expect, vi } from 'vitest'
 import { SuitPanel } from './SuitPanel'
+import { GameConfigProvider } from '../contexts/GameConfigContext'
 import type { BookState } from '../hooks/useWebSocket'
 
 const BOOK_EMPTY: BookState = { best_bid: null, best_ask: null, best_bid_slot: null, best_ask_slot: null }
@@ -18,6 +19,24 @@ function renderPanel(overrides: Partial<Parameters<typeof SuitPanel>[0]> = {}) {
       onSendMessage={onSendMessage}
       {...overrides}
     />
+  )
+  return { onSendMessage }
+}
+
+function renderMultiQtyPanel(overrides: Partial<Parameters<typeof SuitPanel>[0]> = {}) {
+  const onSendMessage = vi.fn()
+  render(
+    <GameConfigProvider mode="intermediate">
+      <SuitPanel
+        suit="S1"
+        book={BOOK_EMPTY}
+        playerId={1}
+        error={null}
+        lastTradePrice={null}
+        onSendMessage={onSendMessage}
+        {...overrides}
+      />
+    </GameConfigProvider>
   )
   return { onSendMessage }
 }
@@ -258,25 +277,22 @@ describe('SuitPanel — self-trade prevention', () => {
 // Qty input
 // ---------------------------------------------------------------------------
 
-describe('SuitPanel — order qty input', () => {
-  test('order form includes qty input', () => {
-    renderPanel()
-    expect(screen.getByRole('spinbutton', { name: /Order quantity for S1/i })).toBeInTheDocument()
+describe('SuitPanel — order qty input (multi-qty mode)', () => {
+  test('order form includes per-side buy qty input', () => {
+    renderMultiQtyPanel()
+    expect(screen.getByRole('spinbutton', { name: /Buy quantity for S1/i })).toBeInTheDocument()
   })
 
-  test('qty defaults to 1 when input is empty', () => {
-    const { onSendMessage } = renderPanel({ book: BOOK_FULL })
-    fireEvent.click(screen.getByRole('button', { name: /BUY/i }))
-    expect(onSendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ qty: 1 })
-    )
+  test('order form includes per-side sell qty input', () => {
+    renderMultiQtyPanel()
+    expect(screen.getByRole('spinbutton', { name: /Sell quantity for S1/i })).toBeInTheDocument()
   })
 
-  test('setting qty input sends correct qty with price form', () => {
-    const { onSendMessage } = renderPanel()
-    const qtyInput = screen.getByRole('spinbutton', { name: /Order quantity for S1/i })
+  test('setting buy qty input sends correct qty with limit buy form', () => {
+    const { onSendMessage } = renderMultiQtyPanel()
+    const qtyInput = screen.getByRole('spinbutton', { name: /Buy quantity for S1/i })
     fireEvent.change(qtyInput, { target: { value: '3' } })
-    const priceInput = screen.getByRole('spinbutton', { name: /Bid price for S1/i })
+    const priceInput = screen.getByRole('spinbutton', { name: /Limit buy price for S1/i })
     fireEvent.change(priceInput, { target: { value: '42' } })
     fireEvent.submit(priceInput.closest('form')!)
     expect(onSendMessage).toHaveBeenCalledWith({
@@ -285,7 +301,8 @@ describe('SuitPanel — order qty input', () => {
   })
 
   test('qty input is hidden in spectator mode', () => {
-    renderPanel({ isSpectator: true })
-    expect(screen.queryByRole('spinbutton', { name: /Order quantity for S1/i })).toBeNull()
+    renderMultiQtyPanel({ isSpectator: true })
+    expect(screen.queryByRole('spinbutton', { name: /Buy quantity for S1/i })).toBeNull()
+    expect(screen.queryByRole('spinbutton', { name: /Sell quantity for S1/i })).toBeNull()
   })
 })

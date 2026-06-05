@@ -98,6 +98,8 @@
 .sp__qty-input:focus   { outline: none; border-color: var(--color-muted); }
 .sp__qty-input:disabled { opacity: 0.35; cursor: not-allowed; }
 
+.sp__qty-input--side { margin-top: 0; }
+
 .sp__qty-input::-webkit-inner-spin-button,
 .sp__qty-input::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -155,6 +157,10 @@
   gap: 0.5rem;
 }
 
+.sp__action-row--sell {
+  justify-content: flex-start;
+}
+
 .sp__action-row--ask {
   justify-content: flex-end;
 }
@@ -163,6 +169,16 @@
 .sp__price-form {
   /* shrink-wraps the input; the form itself is invisible */
   display: contents;
+}
+
+.sp__price-form--sell {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.sp__price-form--buy {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .sp__price-input {

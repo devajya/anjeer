@@ -23,7 +23,7 @@ Lobby LobbyRepo::row_to_lobby(const pqxx::row& row) {
     l.spawn_bots_on_leave  = row["spawn_bots_on_leave"].as<bool>();
     l.bot_spawn_difficulty = row["bot_spawn_difficulty"].as<std::string>();
     l.bot_count            = row["bot_count"].as<int>();
-    l.wipe_on_trade        = row["wipe_on_trade"].as<bool>();
+    l.game_mode            = parse_game_mode(row["game_mode"].as<std::string>());
     return l;
 }
 
@@ -61,6 +61,22 @@ LobbyMode parse_lobby_mode(const std::string& s) {
     throw std::runtime_error("parse_lobby_mode: unknown mode string: " + s);
 }
 
+std::string game_mode_string(GameMode m) {
+    switch (m) {
+        case GameMode::Simple:       return "simple";
+        case GameMode::Intermediate: return "intermediate";
+        case GameMode::Advanced:     return "advanced";
+    }
+    throw std::runtime_error("game_mode_string: unknown GameMode value");
+}
+
+GameMode parse_game_mode(const std::string& s) {
+    if (s == "simple")       return GameMode::Simple;
+    if (s == "intermediate") return GameMode::Intermediate;
+    if (s == "advanced")     return GameMode::Advanced;
+    throw std::runtime_error("parse_game_mode: unknown game_mode string: " + s);
+}
+
 std::string LobbyRepo::status_str(LobbyStatus s) { return lobby_status_string(s); }
 std::string LobbyRepo::mode_str  (LobbyMode m)   { return lobby_mode_string(m);   }
 
@@ -94,7 +110,7 @@ std::string LobbyRepo::generate_code() {
 Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
                          int min_players, int max_players, LobbyMode mode,
                          bool spawn_bots_on_leave, std::string bot_spawn_difficulty,
-                         bool wipe_on_trade) {
+                         GameMode game_mode) {
     for (int attempt = 0; attempt < 10; ++attempt) {
         const auto code = generate_code();
         const auto exists = txn.exec_params(
@@ -104,12 +120,12 @@ Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
 
         const auto r = txn.exec_params(
             "INSERT INTO lobbies (code, creator_id, min_players, max_players, mode, "
-            "                     spawn_bots_on_leave, bot_spawn_difficulty, wipe_on_trade) "
+            "                     spawn_bots_on_leave, bot_spawn_difficulty, game_mode) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
             "RETURNING id, code, creator_id, status, min_players, max_players, created_at, mode, "
-            "          spawn_bots_on_leave, bot_spawn_difficulty, bot_count, wipe_on_trade",
+            "          spawn_bots_on_leave, bot_spawn_difficulty, bot_count, game_mode",
             code, creator_id, min_players, max_players, mode_str(mode),
-            spawn_bots_on_leave, bot_spawn_difficulty, wipe_on_trade
+            spawn_bots_on_leave, bot_spawn_difficulty, game_mode_string(game_mode)
         );
         if (r.empty())
             throw std::runtime_error("LobbyRepo::create: INSERT RETURNING returned no rows");
@@ -133,7 +149,7 @@ std::optional<Lobby> LobbyRepo::find_by_id(pqxx::transaction_base& txn,
                                              const std::string& lobby_id) {
     const auto r = txn.exec_params(
         "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode, "
-        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count, wipe_on_trade "
+        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count, game_mode "
         "FROM lobbies WHERE id = $1",
         lobby_id
     );
@@ -145,7 +161,7 @@ std::optional<Lobby> LobbyRepo::find_by_code(pqxx::transaction_base& txn,
                                                const std::string& code) {
     const auto r = txn.exec_params(
         "SELECT id, code, creator_id, status, min_players, max_players, created_at, mode, "
-        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count, wipe_on_trade "
+        "       spawn_bots_on_leave, bot_spawn_difficulty, bot_count, game_mode "
         "FROM lobbies WHERE code = $1",
         code
     );
@@ -157,7 +173,7 @@ std::vector<LobbyView> LobbyRepo::list_waiting(pqxx::transaction_base& txn,
                                                   std::optional<LobbyMode> mode) {
     std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, l.wipe_on_trade, "
+        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, l.game_mode, "
         "       COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
@@ -181,7 +197,7 @@ std::vector<LobbyView> LobbyRepo::list_active(pqxx::transaction_base& txn,
                                                 std::optional<LobbyMode> mode) {
     std::string sql =
         "SELECT l.id, l.code, l.creator_id, l.status, l.min_players, l.max_players, "
-        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, l.wipe_on_trade, "
+        "       l.created_at, l.mode, l.spawn_bots_on_leave, l.bot_spawn_difficulty, l.bot_count, l.game_mode, "
         "       COUNT(lp.player_id) AS player_count "
         "FROM lobbies l "
         "LEFT JOIN lobby_players lp ON lp.lobby_id = l.id "
@@ -310,12 +326,12 @@ void LobbyRepo::update_bot_settings(pqxx::transaction_base& txn,
     );
 }
 
-void LobbyRepo::update_wipe_on_trade(pqxx::transaction_base& txn,
-                                      const std::string& lobby_id,
-                                      bool wipe_on_trade) {
+void LobbyRepo::update_game_mode(pqxx::transaction_base& txn,
+                                  const std::string& lobby_id,
+                                  GameMode game_mode) {
     txn.exec_params(
-        "UPDATE lobbies SET wipe_on_trade = $2 WHERE id = $1",
-        lobby_id, wipe_on_trade
+        "UPDATE lobbies SET game_mode = $2 WHERE id = $1",
+        lobby_id, game_mode_string(game_mode)
     );
 }
 

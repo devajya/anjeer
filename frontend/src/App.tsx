@@ -13,7 +13,6 @@ const Login            = lazy(() => import('./pages/Login').then(m => ({ default
 const Game             = lazy(() => import('./pages/Game').then(m => ({ default: m.Game })))
 const LobbyBrowser     = lazy(() => import('./pages/LobbyBrowser').then(m => ({ default: m.LobbyBrowser })))
 const LobbyRoom        = lazy(() => import('./pages/LobbyRoom').then(m => ({ default: m.LobbyRoom })))
-const KeybindSettings  = lazy(() => import('./pages/KeybindSettings').then(m => ({ default: m.KeybindSettings })))
 const SettingsPage     = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const ApiKeySettings   = lazy(() => import('./pages/ApiKeySettings').then(m => ({ default: m.ApiKeySettings })))
 const SpectatorView    = lazy(() => import('./pages/SpectatorView').then(m => ({ default: m.SpectatorView })))
@@ -102,11 +101,7 @@ function AnimatedRoutes() {
               />
               <Route
                 path="/settings/preferences"
-                element={
-                  <ProtectedRoute>
-                    <PageTransition><SettingsPage /></PageTransition>
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/settings/keybinds" replace />}
               />
               <Route
                 path="/api-keys"

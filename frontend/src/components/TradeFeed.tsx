@@ -1,14 +1,6 @@
 import type { TradeEntry } from '../hooks/useWebSocket'
+import { SUIT_SYMBOLS as SUIT_SYMBOL, suitClass } from '../utils/suits'
 import './TradeFeed.css'
-
-// AGENT-CTX: Suit name → symbol map mirrors engine::kAllSuits order.
-// Server sends lowercase string names (e.g. "clubs") matching suit_name().
-const SUIT_SYMBOL: Record<string, string> = {
-  clubs:    '♣',
-  diamonds: '♦',
-  hearts:   '♥',
-  spades:   '♠',
-}
 
 interface RosterEntry {
   player_slot: number
@@ -54,7 +46,7 @@ export function TradeFeed({ trades, roster }: Props) {
                 <td className="trade-feed__td trade-feed__td--buyer">
                   {slotName(t.buyer_slot, roster)}
                 </td>
-                <td className="trade-feed__td trade-feed__td--suit">
+                <td className={`trade-feed__td trade-feed__td--suit ${suitClass(t.suit)}`}>
                   {SUIT_SYMBOL[t.suit] ?? t.suit}
                 </td>
                 <td className="trade-feed__td trade-feed__td--seller">
@@ -62,11 +54,9 @@ export function TradeFeed({ trades, roster }: Props) {
                 </td>
                 <td className="trade-feed__td trade-feed__td--price">
                   {t.price}
-                  {t.qty_filled < t.qty_ordered && (
-                    <span className="trade-feed__qty">
-                      {t.qty_filled}/{t.qty_ordered}
-                    </span>
-                  )}
+                  <span className="trade-feed__qty">
+                    {t.qty_filled}/{t.qty_ordered}
+                  </span>
                 </td>
               </tr>
             ))}

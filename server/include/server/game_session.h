@@ -2,6 +2,7 @@
 
 #include "server/config.h"
 #include "server/db.h"
+#include "server/lobby_repo.h"
 #include "server/logger.h"
 #include "server/session_queue.h"
 #include "server/eval/eval_runner.h"
@@ -69,7 +70,7 @@ public:
         std::string                                       session_id,
         std::string                                       lobby_id,
         std::vector<SlotInfo>                             slots,
-        bool                                              wipe_on_trade,
+        GameMode                                          game_mode,
         GameSessionContext                                ctx,
         moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
         moodycamel::ReaderWriterQueue<GameEvent>&         outbound);
@@ -199,6 +200,7 @@ private:
     void emit_market_data_targeted(int32_t md_id, const std::string& json);
     void emit_error               (int32_t slot, std::string_view code, std::string_view message);
     void broadcast_waiting_for_start();
+    void emit_book_state_snapshot ();
 
     // ── DB writes (called at game end or on crash — never per-tick) ──────────
     void persist_game_result();
@@ -257,7 +259,9 @@ private:
     static constexpr std::chrono::milliseconds kReconnectGrace{500};
 
     // ── Lobby-level config ────────────────────────────────────────────────────
-    bool wipe_on_trade_ = true;
+    GameMode game_mode_       = GameMode::Simple;
+    bool     wipe_on_trade_   = true;   // derived from game_mode_ at construction
+    bool     allow_multi_qty_ = false;  // derived from game_mode_ at construction
 
     // ── Round state ───────────────────────────────────────────────────────────
     SessionPhase phase_        = SessionPhase::Lobby;
@@ -273,6 +277,10 @@ private:
     exchange::ExchangeSession          exchange_;
     std::array<bool, 4>                active_suits_{};
     std::unique_ptr<engine::GameState> game_state_;
+
+    // Tracks remaining qty per order_id for Advanced mode (no-wipe games).
+    // Populated on OrderAck, decremented on OrderExecuted, cleared on wipe.
+    std::unordered_map<int64_t, int32_t> order_qty_map_;
 
     // [player_slot][suit_index] — net cards gained this round.
     // Suit indices match engine::kAllSuits order; sized to slots_.size().

@@ -63,7 +63,7 @@ GameSession::GameSession(
     std::string                                       session_id,
     std::string                                       lobby_id,
     std::vector<SlotInfo>                             slots,
-    bool                                              wipe_on_trade,
+    GameMode                                          game_mode,
     GameSessionContext                                ctx,
     moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
     moodycamel::ReaderWriterQueue<GameEvent>&         outbound)
@@ -77,7 +77,9 @@ GameSession::GameSession(
     , session_id_(std::move(session_id))
     , lobby_id_(std::move(lobby_id))
     , slots_(std::move(slots))
-    , wipe_on_trade_(wipe_on_trade)
+    , game_mode_(game_mode)
+    , wipe_on_trade_(game_mode != GameMode::Advanced)
+    , allow_multi_qty_(game_mode != GameMode::Simple)
     , exchange_(build_exchange(ctx.cfg))
 {
     funded_this_round_.assign(slots_.size(), false);
@@ -311,9 +313,10 @@ void GameSession::handle_submit(const NetSubmit& ev) {
             return;
         }
     }
-    const int si = engine::suit_index(*suit_opt);
+    const int si  = engine::suit_index(*suit_opt);
+    const int qty = allow_multi_qty_ ? ev.qty : 1;
     auto result = exchange_.submit_order(
-        static_cast<exchange::instrument_id_t>(si), ev.side, ev.price, ev.slot, ev.qty);
+        static_cast<exchange::instrument_id_t>(si), ev.side, ev.price, ev.slot, qty);
     const bool had_trade = dispatch_result(ev.slot, result);
     if (had_trade) {
         apply_post_trade_state(result);
@@ -540,6 +543,7 @@ void GameSession::begin_round() {
     const std::string round_end_at = steady_to_iso(round_deadline_);
 
     deal_and_send_round_start(deal, round_end_at);
+    emit_book_state_snapshot();
     push_round_start_to_eval();
 
     server_log_.info("round",
@@ -574,7 +578,7 @@ void GameSession::deal_and_send_round_start(
         if (!slots_[i].connected) continue;
         emit_targeted(i, serialise::round_start_payload(
             i, deal.hands[i], round_end_at, slots_[i].balance,
-            usernames, all_hand_totals, all_balances));
+            usernames, all_hand_totals, all_balances, game_mode_));
     }
 }
 
@@ -713,17 +717,23 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
         if (std::holds_alternative<exchange::OrderExecuted>(mev)) { had_trade = true; break; }
     }
 
+    int64_t     new_order_id   = -1;
+    std::string new_order_suit;
+
     // Operational feedback → targeted acks/errors and broadcast book updates.
     for (const auto& fev : result.feedback) {
         if (const auto* ack = std::get_if<exchange::OrderAck>(&fev)) {
+            new_order_id   = ack->order_id;
+            new_order_suit = instrument_suit_label(ack->instrument_id);
             emit_targeted(slot, nlohmann::json{
                 {"type",     "order_ack"},
                 {"order_id", ack->order_id},
-                {"suit",     instrument_suit_label(ack->instrument_id)},
+                {"suit",     new_order_suit},
                 {"side",     serialise::side(ack->side)},
                 {"price",    ack->price},
                 {"qty",      ack->qty},
             }.dump());
+            if (!wipe_on_trade_) order_qty_map_[ack->order_id] = ack->qty;
         }
         else if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
             if (!had_trade) {
@@ -747,6 +757,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 rej->message);
         }
         else if (const auto* cack = std::get_if<exchange::CancelAck>(&fev)) {
+            order_qty_map_.erase(cack->order_id);
             emit_targeted(slot, nlohmann::json{
                 {"type",     "order_cancel_ack"},
                 {"order_id", cack->order_id},
@@ -770,27 +781,29 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 if (i == exec->buyer_slot)  your_side = "buy";
                 if (i == exec->seller_slot) your_side = "sell";
                 emit_targeted(i, nlohmann::json{
-                    {"type",           "trade"},
-                    {"suit",           suit},
-                    {"price",          exec->price},
-                    {"aggressor_side", serialise::side(exec->aggressor_side)},
-                    {"your_side",      your_side},
-                    {"buyer_slot",     exec->buyer_slot},
-                    {"seller_slot",    exec->seller_slot},
-                    {"qty_filled",     exec->qty_filled},
-                    {"qty_ordered",    exec->qty_ordered},
+                    {"type",             "trade"},
+                    {"suit",             suit},
+                    {"price",            exec->price},
+                    {"aggressor_side",   serialise::side(exec->aggressor_side)},
+                    {"your_side",        your_side},
+                    {"buyer_slot",       exec->buyer_slot},
+                    {"seller_slot",      exec->seller_slot},
+                    {"qty_filled",       exec->qty_filled},
+                    {"qty_ordered",      exec->qty_ordered},
+                    {"passive_order_id", exec->order_id},
                 }.dump());
             }
             emit_spectator_broadcast(nlohmann::json{
-                {"type",           "trade"},
-                {"suit",           suit},
-                {"price",          exec->price},
-                {"aggressor_side", serialise::side(exec->aggressor_side)},
-                {"your_side",      nullptr},
-                {"buyer_slot",     exec->buyer_slot},
-                {"seller_slot",    exec->seller_slot},
-                {"qty_filled",     exec->qty_filled},
-                {"qty_ordered",    exec->qty_filled},
+                {"type",             "trade"},
+                {"suit",             suit},
+                {"price",            exec->price},
+                {"aggressor_side",   serialise::side(exec->aggressor_side)},
+                {"your_side",        nullptr},
+                {"buyer_slot",       exec->buyer_slot},
+                {"seller_slot",      exec->seller_slot},
+                {"qty_filled",       exec->qty_filled},
+                {"qty_ordered",      exec->qty_ordered},
+                {"passive_order_id", exec->order_id},
             }.dump());
             outbound_.enqueue(GameMboEvent{wire::order_executed(
                 exec->order_id,
@@ -800,11 +813,51 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 exec->buyer_slot,
                 exec->seller_slot,
                 exec->seq)});
+
+            if (!wipe_on_trade_) {
+                const int64_t passive_id = exec->order_id;
+                const int passive_slot = (exec->aggressor_side == engine::Side::Buy)
+                                         ? exec->seller_slot : exec->buyer_slot;
+                auto it = order_qty_map_.find(passive_id);
+                if (it != order_qty_map_.end()) {
+                    it->second -= exec->qty_filled;
+                    if (it->second > 0 && slots_[passive_slot].connected) {
+                        emit_targeted(passive_slot, nlohmann::json{
+                            {"type",          "order_partially_filled"},
+                            {"order_id",      passive_id},
+                            {"suit",          suit},
+                            {"qty_remaining", it->second},
+                        }.dump());
+                    } else {
+                        order_qty_map_.erase(it);
+                    }
+                }
+                if (new_order_id >= 0 && new_order_id != passive_id) {
+                    auto ait = order_qty_map_.find(new_order_id);
+                    if (ait != order_qty_map_.end()) ait->second -= exec->qty_filled;
+                }
+            }
         } else if (const auto* cxl = std::get_if<exchange::OrderCancelled>(&mev)) {
             outbound_.enqueue(GameMboEvent{wire::order_cancelled(
                 cxl->order_id,
                 engine::kAllSuits[cxl->instrument_id],
                 cxl->seq)});
+        }
+    }
+
+    // Emit order_partially_filled to the aggressor if their order still rests
+    // with remaining qty after all fills in this result.
+    if (!wipe_on_trade_ && new_order_id >= 0 && had_trade && slots_[slot].connected) {
+        auto ait = order_qty_map_.find(new_order_id);
+        if (ait != order_qty_map_.end() && ait->second > 0) {
+            emit_targeted(slot, nlohmann::json{
+                {"type",          "order_partially_filled"},
+                {"order_id",      new_order_id},
+                {"suit",          new_order_suit},
+                {"qty_remaining", ait->second},
+            }.dump());
+        } else if (ait != order_qty_map_.end() && ait->second <= 0) {
+            order_qty_map_.erase(ait);
         }
     }
 
@@ -893,6 +946,7 @@ void GameSession::broadcast_delta_update() {
 
 void GameSession::apply_global_wipe() {
     engine_log_.info("global_wipe", "wiping all books");
+    order_qty_map_.clear();
     for (const auto& upd : exchange_.wipe()) {
         if (!active_suits_[upd.instrument_id]) continue;
         const auto  iid  = static_cast<exchange::instrument_id_t>(upd.instrument_id);
@@ -907,6 +961,29 @@ void GameSession::apply_global_wipe() {
             exchange_.asks_depth(iid, cfg_.market_data.mbp_depth),
             seq});
     }
+}
+
+void GameSession::emit_book_state_snapshot() {
+    nlohmann::json suits = nlohmann::json::array();
+    for (int si = 0; si < 4; ++si) {
+        if (!active_suits_[si]) continue;
+        const auto iid = static_cast<exchange::instrument_id_t>(si);
+        const auto best_bid = exchange_.best_bid(iid);
+        const auto best_ask = exchange_.best_ask(iid);
+        const auto bid_slot = exchange_.best_bid_slot(iid);
+        const auto ask_slot = exchange_.best_ask_slot(iid);
+        suits.push_back({
+            {"suit",          instrument_suit_label(si)},
+            {"best_bid",      best_bid ? nlohmann::json(*best_bid) : nlohmann::json(nullptr)},
+            {"best_ask",      best_ask ? nlohmann::json(*best_ask) : nlohmann::json(nullptr)},
+            {"best_bid_slot", bid_slot ? nlohmann::json(*bid_slot) : nlohmann::json(nullptr)},
+            {"best_ask_slot", ask_slot ? nlohmann::json(*ask_slot) : nlohmann::json(nullptr)},
+        });
+    }
+    emit_broadcast(nlohmann::json{
+        {"type",  "book_state_snapshot"},
+        {"suits", suits},
+    }.dump());
 }
 
 void GameSession::apply_card_transfers(const exchange::ExchangeResult& result) {
@@ -1405,6 +1482,7 @@ std::string GameSession::build_state_snapshot(int slot_index,
         {"roster",                roster_json},
         {"reconnect_token",       reconnect_token},
         {"reconnect_expires_at",  reconnect_expires_at_ms},
+        {"game_mode",             game_mode_string(game_mode_)},
     }.dump();
 }
 

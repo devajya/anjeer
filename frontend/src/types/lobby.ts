@@ -3,16 +3,16 @@
 // The LobbyView shape must match the JSON returned by GET /lobbies and POST /lobbies.
 
 export interface LobbyView {
-  id:            string
-  code:          string
-  creator_id:    number
-  status:        'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
-  mode:          'ui' | 'api'
-  min_players:   number
-  max_players:   number
-  player_count:  number
-  created_at:    string
-  wipe_on_trade: boolean
+  id:          string
+  code:        string
+  creator_id:  number
+  status:      'waiting' | 'starting' | 'in_game' | 'finished' | 'closed'
+  mode:        'ui' | 'api'
+  min_players: number
+  max_players: number
+  player_count: number
+  created_at:  string
+  game_mode:   'simple' | 'intermediate' | 'advanced'
 }
 
 export interface ListLobbiesResponse {

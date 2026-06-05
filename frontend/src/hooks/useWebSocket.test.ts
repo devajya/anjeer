@@ -190,6 +190,7 @@ describe('useWebSocket — trade messages', () => {
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: 'buy',
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
       })
     })
     expect(result.current.hand?.clubs).toBe(INITIAL_HAND.clubs + 1)
@@ -198,11 +199,23 @@ describe('useWebSocket — trade messages', () => {
     expect(result.current.hand?.hearts).toBe(INITIAL_HAND.hearts)
   })
 
+  test('increments hand count by qty_filled for multi-qty buy', () => {
+    const result = setupWithHand()
+    act(() => {
+      MockWebSocket.last.triggerMessage({
+        type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: 'buy',
+        qty_filled: 3, qty_ordered: 5, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
+      })
+    })
+    expect(result.current.hand?.clubs).toBe(INITIAL_HAND.clubs + 3)
+  })
+
   test('decrements hand count for traded suit when your_side=sell', () => {
     const result = setupWithHand()
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'spades', price: 30, aggressor_side: 'sell', your_side: 'sell',
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 1, seller_slot: 0, passive_order_id: 2,
       })
     })
     expect(result.current.hand?.spades).toBe(INITIAL_HAND.spades - 1)
@@ -213,6 +226,7 @@ describe('useWebSocket — trade messages', () => {
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: null,
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
       })
     })
     expect(result.current.hand).toEqual(INITIAL_HAND)
@@ -223,6 +237,7 @@ describe('useWebSocket — trade messages', () => {
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'clubs', price: 50, aggressor_side: 'buy', your_side: 'buy',
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
       })
     })
     expect(result.current.initialHand).toEqual(INITIAL_HAND)
@@ -235,6 +250,7 @@ describe('useWebSocket — trade messages', () => {
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'S1', price: 50, aggressor_side: 'buy', your_side: null,
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
       })
     })
     expect(result.current.trades).toHaveLength(1)
@@ -254,6 +270,7 @@ describe('useWebSocket — trade messages', () => {
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'S1', price: 45, aggressor_side: 'sell', your_side: 'buy',
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
       })
     })
     expect(result.current.myOrders).toHaveLength(0)
@@ -265,11 +282,13 @@ describe('useWebSocket — trade messages', () => {
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'S1', price: 40, aggressor_side: 'buy', your_side: null,
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 1,
       })
     })
     act(() => {
       MockWebSocket.last.triggerMessage({
         type: 'trade', suit: 'S1', price: 60, aggressor_side: 'sell', your_side: null,
+        qty_filled: 1, qty_ordered: 1, buyer_slot: 0, seller_slot: 1, passive_order_id: 2,
       })
     })
     expect(result.current.trades[0].price).toBe(60)
