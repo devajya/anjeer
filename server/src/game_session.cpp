@@ -733,7 +733,10 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 {"price",    ack->price},
                 {"qty",      ack->qty},
             }.dump());
-            if (!wipe_on_trade_) order_qty_map_[ack->order_id] = ack->qty;
+            if (!wipe_on_trade_) {
+                order_qty_map_[ack->order_id] = ack->qty;
+                order_orig_qty_map_[ack->order_id] = ack->qty;
+            }
         }
         else if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
             if (!had_trade) {
@@ -758,6 +761,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
         }
         else if (const auto* cack = std::get_if<exchange::CancelAck>(&fev)) {
             order_qty_map_.erase(cack->order_id);
+            order_orig_qty_map_.erase(cack->order_id);
             emit_targeted(slot, nlohmann::json{
                 {"type",     "order_cancel_ack"},
                 {"order_id", cack->order_id},
@@ -948,6 +952,7 @@ void GameSession::broadcast_delta_update() {
 void GameSession::apply_global_wipe() {
     engine_log_.info("global_wipe", "wiping all books");
     order_qty_map_.clear();
+    order_orig_qty_map_.clear();
     for (const auto& upd : exchange_.wipe()) {
         if (!active_suits_[upd.instrument_id]) continue;
         const auto  iid  = static_cast<exchange::instrument_id_t>(upd.instrument_id);
@@ -1440,13 +1445,23 @@ std::string GameSession::build_state_snapshot(int slot_index,
         if (!active_suits_[si]) continue;
         const std::string suit = std::string(engine::suit_name(s));
         nlohmann::json bids_arr = nlohmann::json::array();
-        for (const auto& b : exchange_.bids_snapshot(static_cast<exchange::instrument_id_t>(si)))
+        for (const auto& b : exchange_.bids_snapshot(static_cast<exchange::instrument_id_t>(si))) {
+            auto qit = order_qty_map_.find(b.order_id);
+            auto oqit = order_orig_qty_map_.find(b.order_id);
             bids_arr.push_back({{"order_id", b.order_id}, {"price", b.price},
-                                {"player_slot", b.player_slot}});
+                                {"player_slot", b.player_slot},
+                                {"qty", oqit != order_orig_qty_map_.end() ? oqit->second : 1},
+                                {"qty_remaining", qit != order_qty_map_.end() ? qit->second : 1}});
+        }
         nlohmann::json asks_arr = nlohmann::json::array();
-        for (const auto& a : exchange_.asks_snapshot(static_cast<exchange::instrument_id_t>(si)))
+        for (const auto& a : exchange_.asks_snapshot(static_cast<exchange::instrument_id_t>(si))) {
+            auto qit = order_qty_map_.find(a.order_id);
+            auto oqit = order_orig_qty_map_.find(a.order_id);
             asks_arr.push_back({{"order_id", a.order_id}, {"price", a.price},
-                                {"player_slot", a.player_slot}});
+                                {"player_slot", a.player_slot},
+                                {"qty", oqit != order_orig_qty_map_.end() ? oqit->second : 1},
+                                {"qty_remaining", qit != order_qty_map_.end() ? qit->second : 1}});
+        }
         books_json[suit] = {{"bids", bids_arr}, {"asks", asks_arr}};
     }
 

@@ -281,6 +281,8 @@ private:
     // Tracks remaining qty per order_id for Advanced mode (no-wipe games).
     // Populated on OrderAck, decremented on OrderExecuted, cleared on wipe.
     std::unordered_map<int64_t, int32_t> order_qty_map_;
+    // Original submitted qty per order_id; used to reconstruct myOrders on reconnect snapshot.
+    std::unordered_map<int64_t, int32_t> order_orig_qty_map_;
 
     // [player_slot][suit_index] — net cards gained this round.
     // Suit indices match engine::kAllSuits order; sized to slots_.size().

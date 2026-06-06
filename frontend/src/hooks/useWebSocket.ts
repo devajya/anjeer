@@ -577,11 +577,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             }
             for (const bid of book.bids) {
               if (bid.player_slot === snap.player_slot)
-                myOrders.push({ order_id: bid.order_id, suit, side: 'buy', price: bid.price, qty: 1, qty_remaining: 1 })
+                myOrders.push({ order_id: bid.order_id, suit, side: 'buy', price: bid.price, qty: bid.qty, qty_remaining: bid.qty_remaining })
             }
             for (const ask of book.asks) {
               if (ask.player_slot === snap.player_slot)
-                myOrders.push({ order_id: ask.order_id, suit, side: 'sell', price: ask.price, qty: 1, qty_remaining: 1 })
+                myOrders.push({ order_id: ask.order_id, suit, side: 'sell', price: ask.price, qty: ask.qty, qty_remaining: ask.qty_remaining })
             }
           }
 

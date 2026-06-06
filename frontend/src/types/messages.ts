@@ -426,6 +426,8 @@ interface SnapshotOrder {
   order_id: number
   price: number
   player_slot: number
+  qty: number
+  qty_remaining: number
 }
 
 // ── Slice 10.5: Server → Client ──────────────────────────────────────────────
