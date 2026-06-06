@@ -157,9 +157,7 @@ export function Game() {
     if (!selectedSuit) return
     const bid = books[selectedSuit]?.best_bid
     if (bid == null) return
-    const qty = allowMultiQty
-      ? (bookDepths[selectedSuit]?.bids[0]?.qty ?? 1)
-      : (suitPanelRefs.current[selectedSuit]?.getQty() ?? 1)
+    const qty = allowMultiQty ? (bookDepths[selectedSuit]?.bids[0]?.qty ?? 1) : 1
     sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'sell', price: bid, qty })
   }, [selectedSuit, books, sendMessage, allowMultiQty, bookDepths])
 
@@ -167,9 +165,7 @@ export function Game() {
     if (!selectedSuit) return
     const ask = books[selectedSuit]?.best_ask
     if (ask == null) return
-    const qty = allowMultiQty
-      ? (bookDepths[selectedSuit]?.asks[0]?.qty ?? 1)
-      : (suitPanelRefs.current[selectedSuit]?.getQty() ?? 1)
+    const qty = allowMultiQty ? (bookDepths[selectedSuit]?.asks[0]?.qty ?? 1) : 1
     sendMessage({ type: 'submit_order', suit: selectedSuit, side: 'buy', price: ask, qty })
   }, [selectedSuit, books, sendMessage, allowMultiQty, bookDepths])
 

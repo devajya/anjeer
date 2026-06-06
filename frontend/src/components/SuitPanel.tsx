@@ -22,7 +22,6 @@ export const PLAYER_COLORS: Record<number, string> = {
 export interface SuitPanelHandle {
   focusBid:   () => void
   focusOffer: () => void
-  getQty:     () => number
 }
 
 interface Props {
@@ -94,8 +93,7 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   useImperativeHandle(ref, () => ({
     focusBid:   () => { bidInputRef.current?.focus();   bidInputRef.current?.select() },
     focusOffer: () => { offerInputRef.current?.focus(); offerInputRef.current?.select() },
-    getQty:     () => allowMultiQty ? 1 : parsedQty,
-  }), [allowMultiQty, parsedQty])
+  }), [])
 
   const [visibleError, setVisibleError] = useState<ErrorMessage | null>(null)
   useEffect(() => {
