@@ -221,10 +221,14 @@ void BayesianEvalModule::on_round_start(const GameStateSnapshot& snap) {
 
 void BayesianEvalModule::on_trade_event(const EvalTradeEvent& ev) {
     const int si = suit_index(ev.suit);
-    server_hands_[ev.buyer_slot][si]  = std::max(0, server_hands_[ev.buyer_slot][si]  + 1);
-    server_hands_[ev.seller_slot][si] = std::max(0, server_hands_[ev.seller_slot][si] - 1);
-    observed_deltas_[ev.buyer_slot][si]  += 1;
-    observed_deltas_[ev.seller_slot][si] -= 1;
+    if (ev.buyer_slot >= 0 && ev.buyer_slot < 4) {
+        server_hands_[ev.buyer_slot][si]    = std::max(0, server_hands_[ev.buyer_slot][si] + 1);
+        observed_deltas_[ev.buyer_slot][si] += 1;
+    }
+    if (ev.seller_slot >= 0 && ev.seller_slot < 4) {
+        server_hands_[ev.seller_slot][si]    = std::max(0, server_hands_[ev.seller_slot][si] - 1);
+        observed_deltas_[ev.seller_slot][si] -= 1;
+    }
     apply_trade_heuristic(ev);
     emit_all(time_remaining_s_);
 }
