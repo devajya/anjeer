@@ -1,7 +1,5 @@
 import './MbpNDepthPanel.css'
-import { SUIT_SYMBOLS, suitClass } from '../utils/suits'
-
-const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
+import { SUIT_SYMBOLS, SUIT_ORDER, suitClass } from '../utils/suits'
 
 interface DepthLevel { price: number; qty: number }
 interface SuitDepth  { bids: DepthLevel[]; asks: DepthLevel[] }

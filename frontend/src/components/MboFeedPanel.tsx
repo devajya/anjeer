@@ -1,11 +1,7 @@
 import { useMemo, useRef, useEffect } from 'react'
-import type { MboLogEntry, MyOrder } from '../hooks/useWebSocket'
-import { SUIT_SYMBOLS, suitClass } from '../utils/suits'
+import type { MboLogEntry, MyOrder, BookState } from '../hooks/useWebSocket'
+import { SUIT_SYMBOLS, SUIT_ORDER, suitClass } from '../utils/suits'
 import './MboFeedPanel.css'
-
-const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
-
-interface BookState { best_bid: number | null; best_ask: number | null }
 
 interface Props {
   mboLogs:  Record<string, MboLogEntry[]>

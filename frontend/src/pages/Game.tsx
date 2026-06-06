@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useKeyBinds } from '../hooks/useKeyBinds'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useReconnect } from '../hooks/useReconnect'
-import { GameConfigProvider } from '../contexts/GameConfigContext'
+import { GameConfigProvider, deriveGameConfig } from '../contexts/GameConfigContext'
 import { RoundCountdown } from '../components/RoundCountdown'
 import { MarketOverview } from '../components/MarketOverview'
 import { SuitPanel, type SuitPanelHandle } from '../components/SuitPanel'
@@ -24,9 +24,8 @@ import { EvalPanel } from '../components/EvalPanel'
 import { MbpNDepthPanel } from '../components/MbpNDepthPanel'
 import { MboFeedPanel } from '../components/MboFeedPanel'
 import { slotColorSemi } from '../utils/playerColors'
+import { SUIT_ORDER } from '../utils/suits'
 import '../App.css'
-
-const SUIT_ORDER = ['clubs', 'diamonds', 'hearts', 'spades'] as const
 
 export function Game() {
   const { user } = useAuth()
@@ -138,10 +137,8 @@ export function Game() {
   const showRoundEnd   = roundEnd !== null && !roundEndDismissed
   const showInterRound = interRound !== null && !interRoundDismissed
 
-  // Derived game config flags (mirrors GameConfigContext, used directly in Game.tsx
-  // for layout decisions without calling useGameConfig — the provider is a child of this render)
   const activeMode    = gameMode ?? 'simple'
-  const allowMultiQty = activeMode !== 'simple'
+  const { allowMultiQty } = deriveGameConfig(activeMode)
 
   const handleSubmitBuy = useCallback(() => {
     if (!selectedSuit) return

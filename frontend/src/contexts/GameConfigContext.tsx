@@ -24,14 +24,17 @@ const DEFAULT_CONFIG: GameConfig = {
 
 const GameConfigContext = createContext<GameConfig>(DEFAULT_CONFIG)
 
-export function GameConfigProvider({ mode, children }: { mode: GameMode; children: ReactNode }) {
-  const config: GameConfig = {
+export function deriveGameConfig(mode: GameMode): GameConfig {
+  return {
     mode,
     allowMultiQty: mode !== 'simple',
     wipeOnTrade:   mode !== 'advanced',
     feedTier:      FEED_TIER[mode],
   }
-  return <GameConfigContext.Provider value={config}>{children}</GameConfigContext.Provider>
+}
+
+export function GameConfigProvider({ mode, children }: { mode: GameMode; children: ReactNode }) {
+  return <GameConfigContext.Provider value={deriveGameConfig(mode)}>{children}</GameConfigContext.Provider>
 }
 
 export function useGameConfig(): GameConfig {
