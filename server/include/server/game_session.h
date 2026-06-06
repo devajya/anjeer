@@ -64,13 +64,18 @@ struct GameSessionContext {
     std::vector<std::unique_ptr<eval::EvalModule>> eval_modules;
 };
 
+// Identity and per-lobby configuration for a single game session.
+struct LobbySessionParams {
+    std::string           session_id;
+    std::string           lobby_id;
+    std::vector<SlotInfo> slots;
+    GameMode              game_mode;
+};
+
 class GameSession {
 public:
     explicit GameSession(
-        std::string                                       session_id,
-        std::string                                       lobby_id,
-        std::vector<SlotInfo>                             slots,
-        GameMode                                          game_mode,
+        LobbySessionParams                                params,
         GameSessionContext                                ctx,
         moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
         moodycamel::ReaderWriterQueue<GameEvent>&         outbound);

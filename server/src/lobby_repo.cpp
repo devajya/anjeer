@@ -107,10 +107,9 @@ std::string LobbyRepo::generate_code() {
 
 // SELECT-before-INSERT avoids pqxx::subtransaction, which requires dbtransaction&
 // (incompatible with our DbTxn = transaction_base signature).
-Lobby LobbyRepo::create(pqxx::transaction_base& txn, int64_t creator_id,
-                         int min_players, int max_players, LobbyMode mode,
-                         bool spawn_bots_on_leave, std::string bot_spawn_difficulty,
-                         GameMode game_mode) {
+Lobby LobbyRepo::create(pqxx::transaction_base& txn, const LobbyCreateParams& p) {
+    const auto& [creator_id, min_players, max_players, mode,
+                 spawn_bots_on_leave, bot_spawn_difficulty, game_mode] = p;
     for (int attempt = 0; attempt < 10; ++attempt) {
         const auto code = generate_code();
         const auto exists = txn.exec_params(

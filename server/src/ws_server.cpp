@@ -869,9 +869,7 @@ void WsServer::create_session(const std::string& lobby_id) {
     gs_ctx.eval_modules.push_back(std::make_unique<eval::ExecutionEvalModule>());
 
     as.session = std::make_unique<GameSession>(
-        session_id, lobby_id,
-        as.slots_,          // copy: GameSession owns its own SlotInfo vector
-        game_mode,
+        LobbySessionParams{session_id, lobby_id, as.slots_, game_mode},
         std::move(gs_ctx),
         *as.inbound, *as.outbound);
 

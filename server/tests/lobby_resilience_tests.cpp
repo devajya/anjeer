@@ -45,7 +45,7 @@ struct Fixture {
 TEST_CASE("L1/L4 lobby creation inserts creator row giving count of 1", "[integration][lobby_resilience]") {
     Fixture f;
     pqxx::work txn(f.conn);
-    const auto lobby = f.repo.create(txn, f.creator_id, 2, 8);
+    const auto lobby = f.repo.create(txn, {f.creator_id, 2, 8});
     txn.commit();
 
     pqxx::work check(f.conn);
@@ -61,7 +61,7 @@ TEST_CASE("L2 leave_lobby decrements player count", "[integration][lobby_resilie
     std::string lobby_id;
     {
         pqxx::work txn(f.conn);
-        lobby_id = f.repo.create(txn, f.creator_id, 2, 8).id;
+        lobby_id = f.repo.create(txn, {f.creator_id, 2, 8}).id;
         f.repo.add_player(txn, lobby_id, p2);
         txn.commit();
     }
@@ -87,7 +87,7 @@ TEST_CASE("L3 stale lobby deleted when player count reaches 0", "[integration][l
     std::string lobby_id;
     {
         pqxx::work txn(f.conn);
-        lobby_id = f.repo.create(txn, f.creator_id, 2, 8).id;
+        lobby_id = f.repo.create(txn, {f.creator_id, 2, 8}).id;
         txn.commit();
     }
 
@@ -109,7 +109,7 @@ TEST_CASE("L3 delete_if_empty is a no-op when players remain", "[integration][lo
     std::string lobby_id;
     {
         pqxx::work txn(f.conn);
-        lobby_id = f.repo.create(txn, f.creator_id, 2, 8).id;
+        lobby_id = f.repo.create(txn, {f.creator_id, 2, 8}).id;
         txn.commit();
     }
 
@@ -126,7 +126,7 @@ TEST_CASE("L5 player can rejoin lobby after leaving", "[integration][lobby_resil
     std::string lobby_id;
     {
         pqxx::work txn(f.conn);
-        lobby_id = f.repo.create(txn, f.creator_id, 2, 8).id;
+        lobby_id = f.repo.create(txn, {f.creator_id, 2, 8}).id;
         f.repo.add_player(txn, lobby_id, p2);
         txn.commit();
     }

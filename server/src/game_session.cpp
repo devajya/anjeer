@@ -60,10 +60,7 @@ static exchange::ExchangeSession build_exchange(const ServerConfig& cfg) {
 
 
 GameSession::GameSession(
-    std::string                                       session_id,
-    std::string                                       lobby_id,
-    std::vector<SlotInfo>                             slots,
-    GameMode                                          game_mode,
+    LobbySessionParams                                params,
     GameSessionContext                                ctx,
     moodycamel::ReaderWriterQueue<NetEvent>&          inbound,
     moodycamel::ReaderWriterQueue<GameEvent>&         outbound)
@@ -74,12 +71,12 @@ GameSession::GameSession(
     , db_pool_(ctx.db_pool)
     , inbound_(inbound)
     , outbound_(outbound)
-    , session_id_(std::move(session_id))
-    , lobby_id_(std::move(lobby_id))
-    , slots_(std::move(slots))
-    , game_mode_(game_mode)
-    , wipe_on_trade_(game_mode != GameMode::Advanced)
-    , allow_multi_qty_(game_mode != GameMode::Simple)
+    , session_id_(std::move(params.session_id))
+    , lobby_id_(std::move(params.lobby_id))
+    , slots_(std::move(params.slots))
+    , game_mode_(params.game_mode)
+    , wipe_on_trade_(params.game_mode != GameMode::Advanced)
+    , allow_multi_qty_(params.game_mode != GameMode::Simple)
     , exchange_(build_exchange(ctx.cfg))
 {
     funded_this_round_.assign(slots_.size(), false);
@@ -576,9 +573,9 @@ void GameSession::deal_and_send_round_start(
     }
     for (int i = 0; i < static_cast<int>(slots_.size()); ++i) {
         if (!slots_[i].connected) continue;
-        emit_targeted(i, serialise::round_start_payload(
+        emit_targeted(i, serialise::round_start_payload({
             i, deal.hands[i], round_end_at, slots_[i].balance,
-            usernames, all_hand_totals, all_balances, game_mode_));
+            usernames, all_hand_totals, all_balances, game_mode_}));
     }
 }
 

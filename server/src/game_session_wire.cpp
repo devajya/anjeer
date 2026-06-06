@@ -159,15 +159,9 @@ std::string round_end_payload(
     }.dump();
 }
 
-std::string round_start_payload(
-        int                             slot,
-        const engine::PlayerHand&       hand,
-        const std::string&              round_end_at,
-        int                             effective_balance,
-        const std::vector<std::string>& usernames,
-        const std::vector<int>&         all_hand_totals,
-        const std::vector<int>&         all_balances,
-        GameMode                        game_mode) {
+std::string round_start_payload(const WireRoundStartData& d) {
+    const auto& [slot, hand, round_end_at, effective_balance,
+                 usernames, all_hand_totals, all_balances, game_mode] = d;
     auto roster_arr = nlohmann::json::array();
     for (int i = 0; i < static_cast<int>(usernames.size()); ++i) {
         roster_arr.push_back({

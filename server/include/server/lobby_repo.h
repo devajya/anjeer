@@ -57,15 +57,20 @@ struct LobbyPlayer {
     std::string joined_at;
 };
 
+struct LobbyCreateParams {
+    int64_t     creator_id;
+    int         min_players;
+    int         max_players;
+    LobbyMode   mode                  = LobbyMode::UI;
+    bool        spawn_bots_on_leave   = false;
+    std::string bot_spawn_difficulty  = "easy";
+    GameMode    game_mode             = GameMode::Simple;
+};
+
 class LobbyRepo {
 public:
     // Creates lobby, generates unique 6-char code. Retries on UNIQUE collision.
-    Lobby create(DbTxn& txn, int64_t creator_id,
-                 int min_players, int max_players,
-                 LobbyMode mode = LobbyMode::UI,
-                 bool spawn_bots_on_leave = false,
-                 std::string bot_spawn_difficulty = "easy",
-                 GameMode game_mode = GameMode::Simple);
+    Lobby create(DbTxn& txn, const LobbyCreateParams& p);
 
     std::optional<Lobby> find_by_id  (DbTxn& txn,
                                       const std::string& lobby_id);

@@ -417,15 +417,15 @@ void HttpServer::register_lobby_routes(App& app)
             auto handle = db_pool_.acquire();
             pqxx::work txn(handle.get());
 
-            const Lobby lobby = lobby_repo_.create(
-                txn, player.id,
+            const Lobby lobby = lobby_repo_.create(txn, {
+                player.id,
                 config_.lobby.min_players,
                 config_.lobby.max_players,
                 mode,
                 spawn_bots_on_leave,
                 bot_spawn_difficulty,
-                game_mode
-            );
+                game_mode,
+            });
 
             const int count = lobby_repo_.player_count(txn, lobby.id);
             txn.commit();

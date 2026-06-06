@@ -426,7 +426,7 @@ static LobbySetup setup_lobby_in_db() {
             "DELETE FROM lobbies WHERE creator_id = $1 AND status = 'waiting'",
             player_id
         );
-        const auto lobby = test_lobby_repo().create(txn, player_id, 2, 8);
+        const auto lobby = test_lobby_repo().create(txn, {player_id, 2, 8});
         test_lobby_repo().add_player(txn, lobby.id, player_id);
         lobby_id = lobby.id;
         txn.commit();
@@ -844,7 +844,7 @@ static ModeTestSetup setup_mode_test(anjeer::server::LobbyMode mode,
         txn.exec_params(
             "DELETE FROM lobbies WHERE creator_id = $1 AND status IN ('waiting','starting')",
             player_id);
-        auto lobby = test_lobby_repo().create(txn, static_cast<int32_t>(player_id), 1, 8, mode);
+        auto lobby = test_lobby_repo().create(txn, {static_cast<int64_t>(player_id), 1, 8, mode});
         test_lobby_repo().add_player(txn, lobby.id, player_id);
         txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);
         lobby_id = lobby.id;
@@ -974,8 +974,7 @@ static SpectatorTestSetup setup_spectator_test(const std::string& suffix) {
         // AGENT-CTX: UI mode + player_count=99 (set on mode server) so the
         // session starts with one player and the spectator test can proceed.
         auto lobby = test_lobby_repo().create(
-            txn, static_cast<int32_t>(player_id), 1, 8,
-            anjeer::server::LobbyMode::UI);
+            txn, {static_cast<int64_t>(player_id), 1, 8, anjeer::server::LobbyMode::UI});
         test_lobby_repo().add_player(txn, lobby.id, player_id);
         txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);
         lobby_id = lobby.id;
@@ -1220,7 +1219,7 @@ static GameIntegSetup setup_game_integ(const std::string& suffix) {
         txn.exec_params(
             "DELETE FROM lobbies WHERE creator_id = $1 AND status IN ('waiting','starting')", p1);
         auto lobby = test_lobby_repo().create(
-            txn, static_cast<int32_t>(p1), 2, 8, anjeer::server::LobbyMode::API);
+            txn, {static_cast<int64_t>(p1), 2, 8, anjeer::server::LobbyMode::API});
         test_lobby_repo().add_player(txn, lobby.id, p1);
         test_lobby_repo().add_player(txn, lobby.id, p2);
         txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);

@@ -100,14 +100,18 @@ std::string round_end_payload  (const engine::RoundResult& result,
 // AGENT-CTX: usernames is a slot-indexed vector (usernames[i] = username for slot i).
 // Passed as plain strings rather than SlotInfo to avoid pulling game_session.h
 // into this header (circular dependency risk). Slot index = position in vector.
-std::string round_start_payload(int                             slot,
-                                 const engine::PlayerHand&       hand,
-                                 const std::string&              round_end_at,
-                                 int                             effective_balance,
-                                 const std::vector<std::string>& usernames,
-                                 const std::vector<int>&         all_hand_totals,
-                                 const std::vector<int>&         all_balances,
-                                 GameMode                        game_mode = GameMode::Simple);
+struct WireRoundStartData {
+    int                             slot;
+    const engine::PlayerHand&       hand;
+    std::string                     round_end_at;
+    int                             effective_balance;
+    const std::vector<std::string>& usernames;
+    const std::vector<int>&         all_hand_totals;
+    const std::vector<int>&         all_balances;
+    GameMode                        game_mode = GameMode::Simple;
+};
+
+std::string round_start_payload(const WireRoundStartData& d);
 
 void error      (WsHandle ws, WsErrorCode code, std::string_view msg, Logger& slog);
 

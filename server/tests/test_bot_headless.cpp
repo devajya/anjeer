@@ -161,8 +161,7 @@ TEST_CASE("headless sim: 5 bots play a full game to completion", "[bots][headles
         inbound.enqueue(NetConnect{i, -(static_cast<int64_t>(i) + 1), slots[i].username});
 
     GameSession session(
-        session_id, lobby_id, slots,
-        GameMode::Simple,
+        LobbySessionParams{session_id, lobby_id, slots, GameMode::Simple},
         GameSessionContext{cfg, server_log, engine_log, rng, test_db()},
         inbound, outbound);
     session.start();
