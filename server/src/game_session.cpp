@@ -821,14 +821,15 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 auto it = order_qty_map_.find(passive_id);
                 if (it != order_qty_map_.end()) {
                     it->second -= exec->qty_filled;
-                    if (it->second > 0 && slots_[passive_slot].connected) {
+                    if (slots_[passive_slot].connected) {
                         emit_targeted(passive_slot, nlohmann::json{
                             {"type",          "order_partially_filled"},
                             {"order_id",      passive_id},
                             {"suit",          suit},
                             {"qty_remaining", it->second},
                         }.dump());
-                    } else {
+                    }
+                    if (it->second <= 0) {
                         order_qty_map_.erase(it);
                     }
                 }
