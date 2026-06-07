@@ -304,10 +304,26 @@ void GameSession::handle_submit(const NetSubmit& ev) {
         return;
     }
     if (ev.side == engine::Side::Sell && game_state_) {
-        int si = engine::suit_index(*suit_opt);
-        if (game_state_->hand(ev.slot).suit_counts[si] == 0) {
+        const int si         = engine::suit_index(*suit_opt);
+        const int hand_count = game_state_->hand(ev.slot).suit_counts[si];
+        if (hand_count == 0) {
             emit_error(ev.slot, "INSUFFICIENT_CARDS", "no cards of this suit to sell");
             return;
+        }
+        if (!wipe_on_trade_) {
+            const auto iid  = static_cast<exchange::instrument_id_t>(si);
+            const auto asks = exchange_.asks_snapshot(iid);
+            const int committed = static_cast<int>(std::count_if(asks.begin(), asks.end(),
+                [&](const exchange::OrderBook::OrderSnapshot& snap) {
+                    return snap.player_slot == ev.slot;
+                }));
+            const int order_qty = allow_multi_qty_ ? ev.qty : 1;
+            if (committed + order_qty > hand_count) {
+                emit_error(ev.slot, "INSUFFICIENT_CARDS",
+                    "cancel an existing sell order for this suit first — "
+                    "all your cards are already committed to resting orders");
+                return;
+            }
         }
     }
     const int si  = engine::suit_index(*suit_opt);
@@ -736,7 +752,10 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
             }
         }
         else if (const auto* upd = std::get_if<exchange::BookUpdated>(&fev)) {
-            if (!had_trade) {
+            // Suppress in wipe-on-trade mode: the book is wiped immediately after,
+            // so the post-trade state is irrelevant. In non-wipe mode the trade
+            // leaves a live book whose new best bid/ask must be broadcast.
+            if (!had_trade || !wipe_on_trade_) {
                 const auto  iid  = static_cast<exchange::instrument_id_t>(upd->instrument_id);
                 const auto  suit = engine::kAllSuits[upd->instrument_id];
                 const exchange::seq_t seq  = exchange_.current_seq();
@@ -770,7 +789,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
         if (const auto* added = std::get_if<exchange::OrderAdded>(&mev)) {
             const engine::Suit suit = engine::kAllSuits[added->instrument_id];
             outbound_.enqueue(GameMboEvent{wire::order_added(
-                added->order_id, suit, added->side, added->price, added->seq)});
+                added->order_id, suit, added->side, added->price, added->seq,
+                added->player_slot, added->qty)});
         } else if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
             const std::string suit = instrument_suit_label(exec->instrument_id);
             engine_log_.info("trade",
@@ -782,16 +802,17 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 if (i == exec->buyer_slot)  your_side = "buy";
                 if (i == exec->seller_slot) your_side = "sell";
                 emit_targeted(i, nlohmann::json{
-                    {"type",             "trade"},
-                    {"suit",             suit},
-                    {"price",            exec->price},
-                    {"aggressor_side",   serialise::side(exec->aggressor_side)},
-                    {"your_side",        your_side},
-                    {"buyer_slot",       exec->buyer_slot},
-                    {"seller_slot",      exec->seller_slot},
-                    {"qty_filled",       exec->qty_filled},
-                    {"qty_ordered",      exec->qty_ordered},
-                    {"passive_order_id", exec->order_id},
+                    {"type",               "trade"},
+                    {"suit",               suit},
+                    {"price",              exec->price},
+                    {"aggressor_side",     serialise::side(exec->aggressor_side)},
+                    {"your_side",          your_side},
+                    {"buyer_slot",         exec->buyer_slot},
+                    {"seller_slot",        exec->seller_slot},
+                    {"qty_filled",         exec->qty_filled},
+                    {"qty_ordered",        exec->qty_ordered},
+                    {"passive_order_id",   exec->order_id},
+                    {"aggressor_order_id", new_order_id},
                 }.dump());
             }
             emit_spectator_broadcast(nlohmann::json{
@@ -813,7 +834,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 exec->aggressor_side,
                 exec->buyer_slot,
                 exec->seller_slot,
-                exec->seq)});
+                exec->seq,
+                exec->qty_filled)});
 
             if (!wipe_on_trade_) {
                 const int64_t passive_id = exec->order_id;

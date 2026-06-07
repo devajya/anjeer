@@ -36,7 +36,9 @@ std::string order_added(anjeer::exchange::order_id_t order_id,
                         anjeer::engine::Suit suit,
                         anjeer::exchange::Side side,
                         anjeer::exchange::price_t price,
-                        anjeer::exchange::seq_t seq);
+                        anjeer::exchange::seq_t seq,
+                        int32_t owner_slot,
+                        int32_t qty);
 
 // MBO: incremental — fill
 std::string order_executed(anjeer::exchange::order_id_t order_id,
@@ -45,7 +47,8 @@ std::string order_executed(anjeer::exchange::order_id_t order_id,
                            anjeer::exchange::Side aggressor,
                            int buyer_slot,
                            int seller_slot,
-                           anjeer::exchange::seq_t seq);
+                           anjeer::exchange::seq_t seq,
+                           int32_t qty_filled);
 
 // MBO: incremental — cancel
 std::string order_cancelled(anjeer::exchange::order_id_t order_id,
@@ -78,7 +81,9 @@ std::vector<uint8_t> order_added_msgpack(anjeer::exchange::order_id_t order_id,
                                           anjeer::engine::Suit suit,
                                           anjeer::exchange::Side side,
                                           anjeer::exchange::price_t price,
-                                          anjeer::exchange::seq_t seq);
+                                          anjeer::exchange::seq_t seq,
+                                          int32_t owner_slot,
+                                          int32_t qty);
 
 std::vector<uint8_t> order_executed_msgpack(anjeer::exchange::order_id_t order_id,
                                              anjeer::engine::Suit suit,
@@ -86,7 +91,8 @@ std::vector<uint8_t> order_executed_msgpack(anjeer::exchange::order_id_t order_i
                                              anjeer::exchange::Side aggressor,
                                              int buyer_slot,
                                              int seller_slot,
-                                             anjeer::exchange::seq_t seq);
+                                             anjeer::exchange::seq_t seq,
+                                             int32_t qty_filled);
 
 std::vector<uint8_t> order_cancelled_msgpack(anjeer::exchange::order_id_t order_id,
                                               anjeer::engine::Suit suit,

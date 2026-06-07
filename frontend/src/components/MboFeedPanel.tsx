@@ -1,37 +1,37 @@
-import { useMemo, useRef, useEffect } from 'react'
-import type { MboLogEntry, MyOrder, BookState } from '../hooks/useWebSocket'
+import { useMemo } from 'react'
+import type { MboLogEntry, MyOrder } from '../hooks/useWebSocket'
 import { SUIT_SYMBOLS, SUIT_ORDER, suitClass } from '../utils/suits'
+import { slotColor } from '../utils/playerColors'
 import './MboFeedPanel.css'
 
+interface RosterEntry { player_slot: number; username: string }
+
 interface Props {
-  mboLogs:  Record<string, MboLogEntry[]>
-  myOrders: MyOrder[]
-  books:    Record<string, BookState>
-  onCancel: (orderId: number) => void
+  mboLogs:     Record<string, MboLogEntry[]>
+  myOrders:    MyOrder[]
+  books:       Record<string, unknown>
+  onCancel:    (orderId: number) => void
+  roster?:     RosterEntry[]
+  playerSlot?: number | null
 }
 
-// ── Synthetic book derived from MBO event log ─────────────────────────────────
-// Each suit yields sorted bid/ask price levels and a flat resting-order list.
-// Qty is approximate (1 per order) because order_added carries no qty field.
-interface RestingOrder { order_id: number; side: 'buy' | 'sell'; price: number; isMine: boolean }
+// ── Synthetic book for the price ladder ───────────────────────────────────────
 interface SyntheticSuit {
-  bids: { price: number; count: number }[]  // highest-first
-  asks: { price: number; count: number }[]  // lowest-first
-  all:  RestingOrder[]                       // all resting, sorted price desc
+  bids: { price: number; count: number }[]
+  asks: { price: number; count: number }[]
 }
 
 function useSyntheticBook(
   mboLogs:  Record<string, MboLogEntry[]>,
   myOrders: MyOrder[],
 ): Record<string, SyntheticSuit> {
-  const myIds = useMemo(() => new Set(myOrders.map(o => o.order_id)), [myOrders])
+  const myIds = useMemo(() => new Set(myOrders.map(o => `${o.suit}:${o.order_id}`)), [myOrders])
   return useMemo(() => {
     const out: Record<string, SyntheticSuit> = {}
     for (const suit of SUIT_ORDER) {
-      const entries  = mboLogs[suit] ?? []
-      const active   = new Map<number, { side: 'buy' | 'sell'; price: number }>()
-      const removed  = new Set<number>()
-      // Process oldest-first (log is newest-first)
+      const entries = mboLogs[suit] ?? []
+      const active  = new Map<number, { side: 'buy' | 'sell'; price: number }>()
+      const removed = new Set<number>()
       for (const e of entries.slice().reverse()) {
         if (removed.has(e.order_id)) continue
         if (e.kind === 'added' && e.side && e.price !== null) {
@@ -43,24 +43,21 @@ function useSyntheticBook(
       }
       const bidMap = new Map<number, number>()
       const askMap = new Map<number, number>()
-      const all: RestingOrder[] = []
-      for (const [order_id, { side, price }] of active) {
+      for (const [, { side, price }] of active) {
         const m = side === 'buy' ? bidMap : askMap
         m.set(price, (m.get(price) ?? 0) + 1)
-        all.push({ order_id, side, price, isMine: myIds.has(order_id) })
       }
+      void myIds
       out[suit] = {
         bids: [...bidMap].map(([price, count]) => ({ price, count })).sort((a, b) => b.price - a.price),
         asks: [...askMap].map(([price, count]) => ({ price, count })).sort((a, b) => a.price - b.price),
-        all:  all.sort((a, b) => b.price - a.price),
       }
     }
     return out
   }, [mboLogs, myIds])
 }
 
-// ── Variant 1: Price Ladder ───────────────────────────────────────────────────
-// Bid/ask levels derived from MBO events, one row per price level per suit.
+// ── Price ladder ──────────────────────────────────────────────────────────────
 function PriceLadder({ synBook }: { synBook: Record<string, SyntheticSuit> }) {
   return (
     <div className="mbo-vis mbo-vis--ladder">
@@ -78,10 +75,8 @@ function PriceLadder({ synBook }: { synBook: Record<string, SyntheticSuit> }) {
               <div className="mbo-vis__col mbo-vis__col--bid">
                 {s.bids.slice(0, 4).map(lvl => (
                   <div key={lvl.price} className="mbo-vis__level mbo-vis__level--bid">
-                    <div
-                      className="mbo-vis__bar mbo-vis__bar--bid"
-                      style={{ width: `${(lvl.count / maxCount) * 100}%` }}
-                    />
+                    <div className="mbo-vis__bar mbo-vis__bar--bid"
+                      style={{ width: `${(lvl.count / maxCount) * 100}%` }} />
                     <span className="mbo-vis__count">{lvl.count}</span>
                     <span className="mbo-vis__price">{lvl.price}</span>
                   </div>
@@ -93,10 +88,8 @@ function PriceLadder({ synBook }: { synBook: Record<string, SyntheticSuit> }) {
                   <div key={lvl.price} className="mbo-vis__level mbo-vis__level--ask">
                     <span className="mbo-vis__price">{lvl.price}</span>
                     <span className="mbo-vis__count">{lvl.count}</span>
-                    <div
-                      className="mbo-vis__bar mbo-vis__bar--ask"
-                      style={{ width: `${(lvl.count / maxCount) * 100}%` }}
-                    />
+                    <div className="mbo-vis__bar mbo-vis__bar--ask"
+                      style={{ width: `${(lvl.count / maxCount) * 100}%` }} />
                   </div>
                 ))}
                 {s.asks.length === 0 && <span className="mbo-vis__empty">—</span>}
@@ -109,30 +102,95 @@ function PriceLadder({ synBook }: { synBook: Record<string, SyntheticSuit> }) {
   )
 }
 
+// ── Order summary model ───────────────────────────────────────────────────────
+interface OrderSummary {
+  order_id:   number
+  seq:        number
+  side:       'buy' | 'sell'
+  price:      number
+  qty:        number
+  qty_filled: number
+  status:     'resting' | 'filled' | 'cancelled'
+  owner_slot: number | null
+  isMine:     boolean
+  isLive:     boolean
+}
 
-// ── Event log ─────────────────────────────────────────────────────────────────
-function EventLog({
+function buildOrderSummaries(
+  entries:    MboLogEntry[],
+  suit:       string,
+  liveIds:    Set<string>,
+  playerSlot: number | null,
+): OrderSummary[] {
+  const orders = new Map<number, OrderSummary>()
+
+  for (const e of entries.slice().reverse()) {
+    if (e.kind === 'added' && e.side && e.price !== null) {
+      orders.set(e.order_id, {
+        order_id:   e.order_id,
+        seq:        e.seq,
+        side:       e.side,
+        price:      e.price,
+        qty:        e.qty ?? 1,
+        qty_filled: 0,
+        status:     'resting',
+        owner_slot: e.owner_slot ?? null,
+        // isMine derived from server-provided owner_slot — always authoritative,
+        // no accumulation or stale-ref issues.
+        isMine:     playerSlot !== null && e.owner_slot !== undefined && e.owner_slot === playerSlot,
+        isLive:     false,
+      })
+    } else if (e.kind === 'executed') {
+      const s = orders.get(e.order_id)
+      if (s) {
+        s.qty_filled += e.qty_filled ?? 1
+        if (s.qty_filled >= s.qty) s.status = 'filled'
+      }
+    } else if (e.kind === 'cancelled') {
+      const s = orders.get(e.order_id)
+      if (s) s.status = 'cancelled'
+    }
+  }
+
+  // Refresh isLive after processing all events.
+  // Gate on status=resting: filled orders must not show a cancel button even if
+  // myOrders briefly still contains them (order_executed and trade arrive in
+  // separate WS frames, leaving a render window where both would be true).
+  for (const [id, s] of orders) {
+    const key = `${suit}:${id}`
+    s.isLive = s.status === 'resting' && liveIds.has(key)
+  }
+
+  return [...orders.values()]
+    .filter(s => !(s.status === 'cancelled' && s.qty_filled === 0))
+    .sort((a, b) => {
+      // Resting mine first (most actionable), then by seq descending
+      if (a.isLive !== b.isLive) return a.isLive ? -1 : 1
+      return b.seq - a.seq
+    })
+}
+
+// ── Order feed ────────────────────────────────────────────────────────────────
+function OrderFeed({
   mboLogs,
   myOrders,
   onCancel,
+  roster,
+  playerSlot,
 }: {
-  mboLogs:  Record<string, MboLogEntry[]>
-  myOrders: MyOrder[]
-  onCancel: (orderId: number) => void
+  mboLogs:     Record<string, MboLogEntry[]>
+  myOrders:    MyOrder[]
+  onCancel:    (orderId: number) => void
+  roster?:     RosterEntry[]
+  playerSlot?: number | null
 }) {
-  // Accumulate all order IDs that ever appeared in myOrders so we can
-  // identify executed/cancelled events that belong to us.
-  const allMineIds = useRef(new Set<number>())
-  useEffect(() => {
-    myOrders.forEach(o => allMineIds.current.add(o.order_id))
-  }, [myOrders])
-
-  const liveIds = useMemo(() => new Set(myOrders.map(o => o.order_id)), [myOrders])
+  const liveIds = useMemo(() => new Set(myOrders.map(o => `${o.suit}:${o.order_id}`)), [myOrders])
 
   return (
     <div className="mbo-log">
       {SUIT_ORDER.map(suit => {
-        const entries = mboLogs[suit] ?? []
+        const entries  = mboLogs[suit] ?? []
+        const summaries = buildOrderSummaries(entries, suit, liveIds, playerSlot ?? null)
         return (
           <div key={suit} className="mbo-log__section">
             <div className="mbo-log__hdr">
@@ -140,42 +198,51 @@ function EventLog({
               <span className="mbo-log__name">{suit}</span>
             </div>
             <div className="mbo-log__feed">
-              {entries.length === 0 ? (
-                <div className="mbo-log__empty">no events</div>
+              {summaries.length === 0 ? (
+                <div className="mbo-log__empty">no orders</div>
               ) : (
-                entries.map((e, i) => {
-                  const isMineActive    = e.kind === 'added'     && liveIds.has(e.order_id)
-                  const isMineExecuted  = e.kind === 'executed'  && allMineIds.current.has(e.order_id)
-                  const iMineCancelled  = e.kind === 'cancelled' && allMineIds.current.has(e.order_id)
-                  const isMine = isMineActive || isMineExecuted || iMineCancelled
+                summaries.map(s => {
+                  const fillPct = s.qty > 0 ? (s.qty_filled / s.qty) * 100 : 0
+                  const isFullFill = s.status === 'filled'
+                  const displayPct = isFullFill ? 100 : fillPct
+
+                  const username = s.owner_slot !== null && s.owner_slot >= 0
+                    ? (roster?.find(r => r.player_slot === s.owner_slot)?.username ?? null)
+                    : null
+                  const isMe = s.owner_slot !== null && s.owner_slot === playerSlot
+
+                  const whoLabel  = isMe ? 'you' : username
+                  const whoColor  = s.owner_slot !== null && s.owner_slot >= 0
+                    ? slotColor(s.owner_slot)
+                    : undefined
+
                   return (
                     <div
-                      key={i}
+                      key={s.order_id}
                       className={[
-                        'mbo-log__row',
-                        `mbo-log__row--${e.kind}`,
-                        isMineActive   ? 'mbo-log__row--mine'            : '',
-                        isMineExecuted ? 'mbo-log__row--mine-done'       : '',
-                        iMineCancelled ? 'mbo-log__row--mine-cancelled'  : '',
+                        'mbo-order',
+                        `mbo-order--${s.status}`,
+                        s.isMine  ? 'mbo-order--mine'     : '',
+                        s.isLive  ? 'mbo-order--live'     : '',
                       ].filter(Boolean).join(' ')}
-                      onClick={isMineActive ? () => onCancel(e.order_id) : undefined}
-                      title={isMineActive ? 'Tap to cancel' : undefined}
+                      style={{ '--fill-pct': `${displayPct}%` } as React.CSSProperties}
+                      onClick={s.isLive ? () => onCancel(s.order_id) : undefined}
+                      title={s.isLive ? 'Click to cancel' : undefined}
                     >
-                      <span className="mbo-log__seq">{e.seq}</span>
-                      <span className="mbo-log__icon">
-                        {e.kind === 'added' ? '+' : e.kind === 'executed' ? '✓' : '–'}
+                      <div className="mbo-order__fill-bg" />
+                      <span className="mbo-order__seq">{s.seq}</span>
+                      <span className={`mbo-order__side mbo-order__side--${s.side}`}>
+                        {s.side === 'buy' ? 'BUY' : 'SELL'}
                       </span>
-                      <span className="mbo-log__id">#{e.order_id}</span>
-                      {e.kind === 'added' && e.side && (
-                        <span className={`mbo-log__side mbo-log__side--${e.side}`}>
-                          {e.side.toUpperCase()}
+                      <span className="mbo-order__qty-price">
+                        {s.qty}@{s.price}
+                      </span>
+                      {whoLabel && (
+                        <span className="mbo-order__who" style={{ color: whoColor }}>
+                          {whoLabel}
                         </span>
                       )}
-                      {e.price !== null && (
-                        <span className="mbo-log__price">{e.price}</span>
-                      )}
-                      {isMine && <span className="mbo-log__you">you</span>}
-                      {isMineActive && <span className="mbo-log__cancel">×</span>}
+                      {s.isLive && <span className="mbo-order__cancel">×</span>}
                     </div>
                   )
                 })
@@ -189,12 +256,65 @@ function EventLog({
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-export function MboFeedPanel({ mboLogs, myOrders, books: _books, onCancel }: Props) {
+export function MboFeedPanel({ mboLogs, myOrders, onCancel, roster, playerSlot }: Props) {
   const synBook = useSyntheticBook(mboLogs, myOrders)
   return (
     <div className="mbo">
       <PriceLadder synBook={synBook} />
-      <EventLog mboLogs={mboLogs} myOrders={myOrders} onCancel={onCancel} />
+      <OrderFeed
+        mboLogs={mboLogs}
+        myOrders={myOrders}
+        onCancel={onCancel}
+        roster={roster}
+        playerSlot={playerSlot}
+      />
     </div>
   )
+}
+
+// Export synthetic best-price qty for SuitPanel "X @ Y" display.
+// Reconstructs the live order book from MBO events (always up-to-date, even after
+// trades that suppress book_update/book_depth on the server). Returns the SUM of
+// remaining qty for all active orders at the best bid and best ask price levels,
+// so the SuitPanel quick-submit button trades the correct total available quantity.
+export function useMboDepth(mboLogs: Record<string, MboLogEntry[]>) {
+  return useMemo(() => {
+    const result: Record<string, { bidQty: number | null; askQty: number | null }> = {}
+    for (const suit of SUIT_ORDER) {
+      const entries = mboLogs[suit] ?? []
+      // Reconstruct qty-aware book from MBO events oldest-first.
+      // Track remaining qty per order: decrement on each executed fill,
+      // remove when qty reaches 0 or on cancel.
+      const active = new Map<number, { side: 'buy' | 'sell'; price: number; qty: number }>()
+      const removed = new Set<number>()
+      for (const e of entries.slice().reverse()) {
+        if (removed.has(e.order_id)) continue
+        if (e.kind === 'added' && e.side && e.price !== null) {
+          active.set(e.order_id, { side: e.side, price: e.price, qty: e.qty ?? 1 })
+        } else if (e.kind === 'executed') {
+          const o = active.get(e.order_id)
+          if (o) {
+            o.qty -= e.qty_filled ?? 1
+            if (o.qty <= 0) { active.delete(e.order_id); removed.add(e.order_id) }
+          }
+        } else if (e.kind === 'cancelled') {
+          removed.add(e.order_id); active.delete(e.order_id)
+        }
+      }
+      // Find best bid (highest) and best ask (lowest), summing all qty at those levels.
+      let bestBid: number | null = null, bidQty = 0
+      let bestAsk: number | null = null, askQty = 0
+      for (const [, { side, price, qty }] of active) {
+        if (side === 'buy') {
+          if (bestBid === null || price > bestBid) { bestBid = price; bidQty = qty }
+          else if (price === bestBid) bidQty += qty
+        } else {
+          if (bestAsk === null || price < bestAsk) { bestAsk = price; askQty = qty }
+          else if (price === bestAsk) askQty += qty
+        }
+      }
+      result[suit] = { bidQty: bestBid !== null ? bidQty : null, askQty: bestAsk !== null ? askQty : null }
+    }
+    return result
+  }, [mboLogs])
 }

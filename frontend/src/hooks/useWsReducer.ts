@@ -59,11 +59,29 @@ export function applyMessage(
           hand = { ...hand, [key]: hand[key] + delta }
         }
       }
+      let myOrders = s.myOrders
+      if (s.gameMode === 'advanced' && trade.your_side !== null) {
+        const passiveSide: 'buy' | 'sell' = trade.aggressor_side === 'buy' ? 'sell' : 'buy'
+        const removedId = trade.your_side === passiveSide
+          ? trade.passive_order_id
+          : trade.aggressor_order_id
+        const target = myOrders.find(o => o.suit === trade.suit && o.order_id === removedId)
+        // Only remove if the order was fully consumed. For a partial fill of the aggressor's
+        // multi-qty order the server sends order_partially_filled next; leave the order in
+        // myOrders so that message can update qty_remaining and keep isLive=true.
+        // For the passive side the server also sends order_partially_filled (even at qty_remaining=0),
+        // so the same guard works for both sides.
+        if (!target || target.qty_remaining <= trade.qty_filled) {
+          myOrders = myOrders.filter(o => !(o.suit === trade.suit && o.order_id === removedId))
+        }
+      } else if (s.gameMode !== 'advanced') {
+        myOrders = []
+      }
       return {
         ...s,
         hand,
         trades:   [entry, ...s.trades].slice(0, MAX_TRADE_HISTORY),
-        myOrders: s.gameMode === 'advanced' ? s.myOrders : [],
+        myOrders,
       }
     }
 

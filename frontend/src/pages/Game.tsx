@@ -22,7 +22,7 @@ import { ReconnectOverlay } from '../components/ReconnectOverlay'
 import { StaleLobbyModal } from '../components/StaleLobbyModal'
 import { EvalPanel } from '../components/EvalPanel'
 import { MbpNDepthPanel } from '../components/MbpNDepthPanel'
-import { MboFeedPanel } from '../components/MboFeedPanel'
+import { MboFeedPanel, useMboDepth } from '../components/MboFeedPanel'
 import { slotColorSemi } from '../utils/playerColors'
 import { SUIT_ORDER } from '../utils/suits'
 import '../App.css'
@@ -56,6 +56,8 @@ export function Game() {
     bookDepths, mboLogs,
     gameMode,
   } = useWebSocket('/ws')
+
+  const mboDepth = useMboDepth(mboLogs)
 
   const {
     status: reconnectStatus,
@@ -323,6 +325,8 @@ export function Game() {
                           myOrders={myOrders}
                           books={books}
                           onCancel={handleCancel}
+                          roster={roster}
+                          playerSlot={playerSlot}
                         />
                     }
                   </div>
@@ -379,8 +383,8 @@ export function Game() {
                         onSendMessage={sendMessage}
                         selected={suit === selectedSuit}
                         onSelect={setSelectedSuit}
-                        bestBidQty={bookDepths[suit]?.bids[0]?.qty ?? null}
-                        bestAskQty={bookDepths[suit]?.asks[0]?.qty ?? null}
+                        bestBidQty={bookDepths[suit]?.bids[0]?.qty ?? mboDepth[suit]?.bidQty ?? null}
+                        bestAskQty={bookDepths[suit]?.asks[0]?.qty ?? mboDepth[suit]?.askQty ?? null}
                       />
                     </div>
                   ))

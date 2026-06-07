@@ -32,6 +32,7 @@ struct OrderAdded {
     Side            side;
     price_t         price;
     int32_t         player_slot;
+    int32_t         qty;
     seq_t           seq;
     uint8_t         v = 1;
 };

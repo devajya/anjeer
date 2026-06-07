@@ -208,11 +208,16 @@ export interface WsState {
 }
 
 export interface MboLogEntry {
-  kind:     'added' | 'executed' | 'cancelled'
-  seq:      number
-  order_id: number
-  price:    number | null
-  side?:    'buy' | 'sell'
+  kind:        'added' | 'executed' | 'cancelled'
+  seq:         number
+  order_id:    number
+  price:       number | null
+  side?:       'buy' | 'sell'
+  owner_slot?: number   // 'added' only
+  qty?:        number   // 'added' only — original order qty
+  qty_filled?: number   // 'executed' only
+  buyer_slot?: number   // 'executed' only
+  seller_slot?: number  // 'executed' only
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -716,7 +721,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           break
 
         case 'order_added': {
-          const entry: MboLogEntry = { kind: 'added', seq: msg.seq, order_id: msg.order_id, price: msg.price, side: msg.side }
+          const entry: MboLogEntry = {
+            kind: 'added', seq: msg.seq, order_id: msg.order_id,
+            price: msg.price, side: msg.side,
+            owner_slot: msg.owner_slot, qty: msg.qty,
+          }
           setState(s => ({
             ...s,
             mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
@@ -725,7 +734,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         }
 
         case 'order_executed': {
-          const entry: MboLogEntry = { kind: 'executed', seq: msg.seq, order_id: msg.order_id, price: msg.price }
+          const entry: MboLogEntry = {
+            kind: 'executed', seq: msg.seq, order_id: msg.order_id, price: msg.price,
+            qty_filled: msg.qty_filled, buyer_slot: msg.buyer_slot, seller_slot: msg.seller_slot,
+          }
           setState(s => ({
             ...s,
             mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },

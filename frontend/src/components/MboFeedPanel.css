@@ -133,57 +133,77 @@
   padding: 0.15rem 0;
 }
 
-.mbo-log__row {
+/* ── Order summary rows ── */
+.mbo-order {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.18rem;
+  gap: 0.22rem;
   font-size: 0.66rem;
   font-variant-numeric: tabular-nums;
-  padding: 0.06rem 0.15rem;
+  padding: 0.07rem 0.2rem;
   border-radius: 3px;
-  cursor: default;
   border: 1px solid transparent;
+  cursor: default;
+  overflow: hidden;
+  opacity: 0.45;
 }
-.mbo-log__row--mine {
+.mbo-order--mine  { opacity: 1; }
+
+/* Proportional gold fill background — extends from left by --fill-pct */
+.mbo-order__fill-bg {
+  position: absolute;
+  inset: 0;
+  right: calc(100% - var(--fill-pct, 0%));
+  background: rgba(232, 184, 109, 0.18);
+  pointer-events: none;
+  border-radius: 2px;
+  transition: right 0.25s ease;
+}
+
+/* Resting + mine: gold border, pointer */
+.mbo-order--live {
   cursor: pointer;
-  background: #131313;
-  border-color: #252525;
+  border-color: rgba(232, 184, 109, 0.3);
 }
-.mbo-log__row--mine:hover { background: #1c1c1c; }
+.mbo-order--live:hover { background: rgba(232, 184, 109, 0.04); }
 
-.mbo-log__row--executed  { opacity: 0.55; }
-.mbo-log__row--cancelled { opacity: 0.35; }
+/* Fully filled + mine: green completion tint, brighter border, dimmed opacity */
+.mbo-order--filled.mbo-order--mine {
+  border-color: rgba(76, 175, 125, 0.45);
+  opacity: 0.75;
+}
+.mbo-order--filled.mbo-order--mine .mbo-order__fill-bg {
+  background: rgba(76, 175, 125, 0.18);
+}
 
-.mbo-log__seq   { color: #3a3a3a; font-size: 0.58rem; min-width: 1.8ch; }
-.mbo-log__icon  { color: var(--color-muted); }
-.mbo-log__id    { color: #484848; font-size: 0.58rem; }
-.mbo-log__price { color: var(--color-text); }
+/* Cancelled + partial fill + mine: strikethrough over text */
+.mbo-order--cancelled.mbo-order--mine { opacity: 0.65; }
+.mbo-order--cancelled.mbo-order--mine .mbo-order__seq,
+.mbo-order--cancelled.mbo-order--mine .mbo-order__side,
+.mbo-order--cancelled.mbo-order--mine .mbo-order__qty-price,
+.mbo-order--cancelled.mbo-order--mine .mbo-order__who {
+  text-decoration: line-through;
+  text-decoration-color: rgba(224, 85, 85, 0.75);
+  text-decoration-thickness: 1.5px;
+}
 
-.mbo-log__side--buy  { color: #4caf7d; font-weight: 700; }
-.mbo-log__side--sell { color: #e05555; font-weight: 700; }
+.mbo-order__seq       { color: #666; font-size: 0.58rem; min-width: 1.8ch; flex-shrink: 0; }
+.mbo-order__side--buy  { color: #4caf7d; font-weight: 700; flex-shrink: 0; }
+.mbo-order__side--sell { color: #e05555; font-weight: 700; flex-shrink: 0; }
+.mbo-order__qty-price  { color: var(--color-text); }
 
-.mbo-log__cancel {
+.mbo-order__who {
   margin-left: auto;
+  font-size: 0.6rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.mbo-order__cancel {
+  flex-shrink: 0;
   color: #e05555;
   opacity: 0;
   font-size: 0.72rem;
+  margin-left: 0.1rem;
 }
-.mbo-log__row--mine:hover .mbo-log__cancel { opacity: 1; }
-
-/* ── Own-order state highlights ── */
-.mbo-log__row--mine-done {
-  background: rgba(180, 150, 40, 0.1);
-}
-
-.mbo-log__row--mine-cancelled {
-  opacity: 0.5;
-  text-decoration: line-through;
-  text-decoration-color: #e05555;
-}
-
-.mbo-log__you {
-  margin-left: auto;
-  font-size: 0.58rem;
-  color: var(--color-muted);
-  letter-spacing: 0.04em;
-}
+.mbo-order--live:hover .mbo-order__cancel { opacity: 1; }

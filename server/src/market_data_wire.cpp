@@ -80,15 +80,19 @@ nlohmann::json make_order_added_json(order_id_t order_id,
                                      Suit suit,
                                      Side side,
                                      price_t price,
-                                     seq_t seq) {
+                                     seq_t seq,
+                                     int32_t owner_slot,
+                                     int32_t qty) {
     return {
-        {"type",     "order_added"},
-        {"v",        kSchemaVersion},
-        {"seq",      seq},
-        {"order_id", order_id},
-        {"suit",     suit_name(suit)},
-        {"side",     side_str(side)},
-        {"price",    price},
+        {"type",       "order_added"},
+        {"v",          kSchemaVersion},
+        {"seq",        seq},
+        {"order_id",   order_id},
+        {"suit",       suit_name(suit)},
+        {"side",       side_str(side)},
+        {"price",      price},
+        {"owner_slot", owner_slot},
+        {"qty",        qty},
     };
 }
 
@@ -98,7 +102,8 @@ nlohmann::json make_order_executed_json(order_id_t order_id,
                                         Side aggressor,
                                         int buyer_slot,
                                         int seller_slot,
-                                        seq_t seq) {
+                                        seq_t seq,
+                                        int32_t qty_filled) {
     return {
         {"type",           "order_executed"},
         {"v",              kSchemaVersion},
@@ -109,6 +114,7 @@ nlohmann::json make_order_executed_json(order_id_t order_id,
         {"aggressor_side", side_str(aggressor)},
         {"buyer_slot",     buyer_slot},
         {"seller_slot",    seller_slot},
+        {"qty_filled",     qty_filled},
     };
 }
 
@@ -172,8 +178,10 @@ std::string order_added(order_id_t order_id,
                         Suit suit,
                         Side side,
                         price_t price,
-                        seq_t seq) {
-    return make_order_added_json(order_id, suit, side, price, seq).dump();
+                        seq_t seq,
+                        int32_t owner_slot,
+                        int32_t qty) {
+    return make_order_added_json(order_id, suit, side, price, seq, owner_slot, qty).dump();
 }
 
 std::string order_executed(order_id_t order_id,
@@ -182,8 +190,9 @@ std::string order_executed(order_id_t order_id,
                            Side aggressor,
                            int buyer_slot,
                            int seller_slot,
-                           seq_t seq) {
-    return make_order_executed_json(order_id, suit, price, aggressor, buyer_slot, seller_slot, seq).dump();
+                           seq_t seq,
+                           int32_t qty_filled) {
+    return make_order_executed_json(order_id, suit, price, aggressor, buyer_slot, seller_slot, seq, qty_filled).dump();
 }
 
 std::string order_cancelled(order_id_t order_id,
@@ -224,8 +233,10 @@ std::vector<uint8_t> order_added_msgpack(order_id_t order_id,
                                           Suit suit,
                                           Side side,
                                           price_t price,
-                                          seq_t seq) {
-    return nlohmann::json::to_msgpack(make_order_added_json(order_id, suit, side, price, seq));
+                                          seq_t seq,
+                                          int32_t owner_slot,
+                                          int32_t qty) {
+    return nlohmann::json::to_msgpack(make_order_added_json(order_id, suit, side, price, seq, owner_slot, qty));
 }
 
 std::vector<uint8_t> order_executed_msgpack(order_id_t order_id,
@@ -234,8 +245,9 @@ std::vector<uint8_t> order_executed_msgpack(order_id_t order_id,
                                              Side aggressor,
                                              int buyer_slot,
                                              int seller_slot,
-                                             seq_t seq) {
-    return nlohmann::json::to_msgpack(make_order_executed_json(order_id, suit, price, aggressor, buyer_slot, seller_slot, seq));
+                                             seq_t seq,
+                                             int32_t qty_filled) {
+    return nlohmann::json::to_msgpack(make_order_executed_json(order_id, suit, price, aggressor, buyer_slot, seller_slot, seq, qty_filled));
 }
 
 std::vector<uint8_t> order_cancelled_msgpack(order_id_t order_id,

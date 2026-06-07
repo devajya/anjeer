@@ -68,7 +68,7 @@ TEST_CASE("book_depth_snapshot mirrors book_depth structure", "[market_data_wire
 
 // T09
 TEST_CASE("order_added JSON structure", "[market_data_wire]") {
-    const std::string s = order_added(1001, Suit::Clubs, Side::Buy, 42, 9);
+    const std::string s = order_added(1001, Suit::Clubs, Side::Buy, 42, 9, 0, 1);
     const auto j = nlohmann::json::parse(s);
 
     REQUIRE(j["type"]     == "order_added");
@@ -81,14 +81,14 @@ TEST_CASE("order_added JSON structure", "[market_data_wire]") {
 }
 
 TEST_CASE("order_added sell side", "[market_data_wire]") {
-    const std::string s = order_added(2002, Suit::Hearts, Side::Sell, 60, 1);
+    const std::string s = order_added(2002, Suit::Hearts, Side::Sell, 60, 1, 0, 1);
     const auto j = nlohmann::json::parse(s);
     REQUIRE(j["side"] == "sell");
 }
 
 // T10
 TEST_CASE("order_executed JSON structure", "[market_data_wire]") {
-    const std::string s = order_executed(1001, Suit::Diamonds, 50, Side::Buy, 2, 3, 15);
+    const std::string s = order_executed(1001, Suit::Diamonds, 50, Side::Buy, 2, 3, 15, 1);
     const auto j = nlohmann::json::parse(s);
 
     REQUIRE(j["type"]           == "order_executed");
@@ -148,8 +148,8 @@ TEST_CASE("order_book_snapshot empty books", "[market_data_wire]") {
 // order_executed: 76%).
 TEST_CASE("msgpack payload <= 80% of JSON for market data messages", "[market_data_wire]") {
     // order_added
-    const std::string json_added = order_added(1001, Suit::Clubs, Side::Buy, 42, 9);
-    const auto mp_added = order_added_msgpack(1001, Suit::Clubs, Side::Buy, 42, 9);
+    const std::string json_added = order_added(1001, Suit::Clubs, Side::Buy, 42, 9, 0, 1);
+    const auto mp_added = order_added_msgpack(1001, Suit::Clubs, Side::Buy, 42, 9, 0, 1);
     INFO("order_added JSON=" << json_added.size() << " msgpack=" << mp_added.size());
     REQUIRE(mp_added.size() <= static_cast<size_t>(json_added.size() * 0.80));
 
@@ -162,16 +162,16 @@ TEST_CASE("msgpack payload <= 80% of JSON for market data messages", "[market_da
     REQUIRE(mp_depth.size() <= static_cast<size_t>(json_depth.size() * 0.80));
 
     // order_executed (trade)
-    const std::string json_exec = order_executed(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15);
-    const auto mp_exec = order_executed_msgpack(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15);
+    const std::string json_exec = order_executed(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15, 1);
+    const auto mp_exec = order_executed_msgpack(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15, 1);
     INFO("order_executed JSON=" << json_exec.size() << " msgpack=" << mp_exec.size());
     REQUIRE(mp_exec.size() <= static_cast<size_t>(json_exec.size() * 0.80));
 }
 
 // T14 — msgpack round-trips to identical JSON structure
 TEST_CASE("msgpack decodes to same structure as JSON counterpart", "[market_data_wire]") {
-    const std::string json_str = order_added(2002, Suit::Hearts, Side::Sell, 60, 1);
-    const auto mp = order_added_msgpack(2002, Suit::Hearts, Side::Sell, 60, 1);
+    const std::string json_str = order_added(2002, Suit::Hearts, Side::Sell, 60, 1, 1, 1);
+    const auto mp = order_added_msgpack(2002, Suit::Hearts, Side::Sell, 60, 1, 1, 1);
 
     const auto from_json   = nlohmann::json::parse(json_str);
     const auto from_msgpack = nlohmann::json::from_msgpack(mp);

@@ -65,6 +65,8 @@ export interface TradeMessage {
   qty_ordered: number
   /** Order ID of the resting (passive) order that was hit by this aggressor. */
   passive_order_id: number
+  /** Order ID of the aggressor order that initiated this trade. */
+  aggressor_order_id: number
 }
 
 /** Confirms a successfully cancelled order. Sent only to the cancelling client. */
@@ -583,6 +585,8 @@ export interface OrderAddedMessage {
   suit: string
   side: 'buy' | 'sell'
   price: number
+  owner_slot: number
+  qty: number
 }
 
 /**
@@ -600,6 +604,7 @@ export interface OrderExecutedMessage {
   aggressor_side: 'buy' | 'sell'
   buyer_slot: number
   seller_slot: number
+  qty_filled: number
 }
 
 /** MBO incremental: a resting order was cancelled. */

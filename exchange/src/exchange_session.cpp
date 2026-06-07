@@ -210,6 +210,7 @@ ExchangeResult ExchangeSession::translate(
                 added.side          = ack.side;
                 added.price         = ack.price;
                 added.player_slot   = ack.player_id;
+                added.qty           = ack.qty;
                 added.seq           = seq;
                 result.market.push_back(added);
             },
