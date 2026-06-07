@@ -337,45 +337,6 @@ void HttpServer::register_player_routes(App& app)
         return res;
     });
 
-    // PUT /players/me/feed
-    // Body: { "feed_preference": "mbp1" | "mbpn" | "mbo" }
-    CROW_ROUTE(app, "/players/me/feed").methods(crow::HTTPMethod::Put)
-    ([this](const crow::request& req) -> crow::response {
-        auto auth = require_auth(req, auth_service_, db_pool_, player_repo_);
-        if (auto* err = std::get_if<crow::response>(&auth))
-            return std::move(*err);
-        const auto& player = std::get<Player>(auth);
-
-        nlohmann::json body;
-        try {
-            body = nlohmann::json::parse(req.body);
-        } catch (...) {
-            return make_error(400, "MALFORMED_JSON");
-        }
-
-        if (!body.contains("feed_preference") || !body["feed_preference"].is_string())
-            return make_error(400, "invalid_feed_preference");
-
-        const std::string pref = body["feed_preference"].get<std::string>();
-        if (pref != "mbp1" && pref != "mbpn" && pref != "mbo")
-            return make_error(400, "invalid_feed_preference");
-
-        try {
-            auto handle = db_pool_.acquire();
-            pqxx::work txn(handle.get());
-            player_repo_.update_feed_preference(txn, player.id, pref);
-            txn.commit();
-
-            nlohmann::json j;
-            j["feed_preference"] = pref;
-            crow::response res(200, j.dump());
-            res.set_header("Content-Type", "application/json");
-            return res;
-        } catch (const std::exception& e) {
-            http_log_.error("feed", std::string("update failed: ") + e.what());
-            return make_error(500, "INTERNAL_ERROR");
-        }
-    });
 }
 
 template<typename App>

@@ -126,8 +126,7 @@ struct Harness {
         GameSessionContext ctx{cfg, server_log, engine_log, rng, test_db()};
         ctx.eval_modules = std::move(eval_mods);
         session = std::make_unique<GameSession>(
-            session_id, lobby_id, std::move(slots),
-            mode,
+            LobbySessionParams{session_id, lobby_id, std::move(slots), mode},
             std::move(ctx),
             inbound, outbound);
         session->start();

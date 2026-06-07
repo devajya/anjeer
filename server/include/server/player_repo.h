@@ -49,13 +49,6 @@ public:
                   std::string_view provider,
                   std::string_view oauth_id);
 
-    // Feed preference — persisted as "mbp1", "mbpn", or "mbo".
-    void        update_feed_preference(pqxx::transaction_base& txn,
-                                       int64_t player_id,
-                                       std::string_view pref);
-    std::string get_feed_preference(pqxx::transaction_base& txn,
-                                    int64_t player_id);  // returns "mbp1" if not set
-
 private:
     // AGENT-CTX: Row-to-struct mapping is centralised here so column order
     // changes in the SELECT are caught in one place, not scattered across callers.

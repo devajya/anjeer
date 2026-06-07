@@ -1188,7 +1188,8 @@ struct GameIntegSetup {
     std::string api_key1, api_key2;
 };
 
-static GameIntegSetup setup_game_integ(const std::string& suffix) {
+static GameIntegSetup setup_game_integ(const std::string& suffix,
+                                       anjeer::server::GameMode game_mode = anjeer::server::GameMode::Simple) {
     pqxx::connection direct(TEST_DB_CONN);
     anjeer::server::DbMigrator m(direct, TEST_MIGRATIONS_DIR);
     m.run();
@@ -1218,8 +1219,13 @@ static GameIntegSetup setup_game_integ(const std::string& suffix) {
         pqxx::work txn(direct);
         txn.exec_params(
             "DELETE FROM lobbies WHERE creator_id = $1 AND status IN ('waiting','starting')", p1);
-        auto lobby = test_lobby_repo().create(
-            txn, {static_cast<int64_t>(p1), 2, 8, anjeer::server::LobbyMode::API});
+        anjeer::server::LobbyCreateParams lcp;
+        lcp.creator_id  = static_cast<int64_t>(p1);
+        lcp.min_players = 2;
+        lcp.max_players = 8;
+        lcp.mode        = anjeer::server::LobbyMode::API;
+        lcp.game_mode   = game_mode;
+        auto lobby = test_lobby_repo().create(txn, lcp);
         test_lobby_repo().add_player(txn, lobby.id, p1);
         test_lobby_repo().add_player(txn, lobby.id, p2);
         txn.exec_params("UPDATE lobbies SET status = 'starting' WHERE id = $1", lobby.id);
@@ -1336,24 +1342,15 @@ TEST_CASE("WS server — seq is monotonically increasing within a round",
 }
 
 // ─── T21: MBPN snapshot seq == last event seq; next incremental == snapshot+1 ──
-// Player2 has feed_preference='mbpn' in DB. Player1 submits 3 orders (seq→3).
-// Player2 connects → receives book_depth_snapshot with seq=3. Player1 submits
-// a 4th order → player2 receives book_depth with seq=4 (= snapshot_seq + 1).
+// Lobby uses game_mode=intermediate so both players get FeedTier::MBPN.
+// Player1 submits 3 orders (seq→3). Player2 connects → receives
+// book_depth_snapshot with seq=3. Player1 submits a 4th order → player2
+// receives book_depth with seq=4 (= snapshot_seq + 1).
 
 TEST_CASE("WS server — MBPN snapshot seq matches last event seq; next event is snapshot+1",
           "[ws_server][feed_tier][seq]") {
     ensure_game_server_running();
-    const auto setup = setup_game_integ("seq3");
-
-    // Stamp MBPN preference in DB before player2 connects so the WS upgrade
-    // handler reads it and sets FeedTier::MBPN on that socket.
-    {
-        pqxx::connection direct(TEST_DB_CONN);
-        pqxx::work txn(direct);
-        txn.exec_params("UPDATE players SET feed_preference = 'mbpn' WHERE id = $1",
-                        setup.player2_id);
-        txn.commit();
-    }
+    const auto setup = setup_game_integ("seq3", anjeer::server::GameMode::Intermediate);
 
     WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
     for (int i = 0; i < 20; ++i) {
@@ -1456,15 +1453,7 @@ TEST_CASE("WS server — resync on MBP1 returns book_update per instrument",
 TEST_CASE("WS server — resync on MBPN returns book_depth_snapshot",
           "[ws_server][feed_tier][resync]") {
     ensure_game_server_running();
-    const auto setup = setup_game_integ("resync2");
-
-    {
-        pqxx::connection direct(TEST_DB_CONN);
-        pqxx::work txn(direct);
-        txn.exec_params("UPDATE players SET feed_preference = 'mbpn' WHERE id = $1",
-                        setup.player1_id);
-        txn.commit();
-    }
+    const auto setup = setup_game_integ("resync2", anjeer::server::GameMode::Intermediate);
 
     WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
     for (int i = 0; i < 20; ++i) {
@@ -1492,15 +1481,7 @@ TEST_CASE("WS server — resync on MBPN returns book_depth_snapshot",
 TEST_CASE("WS server — resync on MBO returns order_book_snapshot",
           "[ws_server][feed_tier][resync]") {
     ensure_game_server_running();
-    const auto setup = setup_game_integ("resync3");
-
-    {
-        pqxx::connection direct(TEST_DB_CONN);
-        pqxx::work txn(direct);
-        txn.exec_params("UPDATE players SET feed_preference = 'mbo' WHERE id = $1",
-                        setup.player1_id);
-        txn.commit();
-    }
+    const auto setup = setup_game_integ("resync3", anjeer::server::GameMode::Advanced);
 
     WsTestClient c1(WS_GAME_PORT, "Authorization: Bearer " + setup.api_key1 + "\r\n");
     for (int i = 0; i < 20; ++i) {
