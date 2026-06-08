@@ -88,18 +88,31 @@ TEST_CASE("order_added sell side", "[market_data_wire]") {
 
 // T10
 TEST_CASE("order_executed JSON structure", "[market_data_wire]") {
-    const std::string s = order_executed(1001, Suit::Diamonds, 50, Side::Buy, 2, 3, 15, 1);
+    const std::string s = order_executed(1001, 1002, Suit::Diamonds, 50, Side::Buy, 2, 3, 15, 1);
     const auto j = nlohmann::json::parse(s);
 
-    REQUIRE(j["type"]           == "order_executed");
-    REQUIRE(j["v"]              == kSchemaVersion);
-    REQUIRE(j["seq"]            == 15);
-    REQUIRE(j["order_id"]       == 1001);
-    REQUIRE(j["suit"]           == "diamonds");
-    REQUIRE(j["price"]          == 50);
-    REQUIRE(j["aggressor_side"] == "buy");
-    REQUIRE(j["buyer_slot"]     == 2);
-    REQUIRE(j["seller_slot"]    == 3);
+    REQUIRE(j["type"]                == "order_executed");
+    REQUIRE(j["v"]                   == kSchemaVersion);
+    REQUIRE(j["seq"]                 == 15);
+    REQUIRE(j["order_id"]            == 1001);
+    REQUIRE(j["aggressor_order_id"]  == 1002);
+    REQUIRE(j["suit"]                == "diamonds");
+    REQUIRE(j["price"]               == 50);
+    REQUIRE(j["aggressor_side"]      == "buy");
+    REQUIRE(j["buyer_slot"]          == 2);
+    REQUIRE(j["seller_slot"]         == 3);
+}
+
+// T10b — sell-side aggressor: aggressor_order_id and aggressor_side both reflect sell
+TEST_CASE("order_executed sell aggressor", "[market_data_wire]") {
+    const std::string s = order_executed(2001, 2002, Suit::Hearts, 75, Side::Sell, 5, 6, 20, 1);
+    const auto j = nlohmann::json::parse(s);
+
+    REQUIRE(j["order_id"]           == 2001);
+    REQUIRE(j["aggressor_order_id"] == 2002);
+    REQUIRE(j["aggressor_side"]     == "sell");
+    REQUIRE(j["buyer_slot"]         == 5);
+    REQUIRE(j["seller_slot"]        == 6);
 }
 
 // T11
@@ -161,9 +174,9 @@ TEST_CASE("msgpack payload <= 80% of JSON for market data messages", "[market_da
     INFO("book_depth JSON=" << json_depth.size() << " msgpack=" << mp_depth.size());
     REQUIRE(mp_depth.size() <= static_cast<size_t>(json_depth.size() * 0.80));
 
-    // order_executed (trade)
-    const std::string json_exec = order_executed(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15, 1);
-    const auto mp_exec = order_executed_msgpack(1001, Suit::Hearts, 50, Side::Buy, 2, 3, 15, 1);
+    // order_executed (trade) — passive_order_id=1001, aggressor_order_id=1002
+    const std::string json_exec = order_executed(1001, 1002, Suit::Hearts, 50, Side::Buy, 2, 3, 15, 1);
+    const auto mp_exec = order_executed_msgpack(1001, 1002, Suit::Hearts, 50, Side::Buy, 2, 3, 15, 1);
     INFO("order_executed JSON=" << json_exec.size() << " msgpack=" << mp_exec.size());
     REQUIRE(mp_exec.size() <= static_cast<size_t>(json_exec.size() * 0.80));
 }
