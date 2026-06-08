@@ -829,6 +829,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
             }.dump());
             outbound_.enqueue(GameMboEvent{wire::order_executed(
                 exec->order_id,
+                exec->aggressor_order_id,
                 engine::kAllSuits[exec->instrument_id],
                 exec->price,
                 exec->aggressor_side,

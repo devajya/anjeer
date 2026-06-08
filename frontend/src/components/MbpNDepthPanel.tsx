@@ -24,8 +24,8 @@ function SuitDepthSection({ suit, depth }: { suit: string; depth: SuitDepth | un
           {bids.length === 0 ? (
             <div className="mbpn__empty">—</div>
           ) : (
-            bids.map((lvl, i) => (
-              <div key={i} className="mbpn__row mbpn__row--bid">
+            bids.map(lvl => (
+              <div key={lvl.price} className="mbpn__row mbpn__row--bid">
                 <span className="mbpn__qty">{lvl.qty}</span>
                 <span className="mbpn__at">@</span>
                 <span className="mbpn__price">{lvl.price}</span>
@@ -38,8 +38,8 @@ function SuitDepthSection({ suit, depth }: { suit: string; depth: SuitDepth | un
           {asks.length === 0 ? (
             <div className="mbpn__empty">—</div>
           ) : (
-            asks.map((lvl, i) => (
-              <div key={i} className="mbpn__row mbpn__row--ask">
+            asks.map(lvl => (
+              <div key={lvl.price} className="mbpn__row mbpn__row--ask">
                 <span className="mbpn__qty">{lvl.qty}</span>
                 <span className="mbpn__at">@</span>
                 <span className="mbpn__price">{lvl.price}</span>

@@ -38,9 +38,11 @@ struct OrderAdded {
 };
 
 // Emitted when a crossing submit causes a fill.
-// order_id == seq in v1; do not assume order_id is the resting order's id.
+// order_id is the passive (resting) order's actual ID.
+// aggressor_order_id is the crossing order's actual ID.
 struct OrderExecuted {
-    int64_t         order_id;
+    int64_t         order_id;           // passive order
+    int64_t         aggressor_order_id; // aggressor order
     instrument_id_t instrument_id;
     price_t         price;
     Side            aggressor_side;

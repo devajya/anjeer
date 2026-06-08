@@ -130,7 +130,7 @@ export function applyMessage(
       return { ...s, spectatorCount: msg.count }
 
     case 'script_log':
-      return { ...s, scriptLogs: [...(s.scriptLogs ?? []), msg] }
+      return { ...s, scriptLogs: [...(s.scriptLogs ?? []), { ...msg, _seq: (s.scriptLogs ?? []).length }] }
 
     default:
       return s

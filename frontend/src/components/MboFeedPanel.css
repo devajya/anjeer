@@ -150,15 +150,18 @@
 }
 .mbo-order--mine  { opacity: 1; }
 
-/* Proportional gold fill background — extends from left by --fill-pct */
+/* Proportional fill background — extends from left by --fill-pct, own orders only */
 .mbo-order__fill-bg {
   position: absolute;
   inset: 0;
   right: calc(100% - var(--fill-pct, 0%));
-  background: rgba(232, 184, 109, 0.18);
+  background: transparent;
   pointer-events: none;
   border-radius: 2px;
-  transition: right 0.25s ease;
+  transition: right 0.25s ease, background 0.15s ease;
+}
+.mbo-order--mine .mbo-order__fill-bg {
+  background: rgba(232, 184, 109, 0.18);
 }
 
 /* Resting + mine: gold border, pointer */

@@ -28,6 +28,8 @@ struct TradeEvent {
     Side        aggressor_side;
     int32_t     qty_filled;
     int32_t     qty_ordered;
+    int64_t     passive_order_id  = -1;
+    int64_t     aggressor_order_id = -1;
 };
 
 // Broadcast after every mutation that changes best bid or ask.

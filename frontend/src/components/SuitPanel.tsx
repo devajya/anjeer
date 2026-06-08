@@ -54,6 +54,17 @@ const SUIT_SYMBOLS: Record<string, string> = {
   spades:   '♠',
 }
 
+function useTimedValue<T>(value: T | null, delayMs: number): T | null {
+  const [visible, setVisible] = useState<T | null>(null)
+  useEffect(() => {
+    if (!value) { setVisible(null); return }
+    setVisible(value)
+    const t = setTimeout(() => setVisible(null), delayMs)
+    return () => clearTimeout(t)
+  }, [value, delayMs])
+  return visible
+}
+
 export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   suit,
   book,
@@ -95,21 +106,8 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
     focusOffer: () => { offerInputRef.current?.focus(); offerInputRef.current?.select() },
   }), [])
 
-  const [visibleError, setVisibleError] = useState<ErrorMessage | null>(null)
-  useEffect(() => {
-    if (!error) { setVisibleError(null); return }
-    setVisibleError(error)
-    const t = setTimeout(() => setVisibleError(null), 2000)
-    return () => clearTimeout(t)
-  }, [error])
-
-  const [visibleSelfTradeError, setVisibleSelfTradeError] = useState<string | null>(null)
-  useEffect(() => {
-    if (!selfTradeError) { setVisibleSelfTradeError(null); return }
-    setVisibleSelfTradeError(selfTradeError)
-    const t = setTimeout(() => setVisibleSelfTradeError(null), 2000)
-    return () => clearTimeout(t)
-  }, [selfTradeError])
+  const visibleError          = useTimedValue(error,          2000)
+  const visibleSelfTradeError = useTimedValue(selfTradeError, 2000)
 
   const disabled     = playerId === null
   const hasBid       = book.best_bid !== null

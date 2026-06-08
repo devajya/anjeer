@@ -18,8 +18,15 @@ export function MyOrders({ orders, onCancel }: Props) {
         <p className="my-orders__empty">No active orders.</p>
       ) : (
         <ul className="my-orders__list">
-          {orders.map(o => (
-            <li key={o.order_id} className="my-orders__item">
+          {orders.map(o => {
+            const fillPct = o.qty > 0 ? ((o.qty - o.qty_remaining) / o.qty) * 100 : 0
+            return (
+            <li
+              key={o.order_id}
+              className="my-orders__item"
+              style={{ '--fill-pct': `${fillPct}%` } as React.CSSProperties}
+            >
+              <div className="my-orders__fill-bg" />
               <span className="my-orders__suit-sym">{SUIT_SYMBOLS[o.suit] ?? o.suit}</span>
               <span className={`my-orders__side my-orders__side--${o.side}`}>
                 {o.side.toUpperCase()}
@@ -42,7 +49,8 @@ export function MyOrders({ orders, onCancel }: Props) {
                 ✕
               </button>
             </li>
-          ))}
+            )
+          })}
         </ul>
       )}
     </div>

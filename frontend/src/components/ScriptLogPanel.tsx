@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { ScriptLogMessage } from '../types/messages'
 
 interface Props {
-  logs: ScriptLogMessage[]
+  logs: (ScriptLogMessage & { _seq: number })[]
 }
 
 export function ScriptLogPanel({ logs }: Props) {
@@ -20,8 +20,8 @@ export function ScriptLogPanel({ logs }: Props) {
         {logs.length === 0 ? (
           <span className="script-log-panel__empty">No messages yet…</span>
         ) : (
-          logs.map((entry, i) => (
-            <div key={i} className="script-log-panel__entry">
+          logs.map(entry => (
+            <div key={entry._seq} className="script-log-panel__entry">
               <span className="script-log-panel__ts">
                 {new Date(entry.timestamp).toLocaleTimeString()}
               </span>

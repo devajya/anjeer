@@ -153,7 +153,7 @@ export interface WsState {
   /** Live count of spectators watching this session. Updated by spectator_count events. */
   spectatorCount: number
   /** Script log entries from API-lobby players. Delivered to spectators only. */
-  scriptLogs: import('../types/messages').ScriptLogMessage[]
+  scriptLogs: (import('../types/messages').ScriptLogMessage & { _seq: number })[]
   // ── Slice 10.5 reconnect signals ─────────────────────────────────────────
   // Write-once — never cleared by the hook because clearing would require a
   // second state flush and risks a missed event on fast successive messages.

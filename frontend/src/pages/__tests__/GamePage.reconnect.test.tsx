@@ -58,6 +58,13 @@ vi.mock('../../hooks/useWebSocket', () => ({
     reconnectWindowExpired: false,
     queueState: { status: 'idle' },
     currentOwnerPlayerId: null,
+    currentOwnerUsername: '',
+    departedSlots: [],
+    lobbyState: null,
+    lobbyStarted: null,
+    mboLogs: {},
+    bookDepths: {},
+    gameMode: null,
     ...wsState,
   }),
 }))

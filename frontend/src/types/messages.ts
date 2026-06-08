@@ -591,14 +591,15 @@ export interface OrderAddedMessage {
 
 /**
  * MBO incremental: an order was filled.
- * AGENT-CTX: Use order_id to remove the resting order from a local MBO book.
- * buyer_slot / seller_slot identify the counterparties for display purposes.
+ * order_id is the passive (resting) order. aggressor_order_id is the crossing order.
+ * Both IDs correlate to order_id fields from order_added events.
  */
 export interface OrderExecutedMessage {
   type: 'order_executed'
   v: number
   seq: number
-  order_id: number
+  order_id: number              // passive order
+  aggressor_order_id: number    // aggressor order
   suit: string
   price: number
   aggressor_side: 'buy' | 'sell'

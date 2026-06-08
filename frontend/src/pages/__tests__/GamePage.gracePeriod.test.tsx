@@ -57,6 +57,9 @@ const WS_DEFAULTS = {
   departedSlots: [],
   lobbyState: null,
   lobbyStarted: null,
+  mboLogs: {},
+  bookDepths: {},
+  gameMode: null,
 }
 
 let wsOverrides: Record<string, unknown> = {}

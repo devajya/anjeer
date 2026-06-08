@@ -6,20 +6,12 @@ export interface GameConfig {
   mode:          GameMode
   allowMultiQty: boolean
   wipeOnTrade:   boolean
-  feedTier:      'mbp1' | 'mbpn' | 'mbo'
-}
-
-const FEED_TIER: Record<GameMode, GameConfig['feedTier']> = {
-  simple:       'mbp1',
-  intermediate: 'mbpn',
-  advanced:     'mbo',
 }
 
 const DEFAULT_CONFIG: GameConfig = {
   mode:          'simple',
   allowMultiQty: false,
   wipeOnTrade:   true,
-  feedTier:      'mbp1',
 }
 
 const GameConfigContext = createContext<GameConfig>(DEFAULT_CONFIG)
@@ -29,7 +21,6 @@ export function deriveGameConfig(mode: GameMode): GameConfig {
     mode,
     allowMultiQty: mode !== 'simple',
     wipeOnTrade:   mode !== 'advanced',
-    feedTier:      FEED_TIER[mode],
   }
 }
 

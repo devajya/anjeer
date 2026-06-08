@@ -217,15 +217,16 @@ ExchangeResult ExchangeSession::translate(
             [&](const TradeEvent& trade) {
                 seq_t seq = sequencer_.next_seq();
                 OrderExecuted exec;
-                exec.order_id       = static_cast<int64_t>(seq);
-                exec.instrument_id  = instrument_id;
-                exec.price          = trade.price;
-                exec.aggressor_side = trade.aggressor_side;
-                exec.buyer_slot     = trade.buyer_id;
-                exec.seller_slot    = trade.seller_id;
-                exec.seq            = seq;
-                exec.qty_filled     = trade.qty_filled;
-                exec.qty_ordered    = trade.qty_ordered;
+                exec.order_id            = trade.passive_order_id;
+                exec.aggressor_order_id  = trade.aggressor_order_id;
+                exec.instrument_id       = instrument_id;
+                exec.price               = trade.price;
+                exec.aggressor_side      = trade.aggressor_side;
+                exec.buyer_slot          = trade.buyer_id;
+                exec.seller_slot         = trade.seller_id;
+                exec.seq                 = seq;
+                exec.qty_filled          = trade.qty_filled;
+                exec.qty_ordered         = trade.qty_ordered;
                 result.market.push_back(exec);
             },
             [&](const BookUpdateEvent& bu) {

@@ -19,14 +19,17 @@ std::vector<TradeEvent> OrderBook::match_loop() {
         if (bid.price < ask.price) break;
         if (bid.player_id == ask.player_id) break;
 
-        const bool    bid_is_aggressor = bid.id > ask.id;
-        const Side    aggressor_side   = bid_is_aggressor ? Side::Buy : Side::Sell;
-        const int32_t exec_price       = bid_is_aggressor ? ask.price : bid.price;
-        const int32_t fill             = std::min(bid.qty, ask.qty);
-        const int32_t qty_ordered      = bid_is_aggressor ? bid.original_qty : ask.original_qty;
+        const bool    bid_is_aggressor  = bid.id > ask.id;
+        const Side    aggressor_side    = bid_is_aggressor ? Side::Buy : Side::Sell;
+        const int32_t exec_price        = bid_is_aggressor ? ask.price : bid.price;
+        const int32_t fill              = std::min(bid.qty, ask.qty);
+        const int32_t qty_ordered       = bid_is_aggressor ? bid.original_qty : ask.original_qty;
+        const int64_t passive_oid       = bid_is_aggressor ? ask.id : bid.id;
+        const int64_t aggressor_oid     = bid_is_aggressor ? bid.id : ask.id;
 
         trades.push_back(TradeEvent{
-            cfg_.suit, exec_price, bid.player_id, ask.player_id, aggressor_side, fill, qty_ordered});
+            cfg_.suit, exec_price, bid.player_id, ask.player_id,
+            aggressor_side, fill, qty_ordered, passive_oid, aggressor_oid});
 
         bid.qty -= fill;
         ask.qty -= fill;

@@ -42,6 +42,7 @@ std::string order_added(anjeer::exchange::order_id_t order_id,
 
 // MBO: incremental — fill
 std::string order_executed(anjeer::exchange::order_id_t order_id,
+                           anjeer::exchange::order_id_t aggressor_order_id,
                            anjeer::engine::Suit suit,
                            anjeer::exchange::price_t price,
                            anjeer::exchange::Side aggressor,
@@ -86,6 +87,7 @@ std::vector<uint8_t> order_added_msgpack(anjeer::exchange::order_id_t order_id,
                                           int32_t qty);
 
 std::vector<uint8_t> order_executed_msgpack(anjeer::exchange::order_id_t order_id,
+                                             anjeer::exchange::order_id_t aggressor_order_id,
                                              anjeer::engine::Suit suit,
                                              anjeer::exchange::price_t price,
                                              anjeer::exchange::Side aggressor,
