@@ -47,7 +47,7 @@ Four-layer architecture. Strict dependency direction: Frontend → (WebSocket) �
 
 **Role:** Pure game logic. No network, no JSON, no file I/O. Returns structured events; callers own dispatch.
 
-**Current modules (Slice 13):**
+**Current modules (Slice 15):**
 - `OrderBook` — moved to `exchange/` in Slice 13; re-exported into `anjeer::engine` namespace via shim for backward compatibility. See Exchange Layer below.
 - `GameState` — deals deck, tracks per-player hand counts. Goal suit is **explicit per-deck** (passed in `Config::goal_suit`); it is no longer derived from the distribution. `transfer_card` mutates hand state after each trade for accurate end-of-round scoring. `suit.h` provides the `Suit` enum and color helpers reused by future modules.
 - `ScoringEngine` — pure `score_round()` function. Takes per-player hands, goal suit, disconnected flags, and `ScoringConfig`. `ScoringConfig::bonus_pool` is derived by the server as `pot_size − total_goal_cards × points_per_card` and passed in at scoring time. Computes pot, per-card payout, majority/plurality bonus, and payouts. No I/O; server owns dispatch.
@@ -156,6 +156,8 @@ NetSubmit → GameSession::handle_submit
 
 **Threading model (Slice 11+):** A fourth threading axis — `EvalRunner` owns a single worker thread that drains a lock-free SPSC queue (capacity 64) and fans events out to all registered `EvalModule` instances in registration order. The game-loop thread calls `push_*` methods (non-blocking; drop silently if queue is at capacity). The worker thread calls each module's `on_*` method synchronously in sequence, then invokes the shared `EvalOutputCallback` for each emitted `EvalOutput`. The callback is invoked on the worker thread; the WsServer implementation routes each output to the correct WebSocket recipients (broadcast for target_slot==-1, private for target_slot 0–3). No shared mutable state exists between the game-loop thread and the eval worker — all cross-thread transfer passes through the moodycamel ReaderWriterQueue.
 
+**Encoding (Slice 14+):** The uWS upgrade handler inspects the `Sec-WebSocket-Protocol` request header. If the header contains `anjeer-msgpack`, the connection is flagged `Encoding::Msgpack` and all outbound messages are serialised as binary MessagePack (via `nlohmann::json::to_msgpack`) instead of UTF-8 JSON text. The `/ws/marketdata` endpoint always uses binary msgpack regardless of the header. All other behaviour (SPSC queues, drain loop, session routing) is identical between encodings — the encoding flag is checked only at the final `ws.send()` call.
+
 ## Frontend Layer
 
 **Role:** React UI. WebSocket hook owns connection state and message dispatch. Components are stateless consumers of props.
@@ -170,6 +172,9 @@ App
 │                                               emits leave_lobby on back-nav
 ├── /settings/keybinds   → KeybindSettings   — keybind customisation; GET/PUT /players/me/keybinds
 └── /game                → Game              — reads lobby_id from ?lobby_id= query param (Slice 6+)
+                              │               wrapped in GameConfigProvider (Slice 15); 3-col layout
+                              │               in intermediate/advanced: left=feed+orders,
+                              │               center=depth/mbo, right=overview+suits
                               ├── GameEndScreen      — full-screen on game_ended: final standings + per-round breakdown
                               ├── SessionError       — full-screen on session_error: message + return button
                               ├── InterRoundScreen   — overlay on inter_round: standings + vote-to-end + countdown
@@ -179,8 +184,11 @@ App
                               ├── RoundCountdown     — pre-deal countdown; MM:SS timer during round (red in final 30 s)
                               ├── MarketOverview     — own hand counts + DeltaTable for all players
                               │    └── DeltaTable    — per-player per-suit net card flow this round
-                              ├── SuitPanel (×N)     — per-suit order form + best bid/ask display (with quote-owner colour)
-                              ├── MyOrders           — resting orders list + cancel buttons
+                              ├── MbpNDepthPanel     — intermediate mode center: full price-level depth ladder (Slice 15)
+                              ├── MboFeedPanel       — advanced mode center: MBO event log (Slice 15)
+                              ├── SuitPanel (×N)     — per-suit order form + best bid/ask; multi-qty inputs in
+                              │                        intermediate/advanced mode (Slice 15)
+                              ├── MyOrders           — resting orders; shows qty_remaining/qty in multi-qty modes (Slice 15)
                               ├── TradeFeed          — recent trade history with player names, newest first
                               └── RoundEndModal      — goal suit reveal, standings, payout + new balance; dismiss on click
 ```
@@ -190,6 +198,7 @@ App
 - `useKeyBinds` — fetches per-player keybind overrides from `/players/me/keybinds`; merges with `DEFAULT_BINDS`; exposes stable `binds` map and `update()` method
 - `useKeyboardShortcuts` — attaches global `keydown` listener; dispatches 11 trading actions via inverted combo map; disabled during modal overlays
 - `useOrderForm` — form state for order submission
+- `useGameConfig` (Slice 15) — reads `GameConfigContext`; exposes `gameMode`, `allowMultiQty`, `wipeOnTrade` flags consumed by `SuitPanel` and `MyOrders`
 
 **Wire protocol types:** `frontend/src/types/messages.ts` — discriminated unions, single source of truth. Any protocol change must update this file.
 
@@ -306,6 +315,8 @@ All messages are JSON objects with a `type` string discriminator.
 | API / spectator (Slice 9+) | `api_key_invalid` (key expired or revoked — connection closed after), `rate_limit_warning` (bucket empty), `script_log` (forwarded from script to spectators only) |
 | Lobby bots (Slice 10+) | `player_joined` gains `is_bot`, `bot_uuid`, `bot_difficulty` fields for bot entries |
 | Eval (Slice 11+) | `eval_update` (separate namespace, never mixed with order events) |
+| Market data feed tiers (Slice 14+) | MBP-N: `book_depth` (incremental full-depth snapshot per suit), `book_depth_snapshot` (on connect/resync); MBO: `order_added`, `order_executed`, `order_cancelled`, `order_book_snapshot` (on connect/resync); all carry `seq` + `v` fields; `book_update` gains `seq`+`v` for MBP-1 parity |
+| Advanced mechanics (Slice 15+) | `book_state_snapshot` (bulk best-bid/ask reset broadcast at `begin_round`); `order_partially_filled` (private unicast to order owner on partial fill in advanced mode); `round_start` gains `game_mode` field |
 
 **Client → Server categories:**
 | Category | Messages |
@@ -316,6 +327,7 @@ All messages are JSON objects with a `type` string discriminator.
 | Spectator (Slice 9+) | `spectate_lobby` |
 | Script (Slice 9+) | `script_log` (player → server → spectators; plain string, max 500 chars) |
 | Lobby bots (Slice 10+) | `add_bot` (owner only; `difficulty`: easy/medium/hard), `remove_bot` (owner only; `bot_uuid`) |
+| Market data (Slice 14+) | `resync` — request a full snapshot for the current feed tier |
 | Subscription (Slice 17+) | `subscribe`, `unsubscribe` |
 
 **Error codes (stable strings):** `PRICE_OUT_OF_RANGE`, `ORDER_NOT_FOUND`, `NOT_YOUR_ORDER`, `UNKNOWN_SUIT`, `MALFORMED_MESSAGE`, `SERVER_FULL`, `ROUND_NOT_ACTIVE`, `NOT_LOBBY_OWNER`, `INSUFFICIENT_PLAYERS`, `GAME_ALREADY_STARTED`, `LOBBY_NOT_FOUND`, `LOBBY_FULL`, `ALREADY_JOINED`, `LOBBY_MODE_MISMATCH`, `SPECTATOR_NOT_ALLOWED`

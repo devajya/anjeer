@@ -70,8 +70,8 @@ Sits between the game server and the engine. Owns market mechanics that are inde
 
 - **`ExchangeSession`** — owns all four `OrderBook` instances; routes `submit_order` / `cancel_order` / `cancel_player` through a `Sequencer` that stamps monotonic sequence numbers onto every outbound event. Returns an `ExchangeResult{feedback, market}` — `feedback` is the private operational response to the submitting player; `market` is the observable event broadcast to all participants.
 - **`Sequencer`** — monotonic `seq_t` counter; `next_seq()` / `reset()`. Guarantees strict event ordering across all instruments in a session.
-- **`OrderBook`** — price-time priority limit order matching. Operations: `submit`, `cancel`, `cancel_player`, `wipe`. All prices are `int32_t` — no floats anywhere in the matching path. Quantity is implicitly 1 per order (game mechanic).
-- `wipe()` fires after every trade — all four books cleared atomically; this is a core game rule.
+- **`OrderBook`** — price-time priority limit order matching. Operations: `submit`, `cancel`, `cancel_player`, `wipe`. All prices are `int32_t` — no floats anywhere in the matching path. Multi-quantity orders supported in intermediate and advanced modes.
+- `wipe()` fires after every trade in simple and intermediate modes — all four books cleared atomically. Advanced mode disables the wipe, enabling partial fills: a resting order persists with reduced `qty_remaining` after a partial match.
 
 ### Engine (`engine/`)
 
@@ -97,13 +97,15 @@ Pure game logic — deck dealing, hand tracking, scoring. No market mechanics.
 
 ### Threading Model
 
-Three independent threading axes — no shared mutable state, all cross-thread data flows through lock-free SPSC queues (`moodycamel::ReaderWriterQueue`):
+Four independent threading axes — no shared mutable state, all cross-thread data flows through lock-free SPSC queues (`moodycamel::ReaderWriterQueue`):
 
 ```
 uWS event loop thread
   ├─ parses inbound JSON → enqueues NetEvent onto session's inbound SPSC queue
   ├─ 16ms drain timer → pops GameEvent from session's outbound SPSC queue → WS send
-  └─ drain_bot_actions() → moves bot action_queue_ items → session inbound SPSC queue
+  ├─ drain_bot_actions() → moves bot action_queue_ items → session inbound SPSC queue
+  └─ encoding: JSON text by default; binary msgpack if client negotiated
+    Sec-WebSocket-Protocol: anjeer-msgpack (/ws/marketdata always uses msgpack)
 
 GameSession thread (one per active lobby)
   ├─ owns engine calls, round timers, scoring, DB writes
@@ -112,6 +114,11 @@ GameSession thread (one per active lobby)
 BotScheduler thread pool (configurable, default 4 threads)
   ├─ tick() → drains event_queue_, updates snapshot, calls decide(), enqueues result
   └─ pending_ delay heap → sim_network_delay_ms models realistic bot latency
+
+EvalRunner worker thread (one per active session)
+  ├─ drains 64-slot SPSC queue pushed by the game-loop thread (non-blocking; drops on full)
+  ├─ fans each event to BayesianEvalModule, AccumulationEvalModule, ExecutionEvalModule
+  └─ emits eval outputs via callback → WsServer routes unicast/broadcast to WS handles
 ```
 
 ### GameSession
@@ -211,6 +218,7 @@ React + TypeScript + Vite. State flows down from hooks; components are stateless
 | `useKeyBinds` | Fetches per-player keybind overrides from REST; merges with defaults |
 | `useKeyboardShortcuts` | Global `keydown` listener; dispatches 11 trading actions via inverted combo map |
 | `useEvalMetrics` | Subscribes to `eval.*` messages; exposes posterior, accumulation, guidance state |
+| `useGameConfig` | Reads `GameConfigContext`; exposes `gameMode`, `allowMultiQty`, `wipeOnTrade` flags |
 
 ### Pages & Components
 
@@ -223,15 +231,19 @@ React + TypeScript + Vite. State flows down from hooks; components are stateless
 /auth              OAuth buttons (Login)
 /lobby             Lobby browser — list, create, join by code, active tab
 /lobby/:code       Lobby room — roster, bot controls, start button
-/game              Trading UI
+/game              Trading UI — 3-col layout in intermediate/advanced (left: feed+orders,
+  │                             center: depth/mbo, right: overview+suits)
   ├─ MarketOverview + DeltaTable   — hand counts + per-player net card flow
-  ├─ SuitPanel (×4)                — order form + best bid/ask per suit
-  ├─ MyOrders                      — resting orders + cancel
+  ├─ SuitPanel (×4)                — order form + best bid/ask; multi-qty inputs in
+  │                                  intermediate/advanced modes
+  ├─ MyOrders                      — resting orders + cancel; shows qty_remaining/qty
   ├─ TradeFeed                     — recent trade history
+  ├─ MbpNDepthPanel                — full price-level depth ladder (intermediate center)
+  ├─ MboFeedPanel                  — MBO event log: order_added/executed/cancelled (advanced center)
   ├─ InterRoundScreen              — standings + vote-to-end + countdown
   ├─ RoundEndModal                 — goal reveal, payouts
   ├─ GameEndScreen                 — final standings + per-round breakdown
-  └─ EvalPanel                     — collapsible third column; posterior, signals, guidance
+  └─ EvalPanel                     — collapsible; posterior, accumulation signals, guidance
 /spectate/:lobbyId  Read-only spectator view with script log panel
 /settings/keybinds  Keybind customisation (GET/PUT /players/me/keybinds)
 /api-keys           API key CRUD
@@ -259,24 +271,30 @@ All messages are JSON with a `type` string discriminator. The single source of t
 
 | Type | Description |
 |---|---|
-| `round_start` | Per-player: hand, slot, `round_end_at` timestamp |
-| `trade` | Broadcast; `your_side` field personalized per recipient |
-| `book_update` | Broadcast; suppressed when a trade occurred in the same batch |
+| `round_start` | Per-player: hand, slot, `round_end_at`, `game_mode` |
+| `trade` | Broadcast; `your_side` personalized per recipient; carries `qty_filled`, `aggressor_order_id` |
+| `book_update` | MBP-1: best bid/ask per suit; carries `seq` + `v` |
+| `book_depth` / `book_depth_snapshot` | MBP-N: full price-level depth per suit (incremental / on connect) |
+| `order_added` / `order_executed` / `order_cancelled` | MBO: individual order lifecycle events with `seq` + `v` |
+| `order_book_snapshot` | MBO: full per-suit order list on connect or resync |
+| `book_state_snapshot` | Bulk best-bid/ask reset for all suits at round start |
+| `order_partially_filled` | Private to order owner: partial fill in advanced mode, updated `qty_remaining` |
 | `delta_update` | Full 4×4 net card flow snapshot after every trade |
 | `all_balances` | All slot balances after every trade |
 | `hand_totals` | Total card count per slot after every trade |
 | `inter_round` | Standings, vote tallies, countdown |
-| `eval.posterior_update` | Private per-slot: deck posteriors, settlement EV  |
-| `eval.accumulation_signal` | Broadcast: per-player behavioral signals  |
-| `eval.execution_guidance` | Broadcast: per-suit execution recommendations  |
+| `eval_posterior_update` | Private per-slot: deck posteriors, settlement EV |
+| `eval_accumulation_signal` | Broadcast: per-player behavioral signals |
+| `eval_execution_guidance` | Broadcast: per-suit execution recommendations |
 
 **Client → Server (selected):**
 
 | Type | Description |
 |---|---|
-| `submit_order` | `suit`, `side`, `price` |
+| `submit_order` | `suit`, `side`, `price`, `qty` |
 | `nudge` | Move best quote ±1 on a suit |
 | `cancel_order` | By order ID; server scans all books |
+| `resync` | Request a full snapshot for your current feed tier |
 | `vote_to_end` | Majority vote ends game early |
 | `add_bot` / `remove_bot` | Owner-only lobby bot management |
 | `script_log` | Plain string (≤500 chars); forwarded to spectators |

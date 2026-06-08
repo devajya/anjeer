@@ -10,6 +10,8 @@ export function DocsPage() {
       <nav className="docs__toc">
         <ol>
           <li><a href="#overview">Overview</a></li>
+          <li><a href="#game-modes">Game Modes</a></li>
+          <li><a href="#ui-guide">Understanding the UI</a></li>
           <li><a href="#api-key">Getting an API Key</a></li>
           <li><a href="#connecting">Connecting</a></li>
           <li><a href="#inbound">Inbound Messages (Server → Client)</a></li>
@@ -39,9 +41,192 @@ export function DocsPage() {
           </p>
         </section>
 
-        {/* ── 2. Getting an API Key ───────────────────────────────────── */}
+        {/* ── 2. Game Modes ───────────────────────────────────────────── */}
+        <section id="game-modes">
+          <h2>2. Game Modes</h2>
+          <p>
+            Anjeer has three game modes, selectable when creating a lobby. Each mode
+            changes order mechanics, book behaviour after a trade, and which market data
+            panel appears in the center column.
+          </p>
+
+          <table className="docs__table">
+            <thead>
+              <tr>
+                <th>Mode</th>
+                <th>Order quantity</th>
+                <th>After a trade</th>
+                <th>Center panel</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Simple</strong> (default)</td>
+                <td>qty = 1 per order</td>
+                <td>All four books wiped</td>
+                <td>None — 2-column layout</td>
+              </tr>
+              <tr>
+                <td><strong>Intermediate</strong></td>
+                <td>qty ≥ 1 per order</td>
+                <td>All four books wiped</td>
+                <td>MBP-N depth ladder</td>
+              </tr>
+              <tr>
+                <td><strong>Advanced</strong></td>
+                <td>qty ≥ 1 per order</td>
+                <td>No wipe — partial fills allowed; resting orders persist</td>
+                <td>MBO event feed</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>Simple mode</h3>
+          <p>
+            Each order is for exactly one card. The moment any trade executes, all four
+            order books are wiped clean — every resting order across every suit is
+            cancelled. This creates a fast, high-turnover rhythm where players re-post
+            orders after every trade.
+          </p>
+          <p>
+            Simple mode has the lowest information overhead: you only see the best bid and
+            best ask per suit. Best for learning the game or running short sessions.
+          </p>
+
+          <h3>Intermediate mode</h3>
+          <p>
+            Orders can be for multiple cards at once. The wipe-on-trade mechanic still
+            applies — any executed trade clears all books. However, because orders can
+            be larger, a single trade may carry more cards.
+          </p>
+          <p>
+            The center panel shows the full depth ladder for each suit: every price level
+            with the total resting quantity at that level. This lets you see queue depth
+            and estimate the cost to move through the book.
+          </p>
+
+          <h3>Advanced mode</h3>
+          <p>
+            Multi-quantity orders are supported and <strong>books are not wiped on trade</strong>.
+            A resting order persists after a partial fill — only the matched quantity is removed.
+            The owner receives an <code>order_partially_filled</code> message with the updated
+            <code>qty_remaining</code>. Books are only wiped at round boundaries.
+          </p>
+          <p>
+            The center panel shows the raw MBO (market-by-order) event stream: every
+            <code>order_added</code>, <code>order_executed</code>, and{' '}
+            <code>order_cancelled</code> event as it occurs, with order IDs. This is the
+            highest-fidelity view — use it to track the full lifecycle of specific orders.
+          </p>
+          <p>
+            For API bots in advanced mode: you must handle <code>order_partially_filled</code>
+            to update your resting order&apos;s remaining quantity. Do not clear <code>pending</code>
+            on a partial fill — the order still rests in the book. Only clear on{' '}
+            <code>order_cancel_ack</code> or when <code>qty_remaining</code> reaches zero.
+          </p>
+        </section>
+
+        {/* ── 3. Understanding the UI ─────────────────────────────────── */}
+        <section id="ui-guide">
+          <h2>3. Understanding the UI</h2>
+          <p>
+            In intermediate and advanced modes the game screen uses a three-column layout.
+            Simple mode uses a two-column layout (no center panel).
+          </p>
+
+          <h3>Left column: Trade Feed and My Orders</h3>
+          <p>
+            <strong>Trade Feed</strong> lists recent trades in reverse chronological order.
+            Each entry shows the suit, price, aggressor direction, and both players&apos; names.
+            In advanced mode, partial fills also appear here with a <em>partial</em> label.
+          </p>
+          <p>
+            <strong>My Orders</strong> lists your resting orders. In multi-qty modes each
+            entry displays <code>qty_remaining / qty_total</code> so you can track how much
+            of a large order has been filled. Click the cancel button to remove a resting
+            order. In simple and intermediate modes, orders are wiped automatically after
+            any trade — the list clears without user action.
+          </p>
+
+          <h3>Center column: Depth ladder (intermediate)</h3>
+          <p>
+            The MBP-N panel shows the order book for each suit as a price-level ladder.
+            Bid levels are shown in descending price order (best bid on top); ask levels
+            in ascending order (best ask on top). Each row shows the price and the total
+            resting quantity at that level.
+          </p>
+          <p>
+            The spread — the gap between the best bid and best ask — is highlighted. A
+            wide spread signals low liquidity; a tight spread signals high activity. The
+            panel updates after every order event.
+          </p>
+
+          <h3>Center column: MBO event feed (advanced)</h3>
+          <p>
+            The MBO panel streams individual order-book events as they occur:
+          </p>
+          <ul>
+            <li><strong>order_added</strong> — a new resting limit order entered the book (order ID, suit, side, price, qty)</li>
+            <li><strong>order_executed</strong> — two orders matched (passive order ID, aggressor order ID, price, qty)</li>
+            <li><strong>order_cancelled</strong> — a resting order was cancelled or expired (order ID, suit)</li>
+          </ul>
+          <p>
+            Each event carries a monotonically increasing <code>seq</code> number. Use
+            this to detect gaps in the stream and trigger a resync if needed.
+          </p>
+
+          <h3>Right column: Market Overview and Suit Panels</h3>
+          <p>
+            <strong>Market Overview</strong> shows the total card count for each player
+            slot and the <em>delta table</em> — a grid of net card flow (bought minus sold)
+            per player per suit since round start. Green cells indicate net accumulation;
+            red cells indicate net disposal. The delta table is the strongest public signal
+            for inferring the goal suit: sustained green accumulation of a single suit
+            across multiple players is evidence that suit is the round&apos;s goal.
+          </p>
+          <p>
+            <strong>Suit Panels</strong> contain the order entry form for each suit. The
+            best bid and best ask are shown with the slot colour of the quoting player.
+            In simple mode each form accepts a price only (qty is implicitly 1). In
+            intermediate and advanced modes a quantity field appears on each side, letting
+            you post larger orders in a single submission.
+          </p>
+
+          <h3>Eval Panel</h3>
+          <p>
+            The eval panel (accessible via the Learn tab during a game) shows live signals
+            from the server-side analysis pipeline:
+          </p>
+          <ul>
+            <li>
+              <strong>Posterior</strong> — Bayesian probability distribution over the 12 possible
+              deck configurations, updated after every trade. The bar chart shows each deck&apos;s
+              posterior probability; the goal-suit marginals below it give the probability that
+              each suit is the round goal.
+            </li>
+            <li>
+              <strong>Accumulation</strong> — per-player behavioral signal (Normal / Elevated / High)
+              indicating how aggressively each player is accumulating a particular suit relative to
+              an EWMA baseline. An Elevated or High signal for an opponent is a strong hint about
+              their goal suit.
+            </li>
+            <li>
+              <strong>Execution Guidance</strong> — recommended action (buy / sell / hold) with
+              suit and price, derived from fill-probability analysis and leakage-penalty scoring.
+              This is the eval pipeline&apos;s single best recommendation given current book state
+              and your posterior belief.
+            </li>
+          </ul>
+          <p>
+            Eval signals are sent as private unicasts (posterior, execution guidance) or
+            broadcasts (accumulation) from a dedicated worker thread and arrive slightly
+            after the order events that triggered them.
+          </p>
+        </section>
+
+        {/* ── 4. Getting an API Key ───────────────────────────────────── */}
         <section id="api-key">
-          <h2>2. Getting an API Key</h2>
+          <h2>4. Getting an API Key</h2>
           <ol>
             <li>Log in and navigate to <a href="/api-keys">Settings → API Keys</a>.</li>
             <li>Enter a name and click <strong>Generate API Key</strong>.</li>
@@ -50,9 +235,9 @@ export function DocsPage() {
           </ol>
         </section>
 
-        {/* ── 3. Connecting ───────────────────────────────────────────── */}
+        {/* ── 5. Connecting ───────────────────────────────────────────── */}
         <section id="connecting">
-          <h2>3. Connecting</h2>
+          <h2>5. Connecting</h2>
           <h3>WebSocket URL</h3>
           <pre><code>{`ws://<host>/ws`}</code></pre>
           <h3>Authentication</h3>
@@ -102,9 +287,9 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <pre><code>{`g++ -std=c++17 -O2 anjeer_template.cpp -lboost_system -lpthread -o anjeer_bot`}</code></pre>
         </section>
 
-        {/* ── 4. Inbound Messages ─────────────────────────────────────── */}
+        {/* ── 6. Inbound Messages ─────────────────────────────────────── */}
         <section id="inbound">
-          <h2>4. Inbound Messages (Server → Client)</h2>
+          <h2>6. Inbound Messages (Server → Client)</h2>
           <p>All messages are JSON objects with a <code>type</code> discriminant.</p>
 
           <h3><code>player_hello</code></h3>
@@ -201,6 +386,24 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <p>Forwarded to <em>spectators only</em> when an API-lobby player sends a script_log command. Control characters stripped, truncated to 500 chars.</p>
           <pre><code>{`{ type: 'script_log', player_slot: number, message: string, timestamp: number }`}</code></pre>
 
+          <h3><code>order_partially_filled</code></h3>
+          <p>
+            Sent privately to the order owner when a resting order is partially filled in
+            advanced mode (<code>wipe_on_trade = false</code>). The order remains in the book
+            with the updated remaining quantity — do not clear your pending-order state on
+            this message.
+          </p>
+          <pre><code>{`{ type: 'order_partially_filled', order_id: number, suit: string, qty_remaining: number }`}</code></pre>
+
+          <h3><code>book_state_snapshot</code></h3>
+          <p>
+            Broadcast to all clients at the start of each round (<code>begin_round</code>).
+            Carries the best-bid and best-ask reset for all four suits simultaneously,
+            confirming the cleared book state after the round-boundary wipe.
+          </p>
+          <pre><code>{`{ type: 'book_state_snapshot',
+  suits: [{ suit, best_bid, best_ask, best_bid_slot, best_ask_slot }, ...] }`}</code></pre>
+
           <h3><code>heartbeat</code></h3>
           <p>Sent by the server at a fixed interval. No response required — safe to ignore.</p>
           <pre><code>{`{ type: 'heartbeat', server_time: string /* ISO 8601 UTC */ }`}</code></pre>
@@ -210,9 +413,9 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <pre><code>{`{ type: 'waiting_for_start', connected: number, required: number }`}</code></pre>
         </section>
 
-        {/* ── 5. Outbound Messages ────────────────────────────────────── */}
+        {/* ── 7. Outbound Messages ────────────────────────────────────── */}
         <section id="outbound">
-          <h2>5. Outbound Messages (Client → Server)</h2>
+          <h2>7. Outbound Messages (Client → Server)</h2>
 
           <h3><code>submit_order</code></h3>
           <pre><code>{`{ type: 'submit_order', suit: 'clubs'|'diamonds'|'hearts'|'spades', side: 'buy'|'sell', price: number }`}</code></pre>
@@ -250,9 +453,9 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           <pre><code>{`{ type: 'spectate_lobby', lobby_id: string }`}</code></pre>
         </section>
 
-        {/* ── 6. Event Sequences ──────────────────────────────────────── */}
+        {/* ── 8. Event Sequences ──────────────────────────────────────── */}
         <section id="sequences">
-          <h2>6. Event Sequences</h2>
+          <h2>8. Event Sequences</h2>
 
           <h3>Round lifecycle</h3>
           <ol>
@@ -274,9 +477,9 @@ ANJEER_LOBBY_CODE       # Lobby code your script is participating in`}</code></p
           </ol>
         </section>
 
-        {/* ── 7. Bot Design Patterns ──────────────────────────────────── */}
+        {/* ── 9. Bot Design Patterns ──────────────────────────────────── */}
         <section id="bot-patterns">
-          <h2>7. Bot Design Patterns</h2>
+          <h2>9. Bot Design Patterns</h2>
           <p>
             The message schemas above describe individual events. This section describes how
             to compose them into a working bot — covering the state you need to track, the
@@ -381,9 +584,9 @@ const inc = deltas[p][s] - prevDeltas[p][s]
           </p>
         </section>
 
-        {/* ── 8. Market Data Feed ─────────────────────────────────────── */}
+        {/* ── 10. Market Data Feed ────────────────────────────────────── */}
         <section id="market-data">
-          <h2>8. Market Data Feed</h2>
+          <h2>10. Market Data Feed</h2>
           <p>
             Anjeer exposes three tiers of market data detail. Each tier is a strict superset
             of the previous — MBO contains everything MBP-N contains, which contains everything
@@ -592,9 +795,9 @@ function bestAsk(suit) {
           </p>
         </section>
 
-        {/* ── 9. Template Downloads ───────────────────────────────────── */}
+        {/* ── 11. Template Downloads ──────────────────────────────────── */}
         <section id="templates">
-          <h2>9. Template Downloads</h2>
+          <h2>11. Template Downloads</h2>
           <p>
             These templates handle connection, authentication, and all message types.
             They are designed to be launched via <code>anjeer join</code> or <code>anjeer create</code> —
