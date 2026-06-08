@@ -70,6 +70,26 @@
   grid-template-columns: 200px 2fr 3fr 280px;
 }
 
+/* Feed collapsed: shrink left column to a 32px vertical strip (mirrors eval) */
+.app__layout--feed-collapsed {
+  grid-template-columns: 32px 1fr 32px;
+}
+.app__layout--feed-collapsed.app__layout--eval-open {
+  grid-template-columns: 32px 1fr 280px;
+}
+.app__layout--feed-collapsed.app__layout--center-col {
+  grid-template-columns: 32px 220px 1fr 32px;
+}
+.app__layout--feed-collapsed.app__layout--center-col.app__layout--eval-open {
+  grid-template-columns: 32px 220px 1fr 280px;
+}
+.app__layout--feed-collapsed.app__layout--advanced {
+  grid-template-columns: 32px 2fr 3fr 32px;
+}
+.app__layout--feed-collapsed.app__layout--advanced.app__layout--eval-open {
+  grid-template-columns: 32px 2fr 3fr 280px;
+}
+
 /* Center column: depth/MBO panel, scrolls independently */
 .app__center-col {
   display: flex;
@@ -98,9 +118,34 @@
   min-height: 0;
 }
 
-/* When collapsed, shrink to header only (overrides the flex:1 above). */
+/* When collapsed, fill the narrow column as a vertical strip. */
 .app__left-col .panel--feed.panel--collapsed {
-  flex: none;
+  flex: 1;
+}
+
+/* Hide my-orders when feed is collapsed (no room in 32px column). */
+.app__left-col .panel--feed.panel--collapsed ~ * {
+  display: none;
+}
+
+/* Collapsed header becomes a full-height vertical toggle strip. */
+.app__left-col .panel--feed.panel--collapsed .panel__header {
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-bottom: none;
+  padding: 0.75rem 0;
+  gap: 0.4rem;
+}
+
+.app__left-col .panel--feed.panel--collapsed .panel__title {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.1em;
+}
+
+.app__left-col .panel--feed.panel--collapsed .panel__collapse-icon {
+  font-size: 0.75rem;
 }
 
 /* My Orders: fixed height at bottom of left column, never steals from feed */

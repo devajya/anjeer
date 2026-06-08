@@ -28,11 +28,16 @@
 .eval-panel:not(.eval-panel--expanded) .eval-panel__toggle {
   flex-direction: column;
   justify-content: center;
+  align-items: center;
   width: 100%;
   flex: 1;
-  gap: 0.3rem;
-  writing-mode: vertical-rl;
+  gap: 0.4rem;
   padding: 0.75rem 0;
+}
+
+.eval-panel:not(.eval-panel--expanded) .eval-panel__toggle-label {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.1em;
 }
 
 /* Expanded: horizontal header bar */

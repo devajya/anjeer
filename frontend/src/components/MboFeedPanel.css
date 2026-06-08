@@ -147,6 +147,7 @@
   cursor: default;
   overflow: hidden;
   opacity: 0.45;
+  flex-shrink: 0;
 }
 .mbo-order--mine  { opacity: 1; }
 

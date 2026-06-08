@@ -228,9 +228,10 @@ export function Game() {
 
   const layoutClass = [
     'app__layout',
-    evalExpanded                      ? 'app__layout--eval-open'  : '',
-    activeMode === 'intermediate'     ? 'app__layout--center-col' : '',
-    activeMode === 'advanced'         ? 'app__layout--advanced'   : '',
+    evalExpanded                      ? 'app__layout--eval-open'      : '',
+    activeMode === 'intermediate'     ? 'app__layout--center-col'     : '',
+    activeMode === 'advanced'         ? 'app__layout--advanced'       : '',
+    tradeFeedCollapsed                ? 'app__layout--feed-collapsed' : '',
   ].filter(Boolean).join(' ')
 
   return (
@@ -288,7 +289,7 @@ export function Game() {
               <div ref={tradeFeedRef} className={`panel panel--feed${tradeFeedCollapsed ? ' panel--collapsed' : ''}`} data-panel-id="trade-feed">
                 <div className="panel__header" onClick={() => setTradeFeedCollapsed(v => !v)} style={{ cursor: 'pointer' }}>
                   <span className="panel__title">Trade History</span>
-                  <span className="panel__collapse-icon">{tradeFeedCollapsed ? '▸' : '▾'}</span>
+                  <span className="panel__collapse-icon">{tradeFeedCollapsed ? '▶' : '◀'}</span>
                 </div>
                 {!tradeFeedCollapsed && (
                   <div className="panel__body">
