@@ -323,7 +323,6 @@ export function Game() {
                       : <MboFeedPanel
                           mboLogs={mboLogs}
                           myOrders={myOrders}
-                          books={books}
                           onCancel={handleCancel}
                           roster={roster}
                           playerSlot={playerSlot}

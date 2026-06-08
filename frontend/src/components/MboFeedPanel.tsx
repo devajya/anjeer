@@ -9,7 +9,6 @@ interface RosterEntry { player_slot: number; username: string }
 interface Props {
   mboLogs:     Record<string, MboLogEntry[]>
   myOrders:    MyOrder[]
-  books:       Record<string, unknown>
   onCancel:    (orderId: number) => void
   roster?:     RosterEntry[]
   playerSlot?: number | null
@@ -141,10 +140,18 @@ function buildOrderSummaries(
         isLive:     false,
       })
     } else if (e.kind === 'executed') {
-      const s = orders.get(e.order_id)
-      if (s) {
-        s.qty_filled += e.qty_filled ?? 1
-        if (s.qty_filled >= s.qty) s.status = 'filled'
+      const fillAmt = e.qty_filled ?? 1
+      const passive = orders.get(e.order_id)
+      if (passive) {
+        passive.qty_filled += fillAmt
+        if (passive.qty_filled >= passive.qty) passive.status = 'filled'
+      }
+      if (e.aggressor_order_id != null) {
+        const aggressor = orders.get(e.aggressor_order_id)
+        if (aggressor) {
+          aggressor.qty_filled += fillAmt
+          if (aggressor.qty_filled >= aggressor.qty) aggressor.status = 'filled'
+        }
       }
     } else if (e.kind === 'cancelled') {
       const s = orders.get(e.order_id)
@@ -152,13 +159,12 @@ function buildOrderSummaries(
     }
   }
 
-  // Refresh isLive after processing all events.
-  // Gate on status=resting: filled orders must not show a cancel button even if
-  // myOrders briefly still contains them (order_executed and trade arrive in
-  // separate WS frames, leaving a render window where both would be true).
+  // isLive = order is in myOrders (qty_remaining > 0, not cancelled).
+  // myOrders is the single source of truth for cancel eligibility; the MBO
+  // status field is only used for visual fill state, not for gating the button.
   for (const [id, s] of orders) {
     const key = `${suit}:${id}`
-    s.isLive = s.status === 'resting' && liveIds.has(key)
+    s.isLive = liveIds.has(key)
   }
 
   return [...orders.values()]

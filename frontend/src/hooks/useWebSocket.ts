@@ -33,11 +33,7 @@ export interface BookState {
   best_ask_slot: number | null
 }
 
-// AGENT-CTX: MyOrder is a client-side snapshot of an acknowledged resting order.
-// It is populated from order_ack messages and pruned on order_cancel_ack or trade.
-// On a global wipe (any trade executes) the server clears ALL books, so myOrders
-// is also cleared entirely. If per-suit-only wipe is adopted in a future slice,
-// change the trade handler to filter by suit instead of clearing the whole array.
+// Cleared on trade in simple/intermediate (global wipe); preserved in advanced (no-wipe) mode.
 export interface MyOrder {
   order_id:      number
   suit:          string
@@ -72,13 +68,10 @@ export interface WsState {
   /**
    * Current best bid/ask per active suit, keyed by suit name (e.g. "S1").
    * Populated as book_update messages arrive. Empty on first render.
-   * AGENT-CTX: Slice 3 adds 3 more suits — this map scales automatically.
    */
   books: Record<string, BookState>
   /**
    * Most recent trades, newest first. Capped at MAX_TRADE_HISTORY entries.
-   * AGENT-CTX: Cap chosen to keep the feed readable and avoid unbounded growth.
-   * If a persistent trade log is needed, that belongs in the server (Slice 12).
    */
   trades: TradeEntry[]
   /**
@@ -115,25 +108,22 @@ export interface WsState {
    * Current lobby fill state. Non-null while phase == Waiting (before countdown).
    * Null once round_starting arrives. Frontend shows Start Game button when
    * connected === required.
-   * AGENT-CTX: Slice 6 replaces this with a per-lobby lobby_joined/left feed.
    */
   waitingForStart: WaitingForStartMessage | null
   /**
    * Full lobby snapshot. Set on lobby_state; players array is updated
    * incrementally by player_joined / player_left without a full re-fetch.
-   * AGENT-CTX: Null when not subscribed to any lobby (e.g. on the Game page).
    */
   lobbyState: LobbyStateMessage | null
   /**
    * Set when lobby_started arrives. LobbyRoom watches this in a useEffect
    * and navigates to /game?lobby_id=... when lobby_id matches current lobby.
-   * AGENT-CTX: Never cleared by the hook — cleared implicitly on next WS reconnect.
-   * The lobby_id guard in LobbyRoom prevents spurious re-navigation.
+   * Never cleared by the hook — the lobby_id guard in LobbyRoom prevents
+   * spurious re-navigation on reconnect.
    */
   lobbyStarted: LobbyStartedMessage | null
   /**
    * Set on inter_round; cleared when a new round_start arrives.
-   * AGENT-CTX: Task 10 renders InterRoundScreen while this is non-null.
    */
   interRound: InterRoundMessage | null
   /** Set on game_ended; never cleared — the session is over at that point. */
@@ -142,8 +132,7 @@ export interface WsState {
   sessionError: SessionErrorMessage | null
   /**
    * Slot indices of players who disconnected mid-game (game_player_left).
-   * AGENT-CTX: Accumulates across the session so the UI can keep departed
-   * players greyed out even after multiple departures.
+   * Accumulates so the UI keeps departed players greyed out after multiple departures.
    */
   departedSlots: number[]
   /**
@@ -166,10 +155,8 @@ export interface WsState {
   /** Script log entries from API-lobby players. Delivered to spectators only. */
   scriptLogs: import('../types/messages').ScriptLogMessage[]
   // ── Slice 10.5 reconnect signals ─────────────────────────────────────────
-  // AGENT-CTX: These three fields are write-once signals set by the switch below
-  // and consumed by useReconnect / Game.tsx. They are never cleared by the hook
-  // because Game.tsx reacts via useEffect on change; clearing them would require
-  // a second state flush and risks a missed event on fast successive messages.
+  // Write-once — never cleared by the hook because clearing would require a
+  // second state flush and risks a missed event on fast successive messages.
   /** Latest reconnect_token message from server. null until first token issued. */
   reconnectTokenMsg: { token: string; expires_at: number } | null
   /** Full state snapshot from server on slot reattach. null until first reattach. */
@@ -181,7 +168,6 @@ export interface WsState {
   /**
    * player_id of the current session owner. Set on lobby_owner_changed (unicast
    * on attach, broadcast on transfer). null until first message received.
-   * AGENT-CTX: Owner controls inter-round start; non-owners see a waiting message.
    */
   currentOwnerPlayerId: number | null
   /** Username of the current session owner. Set alongside currentOwnerPlayerId. */
@@ -189,9 +175,8 @@ export interface WsState {
   // ── Slice 11: Eval signals ────────────────────────────────────────────────
   /**
    * Latest Bayesian posterior update for this player slot. null until the first
-   * eval_posterior_update message arrives.
-   * AGENT-CTX: Overwritten on each new message (not accumulated); the eval
-   * pipeline sends a full posterior snapshot each time, not incremental deltas.
+   * eval_posterior_update message arrives. Overwritten on each message — the eval
+   * pipeline sends full snapshots, not incremental deltas.
    */
   evalPosteriorUpdate: import('../types/messages').EvalPosteriorUpdateMessage | null
   evalAccumulationSignal: import('../types/messages').EvalAccumulationSignalMessage | null
@@ -221,15 +206,8 @@ export interface MboLogEntry {
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-// AGENT-CTX: url must be a relative path starting with '/' (e.g. '/ws').
-// The hook constructs an absolute ws:// or wss:// URL from window.location so
-// the same code works in dev (Vite proxy) and production (nginx proxy).
-// Do NOT pass a hardcoded absolute URL — that breaks the proxy abstraction.
-// AGENT-CTX: ownsBestBidBySuit / ownsBestAskBySuit are derived per-render from
-// state.books and state.myOrders. They are not stored in WsState (they would
-// need to be recomputed on every books or myOrders change anyway). Exposed in
-// the return type so App.tsx can pass them to SuitPanel without prop-drilling
-// through an intermediate component.
+// url must be a relative path (e.g. '/ws') — the hook builds the absolute ws(s):// URL
+// from window.location so the same code works behind Vite's proxy and nginx.
 export type UseWebSocketReturn = WsState & {
   sendMessage:        (cmd: ClientCommand) => void
   ownsBestBidBySuit:  Record<string, boolean>
@@ -288,8 +266,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     mboLogs: {},
   })
 
-  // AGENT-CTX: wsRef holds the live WebSocket instance so sendMessage (defined
-  // outside the effect) can call ws.send() without being recreated on every render.
   const wsRef = useRef<WebSocket | null>(null)
   // Local counter for TradeEntry.id — never reset, guarantees unique React keys.
   const tradeSeqRef = useRef(0)
@@ -345,10 +321,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         return
       }
 
-      // AGENT-CTX: Exhaustive switch on msg.type. TypeScript enforces that every
-      // variant of ServerMessage is handled. If a new type is added to the union
-      // in messages.ts but not here, the `default` never-check will surface it
-      // as a compile error. Do not remove the default branch.
+      // Exhaustive switch — the `default` never-check surfaces unhandled ServerMessage variants at compile time.
       switch (msg.type) {
         case 'player_hello':
           logger.info('ws/recv', `player_hello player_id=${msg.player_id}`)
@@ -558,11 +531,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         }
 
         case 'game_state_snapshot': {
-          // AGENT-CTX: Full state restore on slot reattach. Game state lives here
-          // (not in useReconnect) to keep a single source of truth for hand/books/etc.
-          // Books are derived from full bids/asks: best bid = max bid price, best ask
-          // = min ask price. myOrders reconstructed by filtering on player_slot.
-          // roundEndAt is computed as absolute ISO from relative remaining seconds.
+          // State lives here (not in useReconnect) to keep a single source of truth for hand/books/etc.
+          // Books derived from full bids/asks; myOrders reconstructed by filtering on player_slot.
           const snap: GameStateSnapshotMessage = msg
           logger.info('ws/recv', `game_state_snapshot slot=${snap.player_slot} timer=${snap.round_timer_remaining}`)
 
@@ -611,8 +581,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         }
 
         case 'game_bot_replaced': {
-          // AGENT-CTX: A queued player displaced a bot — update roster so the
-          // trade feed shows the correct username for that slot going forward.
           logger.info('ws/recv', `game_bot_replaced slot=${msg.slot_index} username=${msg.username}`)
           setState(s => ({
             ...s,
@@ -779,8 +747,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         }
 
         default: {
-          // AGENT-CTX: Exhaustiveness check. TypeScript errors here if a new
-          // ServerMessage variant is added but not handled above.
+          // Exhaustiveness check — TypeScript errors here if a new ServerMessage variant is unhandled.
           const _exhaustive: never = msg
           logger.warn('ws/recv', 'unhandled message type', _exhaustive)
           break
@@ -800,9 +767,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     }
   }, [url])
 
-  // AGENT-CTX: sendMessage is stable across renders (useCallback + empty deps).
-  // AGENT-CTX: readyState guard prevents silent drops — log a warning instead
-  // so the log file shows when sends are attempted on a non-open socket.
   const sendMessage = useCallback((cmd: ClientCommand): void => {
     // Record which suit this command targets so an incoming error can be
     // keyed to the correct SuitPanel. Commands with no suit use null → '_'.
@@ -820,9 +784,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     }
   }, [])
 
-  // AGENT-CTX: subscribeLobby/unsubscribeLobby are thin wrappers so callers do not
-  // need to import SubscribeLobbyCommand / UnsubscribeLobbyCommand from messages.ts.
-  // sendMessage is stable (empty-dep useCallback), so these are also stable.
   const subscribeLobby = useCallback((lobby_id: string) => {
     sendMessage({ type: 'subscribe_lobby', lobby_id })
   }, [sendMessage])
