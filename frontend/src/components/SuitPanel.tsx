@@ -117,10 +117,8 @@ export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   const noCards      = suitCardCount !== null && suitCardCount === 0
   const cantAffordAsk = balance !== null && book.best_ask !== null && book.best_ask > balance
 
-  const BID_NEUTRAL = '#0e0e0e'
-  const ASK_NEUTRAL = '#0e0e0e'
-  const bidBackground = bidPlayerColor ? `linear-gradient(to right, ${bidPlayerColor}, transparent)` : BID_NEUTRAL
-  const askBackground = askPlayerColor ? `linear-gradient(to left, ${askPlayerColor}, transparent)` : ASK_NEUTRAL
+  const bidBackground = bidPlayerColor ? `linear-gradient(to right, ${bidPlayerColor}, transparent)` : 'var(--color-bg-base)'
+  const askBackground = askPlayerColor ? `linear-gradient(to left, ${askPlayerColor}, transparent)` : 'var(--color-bg-base)'
 
   const parsedBuyQty  = Math.max(1, parseInt(buyQtyInput,  10) || 1)
   const parsedSellQty = Math.max(1, parseInt(sellQtyInput, 10) || 1)

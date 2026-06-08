@@ -13,8 +13,6 @@ import type {
   GameEndedMessage,
   SessionErrorMessage,
   GameStateSnapshotMessage,
-  LobbyOwnerChangedMessage,
-  LobbySettingsChangedMessage,
   PlayersAround,
 } from '../types/messages'
 import { logger } from '../logger'
@@ -208,16 +206,17 @@ export interface WsState {
 }
 
 export interface MboLogEntry {
-  kind:        'added' | 'executed' | 'cancelled'
-  seq:         number
-  order_id:    number
-  price:       number | null
-  side?:       'buy' | 'sell'
-  owner_slot?: number   // 'added' only
-  qty?:        number   // 'added' only — original order qty
-  qty_filled?: number   // 'executed' only
-  buyer_slot?: number   // 'executed' only
-  seller_slot?: number  // 'executed' only
+  kind:               'added' | 'executed' | 'cancelled'
+  seq:                number
+  order_id:           number
+  price:              number | null
+  side?:              'buy' | 'sell'
+  owner_slot?:        number    // 'added' only
+  qty?:               number    // 'added' only — original order qty
+  qty_filled?:        number    // 'executed' only
+  aggressor_order_id?: number   // 'executed' only — the crossing order's id
+  buyer_slot?:        number    // 'executed' only
+  seller_slot?:       number    // 'executed' only
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -382,10 +381,9 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
         case 'order_cancel_ack': {
           logger.info('ws/recv', `order_cancel_ack order_id=${msg.order_id}`)
-          const cancelMsg = msg
           setState(s => ({
             ...s,
-            myOrders: s.myOrders.filter(o => o.order_id !== cancelMsg.order_id),
+            myOrders: s.myOrders.filter(o => o.order_id !== msg.order_id),
           }))
           break
         }
@@ -668,28 +666,26 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         }
 
         case 'lobby_owner_changed': {
-          const ownerMsg = msg as LobbyOwnerChangedMessage
-          logger.info('ws/recv', `lobby_owner_changed — new owner player_id=${ownerMsg.new_owner_player_id} (${ownerMsg.new_owner_username})`)
+          logger.info('ws/recv', `lobby_owner_changed — new owner player_id=${msg.new_owner_player_id} (${msg.new_owner_username})`)
           setState(s => ({
             ...s,
-            currentOwnerPlayerId: ownerMsg.new_owner_player_id,
-            currentOwnerUsername: ownerMsg.new_owner_username,
+            currentOwnerPlayerId: msg.new_owner_player_id,
+            currentOwnerUsername: msg.new_owner_username,
           }))
           break
         }
 
         case 'lobby_settings_changed': {
-          const changed = msg as LobbySettingsChangedMessage
-          logger.info('ws/recv', `lobby_settings_changed lobby_id=${changed.lobby_id} spawn_bots_on_leave=${changed.spawn_bots_on_leave} game_mode=${changed.game_mode}`)
+          logger.info('ws/recv', `lobby_settings_changed lobby_id=${msg.lobby_id} spawn_bots_on_leave=${msg.spawn_bots_on_leave} game_mode=${msg.game_mode}`)
           setState(s => {
-            if (!s.lobbyState || s.lobbyState.lobby_id !== changed.lobby_id) return s
+            if (!s.lobbyState || s.lobbyState.lobby_id !== msg.lobby_id) return s
             return {
               ...s,
               lobbyState: {
                 ...s.lobbyState,
-                spawn_bots_on_leave:  changed.spawn_bots_on_leave  ?? s.lobbyState.spawn_bots_on_leave,
-                bot_spawn_difficulty: changed.bot_spawn_difficulty ?? s.lobbyState.bot_spawn_difficulty,
-                game_mode:            changed.game_mode            ?? s.lobbyState.game_mode,
+                spawn_bots_on_leave:  msg.spawn_bots_on_leave  ?? s.lobbyState.spawn_bots_on_leave,
+                bot_spawn_difficulty: msg.bot_spawn_difficulty ?? s.lobbyState.bot_spawn_difficulty,
+                game_mode:            msg.game_mode            ?? s.lobbyState.game_mode,
               },
             }
           })
@@ -736,7 +732,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         case 'order_executed': {
           const entry: MboLogEntry = {
             kind: 'executed', seq: msg.seq, order_id: msg.order_id, price: msg.price,
-            qty_filled: msg.qty_filled, buyer_slot: msg.buyer_slot, seller_slot: msg.seller_slot,
+            qty_filled: msg.qty_filled, aggressor_order_id: msg.aggressor_order_id,
+            buyer_slot: msg.buyer_slot, seller_slot: msg.seller_slot,
           }
           setState(s => ({
             ...s,
