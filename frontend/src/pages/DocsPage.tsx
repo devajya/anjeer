@@ -9,6 +9,7 @@ export function DocsPage() {
 
       <nav className="docs__toc">
         <ol>
+          <li><a href="#getting-started">Getting Started</a></li>
           <li><a href="#overview">Overview</a></li>
           <li><a href="#game-modes">Game Modes</a></li>
           <li><a href="#ui-guide">Understanding the UI</a></li>
@@ -24,6 +25,90 @@ export function DocsPage() {
       </nav>
 
       <main className="docs__body">
+
+        {/* ── 0. Getting Started ──────────────────────────────────────── */}
+        <section id="getting-started">
+          <h2>Getting Started</h2>
+          <p>Everything you need to go from zero to running your first bot.</p>
+
+          <div className="docs__steps">
+
+            <div className="docs__step">
+              <div className="docs__step-num">1</div>
+              <div className="docs__step-body">
+                <h3>Get an API key</h3>
+                <p>
+                  Log in, then go to <strong>API Keys</strong> in the nav bar. Click{' '}
+                  <strong>Generate API Key</strong> and copy the key immediately — it is shown
+                  only once. It starts with <code>ank_</code> and expires after 30 days.
+                </p>
+                <a className="docs__step-link" href="/api-keys">Open API Keys →</a>
+              </div>
+            </div>
+
+            <div className="docs__step">
+              <div className="docs__step-num">2</div>
+              <div className="docs__step-body">
+                <h3>Install the CLI</h3>
+                <pre><code>{`pip install anjeer`}</code></pre>
+                <p>Requires Python ≥ 3.9. The CLI handles lobby join, environment setup, and script launch.</p>
+              </div>
+            </div>
+
+            <div className="docs__step">
+              <div className="docs__step-num">3</div>
+              <div className="docs__step-body">
+                <h3>Run setup</h3>
+                <pre><code>{`anjeer setup`}</code></pre>
+                <p>
+                  Prompts for your language (Python or C++), installs dependencies automatically,
+                  copies a starter template to your current directory, and saves your API key.
+                  The template already handles connection, authentication, and every message type —
+                  you only need to fill in the strategy handlers.
+                </p>
+                <p>Or download a template directly:</p>
+                <div className="docs__templates">
+                  <a
+                    className="docs__template-link"
+                    href="/examples/anjeer_template.py"
+                    download="anjeer_template.py"
+                  >
+                    Python template
+                    <span className="docs__template-meta">anjeer_template.py · websockets + asyncio</span>
+                  </a>
+                  <a
+                    className="docs__template-link"
+                    href="/examples/anjeer_template.cpp"
+                    download="anjeer_template.cpp"
+                  >
+                    C++ template
+                    <span className="docs__template-meta">anjeer_template.cpp · Boost.Beast async</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div className="docs__step">
+              <div className="docs__step-num">4</div>
+              <div className="docs__step-body">
+                <h3>Join a game</h3>
+                <p>Browse open API-mode lobbies and join one:</p>
+                <pre><code>{`anjeer find          # list open lobbies
+anjeer join <CODE>   # join and launch your script`}</code></pre>
+                <p>Or create and host your own:</p>
+                <pre><code>{`anjeer create        # create a lobby, get a share code
+anjeer start <CODE>  # wait for players, then launch`}</code></pre>
+                <p>
+                  The CLI joins the lobby for you and sets <code>ANJEER_API_KEY</code>,{' '}
+                  <code>ANJEER_LOBBY_CODE</code>, <code>ANJEER_SERVER_WS_URL</code>, and{' '}
+                  <code>ANJEER_GAME_MODE</code> as environment variables before your script runs.
+                  Your script connects directly via WebSocket — do not call the join HTTP endpoint.
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </section>
 
         {/* ── 1. Overview ─────────────────────────────────────────────── */}
         <section id="overview">
