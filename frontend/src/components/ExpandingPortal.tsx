@@ -39,12 +39,72 @@ export function ExpandingPortal({ reducedMotion, isMobile }: ExpandingPortalProp
   const sectionRef = useRef<HTMLDivElement>(null)
   // containerRef is on the tilt wrapper — parallax uses it for bounds measurement
   const containerRef = useRef<HTMLDivElement>(null)
+  const dotCanvasRef = useRef<HTMLCanvasElement>(null)
+  const dotMouseRef = useRef({ x: -9999, y: -9999 })
 
   const applyParallax = isExpanded && !reducedMotion && !isMobile
   const { normX, normY } = useMouseParallax(
     containerRef as React.RefObject<HTMLElement>,
     applyParallax,
   )
+
+  useEffect(() => {
+    if (!isExpanded) return
+    const canvas = dotCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const SPACING = 40
+    const DOT_R = 1
+    const BASE_A = 0.22
+    const GLOW_A = 0.9
+    const GLOW_R = 90
+
+    const resize = () => {
+      canvas.width = canvas.offsetWidth
+      canvas.height = canvas.offsetHeight
+    }
+    resize()
+
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      dotMouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    }
+
+    const animated = applyParallax
+    if (animated) window.addEventListener('mousemove', onMouseMove)
+
+    let rafId: number
+    const draw = () => {
+      const { width: w, height: h } = canvas
+      ctx.clearRect(0, 0, w, h)
+      const { x: mx, y: my } = dotMouseRef.current
+      for (let gx = SPACING / 2; gx < w + SPACING; gx += SPACING) {
+        for (let gy = SPACING / 2; gy < h + SPACING; gy += SPACING) {
+          const t = animated ? Math.max(0, 1 - Math.hypot(gx - mx, gy - my) / GLOW_R) : 0
+          const r = Math.round(255 + (201 - 255) * t)
+          const g = Math.round(255 + (168 - 255) * t)
+          const b = Math.round(255 + (76  - 255) * t)
+          const a = BASE_A + t * (GLOW_A - BASE_A)
+          ctx.fillStyle = `rgba(${r},${g},${b},${a})`
+          ctx.beginPath()
+          ctx.arc(gx, gy, DOT_R, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      }
+      if (animated) rafId = requestAnimationFrame(draw)
+    }
+    draw()
+
+    const ro = new ResizeObserver(() => { resize(); if (!animated) draw() })
+    ro.observe(canvas)
+
+    return () => {
+      if (animated) { cancelAnimationFrame(rafId); window.removeEventListener('mousemove', onMouseMove) }
+      ro.disconnect()
+    }
+  }, [isExpanded, applyParallax])
 
   // AGENT-CTX: ScrollTrigger fires once when the sticky wrapper hits viewport top.
   // onLeaveBack collapses on reverse scroll so the intro replays on scroll-up.
@@ -116,10 +176,10 @@ export function ExpandingPortal({ reducedMotion, isMobile }: ExpandingPortalProp
 
             {isExpanded && (
               <>
-                {/* Layer 0: dot-grid background */}
-                <div
-                  className={`ep-layer ep-layer--0${applyParallax ? ' ep-layer--fade' : ''}`}
-                  data-intensity="6"
+                {/* Dot canvas: individual dots colored by cursor proximity */}
+                <canvas
+                  ref={dotCanvasRef}
+                  className={`ep-dot-canvas${applyParallax ? ' ep-dot-canvas--fade' : ''}`}
                   style={applyParallax ? { transform: `translate(${normX * 6}px, ${normY * 6}px)` } : undefined}
                 />
 
@@ -130,9 +190,9 @@ export function ExpandingPortal({ reducedMotion, isMobile }: ExpandingPortalProp
                   style={applyParallax ? { transform: `translate(${normX * 18}px, ${normY * 18}px)` } : undefined}
                 >
                   <span className="ep-suit-large ep-suit-large--0" aria-hidden="true">♠</span>
-                  <span className="ep-suit-large ep-suit-large--1" aria-hidden="true">♣</span>
+                  <span className="ep-suit-large ep-suit-large--1" aria-hidden="true">♦</span>
                   <span className="ep-suit-large ep-suit-large--2" aria-hidden="true">♥</span>
-                  <span className="ep-suit-large ep-suit-large--3" aria-hidden="true">♦</span>
+                  <span className="ep-suit-large ep-suit-large--3" aria-hidden="true">♣</span>
                 </div>
 
                 {/* Layer 2: eyebrow + headline + body + CTA */}
