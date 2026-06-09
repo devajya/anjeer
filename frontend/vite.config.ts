@@ -34,7 +34,8 @@ export default defineConfig({
       // AGENT-CTX: /api/log forwards frontend log batches to the C++ server so
       // they land in logs/frontend_logs.txt alongside server and engine logs.
       // Dev-only endpoint — not exposed in production nginx config.
-      '/api': {
+      // Use exact path /api/log (not bare /api) to avoid matching /api-keys.
+      '/api/log': {
         target: 'http://localhost:9001',
         changeOrigin: false,
       },
