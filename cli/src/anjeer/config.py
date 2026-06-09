@@ -1,6 +1,6 @@
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 _LOCAL_CONFIG = Path("anjeer.json")
@@ -14,6 +14,7 @@ class AnjeerConfig:
     api_url: str
     ws_url: str
     script: str
+    presets: dict = field(default_factory=dict)
 
 
 def load_config() -> AnjeerConfig:
@@ -29,6 +30,7 @@ def load_config() -> AnjeerConfig:
             api_url=data["api_url"].rstrip("/"),
             ws_url=data["ws_url"],
             script=data["script"],
+            presets=data.get("presets", {}),
         )
     except KeyError as e:
         raise ValueError(f"Missing field {e} in {CONFIG_PATH}. Run 'anjeer setup' again.")

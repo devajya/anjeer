@@ -27,7 +27,8 @@ def config_file(tmp_path, sample_config):
         "ws_url": sample_config.ws_url,
         "script": sample_config.script,
     }))
-    with patch("anjeer.config.CONFIG_PATH", cfg_path):
+    with patch("anjeer.config.CONFIG_PATH", cfg_path), \
+         patch("anjeer.config._GLOBAL_CONFIG", cfg_path):
         yield cfg_path
 
 
