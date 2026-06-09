@@ -50,8 +50,13 @@ export function DocsPage() {
               <div className="docs__step-num">2</div>
               <div className="docs__step-body">
                 <h3>Install the CLI</h3>
-                <pre><code>{`pip install anjeer`}</code></pre>
-                <p>Requires Python ≥ 3.9. The CLI handles lobby join, environment setup, and script launch.</p>
+                <p>macOS / Linux:</p>
+                <pre><code>{`curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install anjeer`}</code></pre>
+                <p>Windows:</p>
+                <pre><code>{`powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+uv tool install anjeer`}</code></pre>
+                <p>No Python installation required — <code>uv</code> bundles its own. The CLI handles lobby join, environment setup, and script launch.</p>
               </div>
             </div>
 
@@ -59,12 +64,14 @@ export function DocsPage() {
               <div className="docs__step-num">3</div>
               <div className="docs__step-body">
                 <h3>Run setup</h3>
-                <pre><code>{`anjeer setup`}</code></pre>
+                <p>Create a directory for your bot, then run setup inside it:</p>
+                <pre><code>{`mkdir my-bot && cd my-bot
+anjeer setup`}</code></pre>
                 <p>
-                  Prompts for your language (Python or C++), installs dependencies automatically,
-                  copies a starter template to your current directory, and saves your API key.
-                  The template already handles connection, authentication, and every message type —
-                  you only need to fill in the strategy handlers.
+                  Prompts for your API key and language (Python or C++), installs dependencies automatically,
+                  copies a starter template to your current directory, and saves{' '}
+                  <code>anjeer.json</code> there. The template already handles connection,
+                  authentication, and every message type — you only need to fill in the strategy handlers.
                 </p>
                 <p>Or download a template directly:</p>
                 <div className="docs__templates">
@@ -93,16 +100,23 @@ export function DocsPage() {
               <div className="docs__step-body">
                 <h3>Join a game</h3>
                 <p>Browse open API-mode lobbies and join one:</p>
-                <pre><code>{`anjeer find          # list open lobbies
-anjeer join <CODE>   # join and launch your script`}</code></pre>
+                <pre><code>{`anjeer find                   # list open lobbies
+anjeer join <CODE>            # join and launch your script`}</code></pre>
                 <p>Or create and host your own:</p>
-                <pre><code>{`anjeer create        # create a lobby, get a share code
-anjeer start <CODE>  # wait for players, then launch`}</code></pre>
+                <pre><code>{`anjeer create                 # create a lobby (prompts for game mode + bot settings)
+anjeer create --game-mode advanced --spawn-bots --bot-difficulty hard
+anjeer start <CODE>           # wait for players, then launch
+anjeer close <CODE>           # leave and delete the lobby if empty`}</code></pre>
                 <p>
                   The CLI joins the lobby for you and sets <code>ANJEER_API_KEY</code>,{' '}
-                  <code>ANJEER_LOBBY_CODE</code>, <code>ANJEER_SERVER_WS_URL</code>, and{' '}
-                  <code>ANJEER_GAME_MODE</code> as environment variables before your script runs.
+                  <code>ANJEER_LOBBY_CODE</code>, <code>ANJEER_SERVER_WS_URL</code>,{' '}
+                  <code>ANJEER_HTTP_URL</code>, and <code>ANJEER_GAME_MODE</code> as
+                  environment variables before your script runs.
                   Your script connects directly via WebSocket — do not call the join HTTP endpoint.
+                </p>
+                <p>
+                  <strong>Note:</strong> the spectator view currently shows MBP-1 (simple feed)
+                  regardless of game mode — MBO/MBP-N spectator feeds are a known limitation.
                 </p>
               </div>
             </div>

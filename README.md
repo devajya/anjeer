@@ -33,7 +33,7 @@ A real-time multiplayer card-trading game built from scratch — C++ matching en
 ┌──────────────────────────────────────┐
 │  Browser  (React + TypeScript)       │  port 5173 (dev)
 └────────┬──────────────────┬──────────┘
-         │  WebSocket :9001 │  HTTP :8080
+         │  WebSocket :9001 │  HTTP :10000
 ┌────────▼──────┐   ┌───────▼──────────────────┐
 │   WsServer    │   │   HttpServer  (Crow)      │
 │  uWebSockets  │   │   OAuth · JWT · REST      │
@@ -317,16 +317,26 @@ No ORM — raw SQL via pqxx. Migrations are additive and forward-only.
 
 **Location:** `cli/`
 
-A Python CLI (`pip install -e cli/`) for terminal-based and scripted players using API-mode lobbies.
+A Python CLI for terminal-based and scripted players using API-mode lobbies. Production install uses `uv tool install anjeer`; for local dev use `pip install -e cli/` from the repo root.
 
 ```bash
-anjeer setup          # Save server URL + API key to ~/.anjeer/config.json
-anjeer find           # List open API-mode lobbies
-anjeer create         # Create a new API-mode lobby
-anjeer join <code>    # Join and launch your trading script
+anjeer setup                             # Prompt for API key + language, copy template, save anjeer.json in cwd
+anjeer find                              # List open API-mode lobbies
+anjeer create                            # Create a lobby (prompts for game mode, bot settings)
+anjeer create --game-mode advanced \
+              --spawn-bots \
+              --bot-difficulty hard      # Non-interactive create with all flags
+anjeer join <code>                       # Join a lobby, wait for start, launch your script
+anjeer start <code>                      # (creator) wait for players, start the game, launch script
+anjeer close <code>                      # Leave a lobby and delete it if now empty
+anjeer preset list/save/delete           # Manage saved lobby presets
 ```
 
-The `join` command sets `ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, and `ANJEER_LOBBY_CODE` env vars then `exec`s your configured script. Scripts communicate over WebSocket using the same wire protocol as the browser client. The spectator view in the browser shows a live `script_log` panel fed by messages from your script.
+`anjeer setup` saves config to `anjeer.json` in the current working directory — run it from your bot's project folder. All subsequent commands read that local file when present, falling back to `~/.anjeer/config.json`.
+
+`anjeer start` / `anjeer join` set `ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, `ANJEER_HTTP_URL`, `ANJEER_LOBBY_CODE`, and `ANJEER_GAME_MODE` as environment variables, then exec your configured script. Scripts communicate over WebSocket using the same wire protocol as the browser client. The spectator view shows a live `script_log` panel fed by messages from your script.
+
+> **Spectator feed limitation:** the spectator view currently always shows MBP-1 (simple mode) regardless of the game mode. MBO and MBP-N feeds to spectators are a known deferred item.
 
 ---
 
@@ -377,7 +387,7 @@ Edit `config/default.json` and fill in:
 - `auth.github.client_id` / `client_secret` — from a [GitHub OAuth App](https://github.com/settings/developers)
 - `auth.google.client_id` / `client_secret` — from [Google Cloud Console](https://console.cloud.google.com/)
 
-For local dev, set OAuth redirect URIs to `http://localhost:8080/auth/callback`.
+For local dev, set OAuth redirect URIs to `http://localhost:10000/auth/callback`.
 
 ### 4. Build & run
 
@@ -390,8 +400,9 @@ Builds the C++ server and frontend, then starts both concurrently. Open [http://
 ### 5. (Optional) Install the CLI
 
 ```bash
-pip install -e cli/
-anjeer setup   # prompts for server URL and API key
+pip install -e cli/          # dev install from repo
+cd /your/bot/directory
+anjeer setup                 # prompts for API key + language; saves anjeer.json here
 ```
 
 ---
@@ -402,7 +413,7 @@ All tuneable values live in `config/default.json` — nothing is hardcoded. Loca
 
 | Section | Controls |
 |---|---|
-| `server` | Host, WS port (9001), HTTP port (8080), heartbeat/ping intervals, CORS origin |
+| `server` | Host, WS port (9001), HTTP port (10000), heartbeat/ping intervals, CORS origin |
 | `order_book` | Price range (1–99), initial nudge prices, active suits |
 | `game` | Player count, total cards (40), countdown, round duration (240s), inter-round (30s) |
 | `scoring` | Starting balance (400), pot size (200), points per card (10) |
