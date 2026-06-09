@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
@@ -6,6 +6,27 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { QueuePopup } from '../components/QueuePopup'
 import type { LobbyView } from '../types/lobby'
 import './LobbyBrowser.css'
+
+// Bid sizes (% of half-width) per level — best bid/ask at top, tapering down.
+const OB_LEVELS = [72, 57, 41, 26, 13]
+
+const ObWatermark = memo(function ObWatermark() {
+  return (
+    <div className="lp__ob-watermark" aria-hidden="true">
+      {OB_LEVELS.map((w, i) => (
+        <div key={i} className="lp__ob-row">
+          <div className="lp__ob-side lp__ob-side--bid">
+            <div className="lp__ob-bar lp__ob-bar--bid" style={{ width: `${w}%` }} />
+          </div>
+          <div className="lp__ob-mid" />
+          <div className="lp__ob-side lp__ob-side--ask">
+            <div className="lp__ob-bar lp__ob-bar--ask" style={{ width: `${w}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+})
 
 type Tab = 'starting' | 'active'
 
@@ -162,7 +183,20 @@ export function LobbyBrowser() {
               <>
                 {loading && <p className="lp__empty">Loading…</p>}
                 {!loading && waitingLobbies.length === 0 && (
-                  <p className="lp__empty">No open lobbies — create one in + New</p>
+                  <div className="lp__empty-rich">
+                    <ObWatermark />
+                    <span className="lp__empty-rich-headline">No games open</span>
+                    <p className="lp__empty-rich-desc">
+                      Create one and invite friends, or enter a code below.
+                    </p>
+                    <button
+                      className="lp__btn lp__btn--create lp__empty-rich-cta"
+                      onClick={handleCreate}
+                      disabled={creating}
+                    >
+                      {creating ? '…' : 'Create Lobby'}
+                    </button>
+                  </div>
                 )}
                 {/* Join-by-code strip — kept at end so the list is the focus */}
                 {!loading && (
@@ -237,7 +271,12 @@ export function LobbyBrowser() {
               <>
                 {loading && <p className="lp__empty">Loading…</p>}
                 {!loading && activeLobbies.length === 0 && (
-                  <p className="lp__empty">No active games right now</p>
+                  <div className="lp__empty-rich">
+                    <span className="lp__empty-rich-headline">No active games</span>
+                    <p className="lp__empty-rich-desc">
+                      Games in progress appear here for spectating or joining the queue.
+                    </p>
+                  </div>
                 )}
                 {activeLobbies.map(lobby => {
                   const isFull = overflowLobbyIds.has(lobby.id)
