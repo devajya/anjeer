@@ -10,9 +10,18 @@
   height: 100vh;
   display: flex;
   align-items: stretch;
-  background: var(--color-invert-bg);
+  background: #04040a;
   overflow: hidden;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: none;
+}
+
+.aap-ascii-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .aap-left {
@@ -21,16 +30,18 @@
   flex-direction: column;
   justify-content: center;
   padding: 0 3rem 0 5rem;
+  position: relative;
+  z-index: 1;
 }
 
 .aap-block {
   padding: 1.5rem 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
 }
 
 .aap-block:last-child {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .aap-block-header {
@@ -51,7 +62,7 @@
 .aap-block-headline {
   font-family: var(--font-sans);
   font-size: 1rem;
-  color: var(--color-invert-text);
+  color: var(--color-text);
   font-weight: 500;
 }
 
@@ -68,14 +79,14 @@
 .aap-block-body p {
   font-family: var(--font-sans);
   font-size: 0.9rem;
-  color: var(--color-invert-muted);
+  color: rgba(255, 255, 255, 0.65);
   line-height: 1.7;
   margin: 0.85rem 0 0.65rem;
 }
 
 .aap-progress-bar {
   height: 2px;
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 1px;
   overflow: hidden;
   margin-top: 0.85rem;
@@ -92,22 +103,23 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .aap-canvas {
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(200, 184, 107, 0.2);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.18);
 }
 
 /* reducedMotion: revert to scrollable accordion, no sticky */
 @media (prefers-reduced-motion: reduce) {
-  .auto-advance-progress {
-    height: auto;
-  }
+  .auto-advance-progress { height: auto; }
   .aap-inner {
     position: static;
     height: auto;
     padding: 5rem 6rem;
   }
+  .aap-ascii-canvas { display: none; }
 }

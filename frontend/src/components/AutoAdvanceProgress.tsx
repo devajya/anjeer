@@ -34,6 +34,61 @@ const BLOCKS: BlockContent[] = [
   },
 ]
 
+// ── ASCII background: domain-warped fbm fluid ────────────────────────────────
+// Three-octave trig fbm composed with itself twice (Quilez domain warping)
+// produces organic fluid motion — patterns that swirl, merge and dissipate.
+const ASCII_CHAR_RAMP    = '   ♠♣♥♦'
+const ASCII_PALETTE      = ['#ababab', '#c7c7c7', '#e86b5d', '#90c4a7']
+const ASCII_FONT_SIZE    = 15
+const ASCII_CELL_SPACING = 1.05
+const ASCII_BASE_OPACITY = 0.33
+const ASCII_SPOT_OPACITY = 0.95
+const ASCII_SPOT_RADIUS  = 9
+const ASCII_RIPPLE_STR   = 1.3
+const ASCII_RIPPLE_RAD   = 5
+const ASCII_FRAME_MS     = 22
+const ASCII_FADE_PX      = 200
+
+function asciiFbm(x: number, y: number, t: number): number {
+  let v = 0, amp = 0.5, fx = 1, fy = 1
+  for (let i = 0; i < 3; i++) {
+    v += amp * Math.sin(x * fx * 0.14 + y * fy * 0.11 + t * 0.90 + i * 1.7)
+    v += amp * Math.cos(x * fx * 0.09 - y * fy * 0.13 - t * 0.65 + i * 2.3)
+    amp *= 0.5; fx *= 2.1; fy *= 1.9
+  }
+  return v * 0.34
+}
+
+function asciiFluidV(x: number, y: number, t: number): number {
+  const qx = asciiFbm(x,       y,       t)
+  const qy = asciiFbm(x + 3.2, y + 1.7, t + 0.5)
+  return asciiFbm(x + 1.5 * qx, y + 1.5 * qy, t + 1.0)
+}
+
+function asciiPanelBoundaryX(py: number, rh: number, rw: number): number {
+  const ny   = py / rh
+  const bell = Math.max(0, 1 - Math.pow((ny - 0.5) / 0.28, 4))
+  const base = 0.22 + 0.22 * bell
+  const shore = 0.038 * Math.sin(py * 0.034 + 1.1)
+              + 0.022 * Math.sin(py * 0.071 - 0.5)
+              + 0.013 * Math.sin(py * 0.138 + 2.8)
+  return (base + shore) * rw
+}
+
+// Top/bottom shoreline boundaries — vary by x so the edge is organic, not a flat line
+function asciiTopBoundaryY(px: number, rh: number): number {
+  const base  = 0.1
+  const shore = 0.018 * Math.sin(px * 0.018 + 2.0)
+              + 0.010 * Math.sin(px * 0.034 - 1.1)
+  return (base + shore) * rh
+}
+
+function asciiBottomBoundaryY(px: number, rh: number): number {
+  return rh - asciiTopBoundaryY(px, rh)
+}
+
+const ASCII_VERTICAL_FADE_PX = 150
+
 // Autoscroll speed when idle: ~2.5px/frame gives a ~6s traversal of one block at 1080p
 const AUTO_SCROLL_PX_PER_FRAME = 2.5
 const IDLE_THRESHOLD_MS = 3500
@@ -107,6 +162,8 @@ export function AutoAdvanceProgress({ reducedMotion }: AutoAdvanceProgressProps)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chipStateRef = useRef<ChipRenderState>({ positions: SEAT_POSITIONS.map(p => ({ ...p })), anim: null })
   const rafRef = useRef<number>(0)
+  const asciiCanvasRef = useRef<HTMLCanvasElement>(null)
+  const asciiMouseRef = useRef({ x: -9999, y: -9999 })
 
   const triggerAnim = useCallback((index: number) => {
     const state = chipStateRef.current
@@ -117,6 +174,102 @@ export function AutoAdvanceProgress({ reducedMotion }: AutoAdvanceProgressProps)
     }
     state.anim = anim
   }, [])
+
+  // ASCII fluid background
+  useEffect(() => {
+    if (reducedMotion) return
+    const canvas = asciiCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    let cols = 0, rows = 0, cellW = 0, cellH = 0, dpr = 1, lastFrame = 0
+    let asciiRaf = 0
+
+    const resize = () => {
+      dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width  = Math.floor(window.innerWidth  * dpr)
+      canvas.height = Math.floor(window.innerHeight * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.font = `${ASCII_FONT_SIZE}px Arial, sans-serif`
+      ctx.textBaseline = 'top'
+      const m = ctx.measureText('M')
+      cellW = (m.width || ASCII_FONT_SIZE * 0.6) * ASCII_CELL_SPACING
+      cellH = ASCII_FONT_SIZE * 1.15 * ASCII_CELL_SPACING
+      cols  = Math.max(1, Math.floor(window.innerWidth  / cellW))
+      rows  = Math.max(1, Math.floor(window.innerHeight / cellH))
+    }
+    resize()
+
+    const onMouseMove = (e: MouseEvent) => { asciiMouseRef.current = { x: e.clientX, y: e.clientY } }
+    window.addEventListener('mousemove', onMouseMove, { passive: true })
+    window.addEventListener('resize', resize)
+
+    const rampMax = ASCII_CHAR_RAMP.length - 1
+    const spotR2  = ASCII_SPOT_RADIUS * ASCII_SPOT_RADIUS * 2
+    const chipHW  = 150, chipHH = 120
+
+    const draw = (t: number) => {
+      if (t - lastFrame < ASCII_FRAME_MS) { asciiRaf = requestAnimationFrame(draw); return }
+      lastFrame = t
+      const time = t * 0.0018
+      const W = window.innerWidth, H = window.innerHeight
+      const rect = canvas.getBoundingClientRect()
+      const mx = asciiMouseRef.current.x, my = asciiMouseRef.current.y
+      const cx = (mx - rect.left) / cellW, cy = (my - rect.top) / cellH
+      const margin = 24
+      const inside = mx >= rect.left - margin && mx <= rect.right  + margin
+                  && my >= rect.top  - margin && my <= rect.bottom + margin
+      const chipCX = W * 0.72, chipCY = H * 0.5
+
+      ctx.clearRect(0, 0, W, H)
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const px = x * cellW, py = y * cellH
+          const boundary  = asciiPanelBoundaryX(py, H, W)
+          const fadePanel = Math.max(0, Math.min(1, (px - boundary) / ASCII_FADE_PX))
+          const dxC = Math.max(0, Math.abs(px - chipCX) - chipHW)
+          const dyC = Math.max(0, Math.abs(py - chipCY) - chipHH)
+          const fadeChip  = Math.min(1, Math.sqrt(dxC * dxC + dyC * dyC) / ASCII_FADE_PX)
+          const fadeTop    = Math.max(0, Math.min(1, (py - asciiTopBoundaryY(px, H))    / ASCII_VERTICAL_FADE_PX))
+          const fadeBottom = Math.max(0, Math.min(1, (asciiBottomBoundaryY(px, H) - py) / ASCII_VERTICAL_FADE_PX))
+          const zoneFade   = Math.min(fadePanel, fadeChip, fadeTop, fadeBottom)
+          if (zoneFade <= 0.01) continue
+
+          const fluid  = asciiFluidV(x * 0.28, y * 0.28, time)
+          const dx = x - cx, dy = (y - cy) * 1.8, d2 = dx * dx + dy * dy, d = Math.sqrt(d2)
+          const ripple = inside
+            ? ASCII_RIPPLE_STR * Math.exp(-d2 / 80) - 0.6 * Math.exp(-((d - ASCII_RIPPLE_RAD) ** 2) / 30)
+            : 0
+          const v  = Math.max(0, Math.min(1, 0.5 + fluid * 0.55 + ripple * 0.3))
+          const ch = ASCII_CHAR_RAMP[Math.floor(v * rampMax)]
+          if (ch === ' ') continue
+
+          let alpha = ASCII_BASE_OPACITY
+          if (inside) {
+            alpha = ASCII_BASE_OPACITY + (ASCII_SPOT_OPACITY - ASCII_BASE_OPACITY) * Math.exp(-d2 / spotR2)
+            alpha = Math.max(0, Math.min(1, alpha))
+          }
+          alpha *= zoneFade
+          if (alpha <= 0.01) continue
+
+          const huePos = (x * 0.1 + y * 0.07 + time * 0.12) % ASCII_PALETTE.length
+          ctx.globalAlpha = alpha
+          ctx.fillStyle   = ASCII_PALETTE[Math.floor(Math.abs(huePos)) % ASCII_PALETTE.length]
+          ctx.fillText(ch, px, py)
+        }
+      }
+      ctx.globalAlpha = 1
+      asciiRaf = requestAnimationFrame(draw)
+    }
+    asciiRaf = requestAnimationFrame(draw)
+
+    return () => {
+      cancelAnimationFrame(asciiRaf)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('resize', resize)
+    }
+  }, [reducedMotion])
 
   // Canvas rAF draw loop — exits early in jsdom (getContext returns null)
   useEffect(() => {
@@ -265,6 +418,7 @@ export function AutoAdvanceProgress({ reducedMotion }: AutoAdvanceProgressProps)
   return (
     <section ref={sectionRef} className="auto-advance-progress">
       <div className="aap-inner">
+        {!reducedMotion && <canvas ref={asciiCanvasRef} className="aap-ascii-canvas" />}
         <div className="aap-left">
           {BLOCKS.map((block, i) => (
             <div
