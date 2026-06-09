@@ -37,9 +37,10 @@ WAITING_LOBBY = {
     "creator_id": 1,
     "status": "waiting",
     "mode": "api",
-    "min_players": 2,
-    "max_players": 6,
+    "min_players": 4,
+    "max_players": 5,
     "player_count": 1,
+    "game_mode": "simple",
 }
 
-IN_GAME_LOBBY = {**WAITING_LOBBY, "status": "in_game", "player_count": 2}
+IN_GAME_LOBBY = {**WAITING_LOBBY, "status": "in_game", "player_count": 4}

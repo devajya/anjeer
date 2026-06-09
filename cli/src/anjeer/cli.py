@@ -14,7 +14,6 @@ from .api import (
     get_spectate_token,
     join_lobby,
     poll_lobby,
-    set_feed_preference,
     start_lobby,
 )
 from .config import AnjeerConfig, load_config, save_config
@@ -24,13 +23,14 @@ def _spectate_url(cfg: AnjeerConfig, token: str) -> str:
     return f"{cfg.api_url}/auth/spectate?token={token}"
 
 
-def _spawn_script(cfg: AnjeerConfig, lobby_code: str) -> None:
+def _spawn_script(cfg: AnjeerConfig, lobby_code: str, game_mode: str = "simple") -> None:
     env = {
         **os.environ,
         "ANJEER_API_KEY": cfg.api_key,
         "ANJEER_SERVER_WS_URL": cfg.ws_url,
         "ANJEER_HTTP_URL": cfg.api_url,
         "ANJEER_LOBBY_CODE": lobby_code,
+        "ANJEER_GAME_MODE": game_mode,
     }
     click.echo(f"Starting script: {cfg.script}")
     subprocess.run(shlex.split(cfg.script), env=env)
@@ -46,7 +46,7 @@ def setup() -> None:
     """First-time setup: configure API key, server URLs, and script path."""
     click.echo("Anjeer setup\n")
     api_key = click.prompt("API key (from the Anjeer web app → hamburger → API Keys)")
-    api_url = click.prompt("HTTP server URL", default="http://localhost:10000")
+    api_url = click.prompt("HTTP server URL", default="http://localhost:8080")
     ws_url  = click.prompt("WebSocket URL",  default="ws://localhost:9001/ws")
     script  = click.prompt("Script command  (e.g. python3 /home/you/my_bot.py)")
 
@@ -79,13 +79,14 @@ def find_cmd() -> None:
         click.echo("No API lobbies found.")
         return
 
-    click.echo(f"{'CODE':<8} {'PLAYERS':<10} {'MIN':>4} {'MAX':>4}  {'BOTS':<10}")
-    click.echo("-" * 40)
+    click.echo(f"{'CODE':<8} {'PLAYERS':<10} {'MIN':>4} {'MAX':>4}  {'BOTS':<10}  {'GAME_MODE':<12}")
+    click.echo("-" * 54)
     for l in lobbies:
         spawn = l.get("spawn_bots_on_leave", False)
         bots_col = l.get("bot_spawn_difficulty", "easy") if spawn else "off"
+        gm = l.get("game_mode", "simple")
         click.echo(
-            f"{l['code']:<8} {l['player_count']:<10} {l['min_players']:>4} {l['max_players']:>4}  {bots_col:<10}"
+            f"{l['code']:<8} {l['player_count']:<10} {l['min_players']:>4} {l['max_players']:>4}  {bots_col:<10}  {gm:<12}"
         )
 
 
@@ -119,10 +120,12 @@ def join(code: str) -> None:
     click.echo(f"Joined lobby {code}. Waiting for game to start…")
 
     try:
-        poll_lobby(cfg, code)
+        lobby = poll_lobby(cfg, code)
     except Exception as e:
         click.echo(f"Error while waiting: {e}", err=True)
         sys.exit(1)
+
+    game_mode = lobby.get("game_mode", "simple")
 
     try:
         token = get_spectate_token(cfg, code)
@@ -131,7 +134,7 @@ def join(code: str) -> None:
     except Exception as e:
         click.echo(f"Warning: could not get spectate URL: {e}", err=True)
 
-    _spawn_script(cfg, code)
+    _spawn_script(cfg, code, game_mode)
 
 
 @main.command()
@@ -145,11 +148,16 @@ def join(code: str) -> None:
               type=click.Choice(["easy", "medium", "hard", "random"], case_sensitive=False),
               default=None,
               help="Bot difficulty when --spawn-bots is set.")
+@click.option("--game-mode",
+              type=click.Choice(["simple", "intermediate", "advanced"], case_sensitive=False),
+              default="simple", show_default=True,
+              help="Game mode: determines feed tier and order mechanics.")
 def create(
     min_players: int,
     max_players: int,
     spawn_bots: Optional[bool],
     bot_difficulty: Optional[str],
+    game_mode: str,
 ) -> None:
     """Create an API lobby, wait for players, then start and launch your script."""
     try:
@@ -181,7 +189,8 @@ def create(
     try:
         lobby = create_lobby(cfg, min_players, max_players,
                              spawn_bots_on_leave=spawn_bots,
-                             bot_spawn_difficulty=bot_difficulty or "easy")
+                             bot_spawn_difficulty=bot_difficulty or "easy",
+                             game_mode=game_mode)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -223,33 +232,6 @@ def create(
     except Exception as e:
         click.echo(f"Warning: could not get spectate URL: {e}", err=True)
 
-    _spawn_script(cfg, code)
+    _spawn_script(cfg, code, game_mode)
 
 
-_FEED_ALIASES = {"mbp-1": "mbp1", "mbp-n": "mbpn"}
-_VALID_PREFS = {"mbp1", "mbpn", "mbo"}
-
-
-@main.command()
-@click.argument("preference", metavar="<mbp-1|mbp-n|mbo>")
-def feed(preference: str) -> None:
-    """Set your market-data feed tier (mbp-1, mbp-n, or mbo)."""
-    pref = _FEED_ALIASES.get(preference.lower(), preference.lower())
-    if pref not in _VALID_PREFS:
-        raise click.UsageError(
-            f"Invalid feed preference '{preference}'. Choose mbp-1, mbp-n, or mbo."
-        )
-
-    try:
-        cfg = load_config()
-    except (FileNotFoundError, ValueError) as e:
-        click.echo(str(e), err=True)
-        sys.exit(1)
-
-    try:
-        set_feed_preference(cfg, pref)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-
-    click.echo(f"Feed preference updated to {pref}")
