@@ -170,6 +170,8 @@ struct BotBookUpdateEvent {
     Suit suit;
     std::optional<int32_t> best_bid;
     std::optional<int32_t> best_ask;
+    std::optional<int32_t> best_bid_qty;
+    std::optional<int32_t> best_ask_qty;
 };
 struct BotTradeEvent {
     Suit    suit;

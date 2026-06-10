@@ -47,6 +47,8 @@ struct GameStateSnapshot {
     std::array<int, 4>                    hand{};
     std::array<std::optional<int32_t>, 4> best_bid;
     std::array<std::optional<int32_t>, 4> best_ask;
+    std::array<std::optional<int32_t>, 4> best_bid_qty;
+    std::array<std::optional<int32_t>, 4> best_ask_qty;
     std::array<std::optional<int32_t>, 4> last_trade_price;
     int     my_slot          = -1;
     int     num_active_slots = 0;

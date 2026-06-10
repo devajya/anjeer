@@ -186,6 +186,8 @@ void BotAdapter::process_event(const std::string& json) {
         snapshot_.round_duration_s = static_cast<float>(round_duration_s_);
         snapshot_.best_bid.fill(std::nullopt);
         snapshot_.best_ask.fill(std::nullopt);
+        snapshot_.best_bid_qty.fill(std::nullopt);
+        snapshot_.best_ask_qty.fill(std::nullopt);
         snapshot_.last_trade_price.fill(std::nullopt);
 
         anjeer::engine::BotRoundStartEvent ev{};
@@ -216,8 +218,17 @@ void BotAdapter::process_event(const std::string& json) {
         snapshot_.best_bid[si] = bid_j.is_number() ? std::optional<int32_t>(bid_j.get<int32_t>()) : std::nullopt;
         snapshot_.best_ask[si] = ask_j.is_number() ? std::optional<int32_t>(ask_j.get<int32_t>()) : std::nullopt;
 
+        const auto bq_it = j.find("best_bid_qty");
+        const auto aq_it = j.find("best_ask_qty");
+        snapshot_.best_bid_qty[si] = (bq_it != j.end() && bq_it->is_number())
+            ? std::optional<int32_t>(bq_it->get<int32_t>()) : std::nullopt;
+        snapshot_.best_ask_qty[si] = (aq_it != j.end() && aq_it->is_number())
+            ? std::optional<int32_t>(aq_it->get<int32_t>()) : std::nullopt;
+
         strategy_->on_event(anjeer::engine::BotBookUpdateEvent{
-            *suit_opt, snapshot_.best_bid[si], snapshot_.best_ask[si]});
+            *suit_opt,
+            snapshot_.best_bid[si],  snapshot_.best_ask[si],
+            snapshot_.best_bid_qty[si], snapshot_.best_ask_qty[si]});
     }
     else if (type == "trade") {
         auto suit_opt = anjeer::engine::suit_from_string(j.value("suit", ""));
