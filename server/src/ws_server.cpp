@@ -868,8 +868,9 @@ void WsServer::create_session(const std::string& lobby_id) {
     gs_ctx.eval_modules.push_back(std::make_unique<eval::AccumulationEvalModule>());
     gs_ctx.eval_modules.push_back(std::make_unique<eval::ExecutionEvalModule>());
 
+    int deck_mult = (bot_spawn_difficulty == "hard") ? cfg_.game.hard.deck_multiplier : 1;
     as.session = std::make_unique<GameSession>(
-        LobbySessionParams{session_id, lobby_id, as.slots_, game_mode},
+        LobbySessionParams{session_id, lobby_id, as.slots_, game_mode, deck_mult},
         std::move(gs_ctx),
         *as.inbound, *as.outbound);
 

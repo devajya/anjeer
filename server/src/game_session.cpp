@@ -77,6 +77,7 @@ GameSession::GameSession(
     , game_mode_(params.game_mode)
     , wipe_on_trade_(params.game_mode != GameMode::Advanced)
     , allow_multi_qty_(params.game_mode != GameMode::Simple)
+    , deck_multiplier_(std::max(1, params.deck_multiplier))
     , exchange_(build_exchange(ctx.cfg))
 {
     funded_this_round_.assign(slots_.size(), false);
@@ -528,10 +529,14 @@ void GameSession::begin_round() {
     std::uniform_int_distribution<int> deck_pick(0, static_cast<int>(kDecks.size()) - 1);
     current_deck_ = &kDecks[deck_pick(rng_)];
 
+    std::array<int, 4> scaled_distribution;
+    for (int i = 0; i < 4; ++i)
+        scaled_distribution[i] = current_deck_->distribution[i] * deck_multiplier_;
+
     engine::GameState::Config gs_cfg{
         static_cast<int>(slots_.size()),
-        cfg_.game.total_cards,
-        current_deck_->distribution,
+        cfg_.game.total_cards * deck_multiplier_,
+        scaled_distribution,
         current_deck_->goal_suit,
     };
     game_state_ = std::make_unique<engine::GameState>(gs_cfg);

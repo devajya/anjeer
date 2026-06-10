@@ -26,7 +26,10 @@
     "total_cards": 40,
     "countdown_seconds": 3,
     "round_duration_seconds": 240,
-    "inter_round_seconds": 30
+    "inter_round_seconds": 30,
+    "hard": {
+      "deck_multiplier": 2
+    }
   },
   "scoring": {
     "starting_balance": 400,

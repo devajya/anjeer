@@ -49,6 +49,9 @@ struct ServerConfig {
         int                  countdown_seconds;
         int                  round_duration_seconds;
         int                  inter_round_seconds;
+        struct HardModeConfig {
+            int deck_multiplier = 1;
+        } hard;
     } game;
 
     // AGENT-CTX: ScoringConfig is the server-side view of scoring constants.

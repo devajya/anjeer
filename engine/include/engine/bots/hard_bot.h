@@ -50,6 +50,10 @@ private:
     int                    locked_goal_suit_   = -1;
     std::array<int, 4>     observed_suit_counts_{};
 
+    // Bid-strike: counts consecutive wipes where suit s had an unfilled resting bid.
+    // Used to nudge bid price toward EV when demand is repeatedly unmet.
+    std::array<int, 4>     bid_strike_{};
+
     // Per-player tracking ([player_slot][suit]).
     std::vector<std::array<int,   4>> player_holdings_;
     std::vector<std::array<float, 4>> player_pressure_;

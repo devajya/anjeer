@@ -60,13 +60,15 @@ inline int64_t binom(int n, int k) {
 }
 
 // Compute 12-deck posterior from hand via multivariate hypergeometric likelihood.
-// hand: [C, D, H, S] card counts.
-inline std::array<float, 12> compute_hand_posterior(const std::array<int, 4>& hand) {
+// hand: [C, D, H, S] card counts. deck_multiplier scales all DECK_TABLE counts for
+// hard-mode games where total card count is multiplied (proportions preserved).
+inline std::array<float, 12> compute_hand_posterior(const std::array<int, 4>& hand,
+                                                     int deck_multiplier = 1) {
     std::array<float, 12> weights{};
     for (int d = 0; d < 12; ++d) {
         int64_t L = 1;
         for (int s = 0; s < 4; ++s) {
-            int64_t c = binom(DECK_TABLE[d].suit_counts[s], hand[s]);
+            int64_t c = binom(DECK_TABLE[d].suit_counts[s] * deck_multiplier, hand[s]);
             if (c == 0) { L = 0; break; }
             L *= c;
         }
@@ -122,6 +124,7 @@ inline void renormalise(std::array<float, 12>& weights) {
 
 // Per-difficulty parameters — constructed from ServerConfig::BotsConfig by BotManager.
 struct BotConfig {
+    int   deck_multiplier     = 1;           // card scale for hard-mode games (1 = standard 40-card deck)
     float confidence_discount;    // Easy=0.80, Medium=0.90, Hard=1.00
     float taker_threshold;        // Easy=0.85, Medium=0.95, Hard=1.05
     float min_bid_ev;             // Easy=3.0,  Medium=2.0,  Hard=1.5

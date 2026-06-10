@@ -26,9 +26,10 @@ void HardBot::check_lock_in() {
     if (max_w > 0.95f) { trigger_lock_in(); return; }
 
     for (int s = 0; s < 4; ++s) {
-        if (observed_suit_counts_[s] > 8) {
+        if (observed_suit_counts_[s] > 8 * cfg_.deck_multiplier) {
             for (int d = 0; d < 12; ++d)
-                if (DECK_TABLE[d].suit_counts[s] == 8) deck_weights_[d] = 0.0f;
+                if (DECK_TABLE[d].suit_counts[s] * cfg_.deck_multiplier <= observed_suit_counts_[s])
+                    deck_weights_[d] = 0.0f;
             renormalise(deck_weights_);
             max_w = *std::max_element(deck_weights_.begin(), deck_weights_.end());
             if (max_w > 0.95f) { trigger_lock_in(); return; }
@@ -59,19 +60,30 @@ void HardBot::handle(const BotRoundStartEvent& e) {
     goal_suit_locked_     = false;
     locked_goal_suit_     = -1;
     observed_suit_counts_ = {};
+    bid_strike_           = {};
     last_trade_price_.fill(std::nullopt);
     prev_best_bid_.fill(std::nullopt);
     prev_best_ask_.fill(std::nullopt);
     player_holdings_.assign(player_count_, {});
     player_pressure_.assign(player_count_, {});
     clear_pending();
-    deck_weights_ = compute_hand_posterior(hand_);
+    deck_weights_ = compute_hand_posterior(hand_, cfg_.deck_multiplier);
 }
 
 void HardBot::handle(const BotTradeEvent& e) {
-    clear_pending();
-
     int si = suit_index(e.suit);
+
+    // Track unmet bid demand before wipe: increment strike for suits with resting bids
+    // that didn't fill; reset for the suit we just filled on the buy side.
+    for (int s = 0; s < 4; ++s) {
+        if (pending_orders_[s][0]) {
+            bool our_fill = (e.your_side && *e.your_side == Side::Buy && s == si);
+            if (our_fill) bid_strike_[s] = 0;
+            else          bid_strike_[s]++;
+        }
+    }
+
+    clear_pending();
 
     if (e.your_side) {
         if (*e.your_side == Side::Buy) {
@@ -326,12 +338,16 @@ std::vector<BotAction> HardBot::gap_fill(const GameStateSnapshot& snap) const {
                     cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Buy, price}, ev_s});
             }
         } else {
-            // Bid slot.
+            // Bid slot. Strike nudges price toward EV when previous bids were wiped
+            // without filling, creating organic price discovery. Cap at floor(EV) so
+            // the bot never bids irrationally above expected value.
             if (!pending_orders_[s][0] && ev_s > cfg_.min_bid_ev
                     && snap.hand[s] < cfg_.hand_size_cap) {
-                int32_t price = s_conv
+                int32_t base  = s_conv
                     ? std::clamp((int32_t)std::floor(ev_s), int32_t{1}, int32_t{20})
                     : std::clamp((int32_t)std::floor(ev_s * cfg_.confidence_discount), int32_t{1}, int32_t{20});
+                int32_t ev_fl = std::clamp((int32_t)std::floor(ev_s), int32_t{1}, int32_t{20});
+                int32_t price = std::min(base + bid_strike_[s], ev_fl);
                 if (snap.balance >= price)
                     cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Buy, price},
                                      std::abs(ev_s - (float)price)});

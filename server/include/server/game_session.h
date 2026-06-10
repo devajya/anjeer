@@ -70,6 +70,7 @@ struct LobbySessionParams {
     std::string           lobby_id;
     std::vector<SlotInfo> slots;
     GameMode              game_mode;
+    int                   deck_multiplier = 1;
 };
 
 class GameSession {
@@ -267,6 +268,7 @@ private:
     GameMode game_mode_       = GameMode::Simple;
     bool     wipe_on_trade_   = true;   // derived from game_mode_ at construction
     bool     allow_multi_qty_ = false;  // derived from game_mode_ at construction
+    int      deck_multiplier_ = 1;      // scales total cards and per-suit counts for hard-mode games
 
     // ── Round state ───────────────────────────────────────────────────────────
     SessionPhase phase_        = SessionPhase::Lobby;

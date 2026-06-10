@@ -61,6 +61,10 @@ ServerConfig load_config(const std::string& path) {
         cfg.game.countdown_seconds       = gm.at("countdown_seconds").get<int>();
         cfg.game.round_duration_seconds  = gm.at("round_duration_seconds").get<int>();
         cfg.game.inter_round_seconds     = gm.at("inter_round_seconds").get<int>();
+        if (gm.contains("hard")) {
+            const auto& hm = gm.at("hard");
+            cfg.game.hard.deck_multiplier = hm.value("deck_multiplier", 1);
+        }
 
         const auto& sc = j.at("scoring");
         cfg.scoring.starting_balance = sc.at("starting_balance").get<int>();
