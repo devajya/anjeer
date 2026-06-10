@@ -144,6 +144,27 @@ void HardBot::handle(const BotOrderAckEvent& e) {
 // ── Taker scan ────────────────────────────────────────────────────────────────
 
 std::vector<BotAction> HardBot::taker_scan(const GameStateSnapshot& snap) const {
+    // Locked aggressive cross: when locked-in on the goal suit with a large resting
+    // ask, cross even if ask > EV (negative edge) — certainty overrides the EV check.
+    // This takes priority over the general taker scan below.
+    if (goal_suit_locked_) {
+        int gs = locked_goal_suit_;
+        if (snap.best_ask[gs]
+                && snap.best_ask_qty[gs] && *snap.best_ask_qty[gs] >= 3
+                && !(snap.best_ask_qty[gs] && *snap.best_ask_qty[gs] == 1)
+                && snap.hand[gs] < cfg_.hand_size_cap
+                && snap.balance >= *snap.best_ask[gs]) {
+            const auto& my_ask = pending_orders_[gs][1];
+            if (!my_ask || my_ask->price != *snap.best_ask[gs]) {
+                float ev_s  = ev(gs);
+                float ratio = static_cast<float>(*snap.best_ask[gs]) / ev_s;
+                if (ratio <= cfg_.taker_threshold + 0.10f) {
+                    return {BotSubmitOrder{kAllSuits[gs], Side::Buy, *snap.best_ask[gs]}};
+                }
+            }
+        }
+    }
+
     float best_edge = 0.0f;
     std::optional<BotAction> best;
 
@@ -152,12 +173,18 @@ std::vector<BotAction> HardBot::taker_scan(const GameStateSnapshot& snap) const 
         if (ev_s < 0.5f) continue;
 
         // Buy: skip if my own resting sell is at exactly the best ask price.
+        // Skip thin flash orders (qty == 1) — they may be bait.
+        // Boost threshold for large resting offers (qty >= 3 → +0.05).
         if (snap.best_ask[s] && snap.hand[s] < cfg_.hand_size_cap
-                && snap.balance >= *snap.best_ask[s]) {
+                && snap.balance >= *snap.best_ask[s]
+                && !(snap.best_ask_qty[s] && *snap.best_ask_qty[s] == 1)) {
             const auto& my_ask = pending_orders_[s][1];
             if (!my_ask || my_ask->price != *snap.best_ask[s]) {
+                float eff_threshold = cfg_.taker_threshold;
+                if (snap.best_ask_qty[s] && *snap.best_ask_qty[s] >= 3)
+                    eff_threshold += 0.05f;
                 float ratio = static_cast<float>(*snap.best_ask[s]) / ev_s;
-                if (ratio <= cfg_.taker_threshold) {
+                if (ratio <= eff_threshold) {
                     float edge = ev_s - static_cast<float>(*snap.best_ask[s]);
                     if (edge > best_edge) {
                         best_edge = edge;
@@ -225,6 +252,14 @@ std::vector<BotAction> HardBot::review_pending(const GameStateSnapshot& snap) {
             }
 
             if (gap > static_cast<float>(cfg_.nudge_max_gap)) {
+                actions.push_back(BotCancelOrder{entry->order_id});
+                entry = std::nullopt;
+                continue;
+            }
+
+            // Cancel bids that have been jumped in queue: a better bid now rests
+            // ahead of ours, so ours will be filled last (or not at all).
+            if (sd == 0 && snap.best_bid[s] && *snap.best_bid[s] > entry->price) {
                 actions.push_back(BotCancelOrder{entry->order_id});
                 entry = std::nullopt;
                 continue;

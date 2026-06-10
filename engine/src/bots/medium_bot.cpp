@@ -89,12 +89,16 @@ std::vector<BotAction> MediumBot::taker_scan(const GameStateSnapshot& snap) cons
         if (ev_s < 0.5f) continue;
 
         // Buy: skip if my own resting sell is at exactly the best ask price.
+        // Prefer crossing when a large resting offer exists (qty >= 3 → +0.05 threshold).
         if (snap.best_ask[s] && snap.hand[s] < cfg_.hand_size_cap
                 && snap.balance >= *snap.best_ask[s]) {
             const auto& my_ask = pending_orders_[s][1];
             if (!my_ask || my_ask->price != *snap.best_ask[s]) {
+                float eff_threshold = cfg_.taker_threshold;
+                if (snap.best_ask_qty[s] && *snap.best_ask_qty[s] >= 3)
+                    eff_threshold += 0.05f;
                 float ratio = static_cast<float>(*snap.best_ask[s]) / ev_s;
-                if (ratio <= cfg_.taker_threshold) {
+                if (ratio <= eff_threshold) {
                     float edge = ev_s - static_cast<float>(*snap.best_ask[s]);
                     if (edge > best_edge) {
                         best_edge = edge;
@@ -219,12 +223,15 @@ std::vector<BotAction> MediumBot::gap_fill(const GameStateSnapshot& snap) const 
                     cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Buy, price}, ev_s});
             }
         } else {
-            // Bid slot.
+            // Bid slot. Widen margin on thin books (ask qty absent or ≤ 1)
+            // to reflect higher uncertainty in low-liquidity markets.
             if (!pending_orders_[s][0] && ev_s > cfg_.min_bid_ev
                     && snap.hand[s] < cfg_.hand_size_cap) {
+                bool thin_book = !snap.best_ask_qty[s] || *snap.best_ask_qty[s] <= 1;
+                float eff_discount = cfg_.confidence_discount - (thin_book ? 0.05f : 0.0f);
                 int32_t price = s_conv
                     ? std::clamp((int32_t)std::floor(ev_s), int32_t{1}, int32_t{20})
-                    : std::clamp((int32_t)std::floor(ev_s * cfg_.confidence_discount), int32_t{1}, int32_t{20});
+                    : std::clamp((int32_t)std::floor(ev_s * eff_discount), int32_t{1}, int32_t{20});
                 if (snap.balance >= price)
                     cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Buy, price},
                                      std::abs(ev_s - (float)price)});

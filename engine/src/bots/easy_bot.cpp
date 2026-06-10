@@ -189,9 +189,12 @@ std::vector<BotAction> EasyBot::gap_fill(const GameStateSnapshot& snap) const {
         // Effective resting bid: either an already-acked order or one we're about to add.
         int32_t effective_bid = pending_orders_[s][0] ? pending_orders_[s][0]->price : -1;
 
-        // Bid slot.
+        // Bid slot. Skip if the opposite side (ask) is thick — a thick ask is
+        // better handled by taker_scan; adding a passive bid only wastes a slot.
+        constexpr int kThickQty = 3;
         if (!pending_orders_[s][0] && ev_s > cfg_.min_bid_ev
-                && snap.hand[s] < cfg_.hand_size_cap) {
+                && snap.hand[s] < cfg_.hand_size_cap
+                && !(snap.best_ask_qty[s] && *snap.best_ask_qty[s] >= kThickQty)) {
             int32_t price = std::clamp(
                 (int32_t)std::floor(ev_s * cfg_.confidence_discount), int32_t{1}, int32_t{20});
             // Guard: don't bid above our own resting ask (inter-tick cross).
@@ -204,8 +207,10 @@ std::vector<BotAction> EasyBot::gap_fill(const GameStateSnapshot& snap) const {
         }
 
         // Ask slot — skip if the ask would cross our own bid (same-tick or inter-tick).
+        // Also skip if the opposite side (bid) is thick.
         if (!pending_orders_[s][1] && snap.hand[s] >= 1
-                && (ev_s < cfg_.max_ask_ev || snap.hand[s] > cfg_.offload_threshold)) {
+                && (ev_s < cfg_.max_ask_ev || snap.hand[s] > cfg_.offload_threshold)
+                && !(snap.best_bid_qty[s] && *snap.best_bid_qty[s] >= kThickQty)) {
             int32_t price = std::clamp(
                 (int32_t)std::ceil(ev_s * (2.0f - cfg_.confidence_discount)), int32_t{1}, int32_t{20});
             if (price > effective_bid)
