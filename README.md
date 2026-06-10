@@ -146,6 +146,7 @@ Three difficulty tiers, all implementing the `BotAgent` abstract interface. The 
 
 - **`BotAdapter`** bridges the engine strategy to the server's SPSC queue architecture — it drains JSON events from `event_queue_`, maintains a `GameStateSnapshot`, and calls `decide()` on a scheduler thread
 - **`BotScheduler`** — fixed thread pool with a min-heap priority queue for scheduled ticks; `tick_jitter_ms` and `thinking_min_ms/max_ms` produce human-like timing distributions
+- **`BotBookUpdateEvent`** carries `best_bid_qty` / `best_ask_qty` so strategies can read side depth and detect thin (potentially manipulative) quotes
 
 ### Easy Bot
 
@@ -156,20 +157,33 @@ Hand-heuristic belief (no Bayesian inference). Scans for taker opportunities whe
 - Opens with a multivariate hypergeometric posterior over the 12 deck configurations from the player's starting hand
 - Noisy Bayesian update on observed trades (partial information — only suit and price visible, not hands)
 - EV-threshold maker/taker decisions: submits if `E[value of card] > ask` (taker) or quotes if spread gap is profitable (maker)
-- `conviction_threshold` gates endgame lock-in behavior
+- `conviction_threshold` gates conviction-dump and endgame lock-in behavior
+- Conviction dump price derived from EV rather than price 1 to sustain market activity and not signal goal suit
 
 ### Hard Bot
 
 - **Exact Bayesian posterior** over 12 deck configurations, updated on every trade event
-- Log-space hypergeometric likelihood to avoid numeric underflow at high card counts
+- Multivariate hypergeometric likelihood scaled by `deck_multiplier` for hard-mode games — posterior math stays correct as card counts scale
 - Tracks `pressure_[slot]` — per-player directional trade history used to infer goal suits
 - **Posterior collapse detection** — when P(deck) > 0.90 for a single configuration, switches to deterministic lock-in mode
-- **Card-count elimination** — rules out deck configs inconsistent with observed hand totals
-- **Early market seeding** — if `early_seed_threshold` met, posts quotes before round pressure builds to obscure own accumulation
+- **Card-count elimination** — rules out deck configs where `suit_counts × deck_multiplier ≤ observed_trades`
+- **Early market seeding** — posts quotes before round pressure builds to obscure own accumulation
+- **Depth-aware taker scan** — skips thin quotes (`best_ask_qty == 1`) that may be bait; boosts crossing threshold for large resting offers (`qty ≥ 3`)
+- **EV-bounded bid-strike price discovery** — tracks `bid_strike_[s]`, the count of consecutive trade wipes where suit `s` had an unfilled resting bid. On each wipe, bid price = `min(base_price + strike, floor(EV_s))`. Repeated unmet demand organically pushes quotes toward full EV; the EV ceiling prevents irrational bidding above expected value
+
+### Hard-Mode Deck Scaling
+
+When a lobby is set to hard difficulty, `game.hard.deck_multiplier` (default 2) scales all 12 deck variants proportionally — a 40-card deck becomes 80 cards, giving players ~20 cards per round instead of 10. All proportions are preserved so the Bayesian math is identical; inference simply converges faster because each player holds more evidence. Multi-quantity orders become meaningfully sized against a deeper deck.
+
+### Single-Order-Per-Submission Design
+
+Bots place one order at a time (qty ≥ 1 per submission) rather than flooding with many small orders. In a low-participant environment this keeps the market dynamic — each submission is a deliberate price signal, not noise. However, because the order book aggregates resting orders at the same price level, human players see accumulated depth that behaves like a multi-quantity order and can fill it in a single submission.
+
+**The tradeoff:** when you hit aggregated bot depth, you cannot distinguish which individual bot you traded with. This matters for game theory — you lose the ability to selectively route trades to deny opportunities to the most dangerous opponent or to exploit an opponent who you believe has already accumulated their goal suit. Adverse-selection calculations become noisier because the counterparty identity is opaque behind the aggregated book.
 
 ### Key Design Choice
 
-Bot difficulty tiers differ in _information model quality_, not just parameter tuning. Easy uses no inference; Medium uses approximate Bayesian with noise; Hard uses exact Bayesian with opponent modeling. Same interface, qualitatively different strategies.
+Bot difficulty tiers differ in _information model quality_, not just parameter tuning. Easy uses no inference; Medium uses approximate Bayesian with noise; Hard uses exact Bayesian with opponent modeling, depth reading, and EV-anchored price discovery. Same interface, qualitatively different strategies.
 
 ---
 
@@ -183,9 +197,9 @@ Three modules:
 
 | Module | Output | Routing |
 |---|---|---|
-| `BayesianEvalModule` | Deck posteriors, goal-suit marginals, settlement EV, per-suit delta EV | Private per-slot |
-| `AccumulationEvalModule` | Per-player behavioral signals (Normal / Elevated / High) with EWMA baseline | Broadcast |
-| `ExecutionEvalModule` | Per-suit fill probability, aggressive vs. passive EV, spread cost, recommendation | Broadcast |
+| `BayesianEvalModule` | Deck posteriors, goal-suit marginals, settlement EV, per-suit delta EV; resting-order evidence nudges posterior toward suits with deep bid depth | Private per-slot |
+| `AccumulationEvalModule` | Per-player behavioral signals (Normal / Elevated / High) with EWMA baseline; qty-weighted to reflect multi-card order significance | Broadcast |
+| `ExecutionEvalModule` | Per-suit fill probability, aggressive vs. passive EV, spread cost, recommendation; qty-aware for partial-fill scenarios | Broadcast |
 
 All eval data flows over the existing WebSocket connection as `eval.*` prefixed messages — no new endpoints.
 
@@ -338,6 +352,17 @@ anjeer preset list/save/delete           # Manage saved lobby presets
 
 > **Spectator feed limitation:** the spectator view currently always shows MBP-1 (simple mode) regardless of the game mode. MBO and MBP-N feeds to spectators are a known deferred item.
 
+### Scripted Players & ML Pipelines
+
+The scripted-player interface is mature enough for real automated strategies. Scripts receive the full wire protocol — including MBP-N depth snapshots, MBO order lifecycle events, eval module outputs, and delta tables — giving enough data surface for time-series feature extraction and model-driven order placement.
+
+A skilled player can wire the environment variables (`ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, `ANJEER_LOBBY_CODE`, `ANJEER_GAME_MODE`) into a Python or TypeScript agent, subscribe to the WebSocket feed, maintain a local order book and hand state, and issue `submit_order` / `cancel_order` actions via the same protocol the browser uses. Helper templates covering connection setup, book reconstruction, and hand tracking are planned.
+
+Possible pipeline patterns:
+- **Time-series model** — buffer `book_depth` snapshots + trade events into a feature matrix; predict goal-suit probability and act on confidence crossings
+- **Bayesian agent** — replicate or extend the hard bot's hypergeometric posterior in Python with full access to your own hand and observed market signals
+- **Reinforcement learning** — treat each round as an episode; reward function based on end-of-round balance delta; action space is submit/cancel/hold per suit
+
 ---
 
 ## Getting Started
@@ -416,6 +441,7 @@ All tuneable values live in `config/default.json` — nothing is hardcoded. Loca
 | `server` | Host, WS port (9001), HTTP port (10000), heartbeat/ping intervals, CORS origin |
 | `order_book` | Price range (1–99), initial nudge prices, active suits |
 | `game` | Player count, total cards (40), countdown, round duration (240s), inter-round (30s) |
+| `game.hard` | `deck_multiplier` (default 2) — scales card counts for hard-difficulty lobbies |
 | `scoring` | Starting balance (400), pot size (200), points per card (10) |
 | `db` | Connection string, pool size, migrations directory |
 | `auth` | JWT secret, token TTLs, secure_cookies flag, OAuth client credentials |

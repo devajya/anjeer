@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
     static anjeer::server::SpectateTokenRepo   spectate_token_repo(cfg.auth.spectate_token_ttl_minutes);
     static anjeer::server::LocalEventBus       event_bus;  // Slice 16: swap for RedisEventBus
     static anjeer::server::BotScheduler        bot_scheduler(cfg.bots.scheduler_threads);
-    static anjeer::server::BotManager          bot_manager(bot_scheduler, cfg.bots);
+    static anjeer::server::BotManager          bot_manager(bot_scheduler, cfg.bots, cfg.game.hard);
     static anjeer::server::LobbyGateway        lobby_gateway(db_pool, lobby_repo, event_bus);
     static anjeer::server::AuthService         auth_service(db_pool, player_repo, cfg);
     static anjeer::server::HttpServer          http_server(cfg, anjeer::server::HttpServerDeps{

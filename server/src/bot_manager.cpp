@@ -13,9 +13,11 @@
 
 namespace anjeer::server {
 
-BotManager::BotManager(BotScheduler& scheduler, const ServerConfig::BotsConfig& bots_cfg)
+BotManager::BotManager(BotScheduler& scheduler, const ServerConfig::BotsConfig& bots_cfg,
+                       const ServerConfig::GameConfig::HardModeConfig& hard_game_cfg)
     : scheduler_(scheduler)
     , bots_cfg_(bots_cfg)
+    , hard_game_cfg_(hard_game_cfg)
     , rng_(std::random_device{}())
 {}
 
@@ -337,7 +339,7 @@ anjeer::engine::BotConfig BotManager::make_engine_config(anjeer::engine::BotDiff
     cfg.early_seed_threshold  = p.early_seed_threshold;
     cfg.quoting_kappa         = p.quoting_kappa;
     cfg.deck_multiplier       = (d == anjeer::engine::BotDifficulty::Hard)
-                                ? cfg_.game.hard.deck_multiplier : 1;
+                                ? hard_game_cfg_.deck_multiplier : 1;
     return cfg;
 }
 

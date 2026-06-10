@@ -48,8 +48,9 @@ struct BotRemoveResult {
 class BotManager {
 public:
     BotManager(
-        BotScheduler&                    scheduler,
-        const ServerConfig::BotsConfig&  bots_cfg
+        BotScheduler&                              scheduler,
+        const ServerConfig::BotsConfig&            bots_cfg,
+        const ServerConfig::GameConfig::HardModeConfig& hard_game_cfg = {}
     );
 
     // ── Lobby phase (uWS thread) ──────────────────────────────────────────
@@ -163,8 +164,9 @@ private:
         bool                             is_replacement = false; // spawned mid-round
     };
 
-    BotScheduler&                   scheduler_;
-    ServerConfig::BotsConfig        bots_cfg_;
+    BotScheduler&                                    scheduler_;
+    ServerConfig::BotsConfig                         bots_cfg_;
+    ServerConfig::GameConfig::HardModeConfig         hard_game_cfg_;
     std::mt19937_64                 rng_;
 
     // lobby_id → bots for that lobby
