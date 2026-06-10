@@ -177,7 +177,11 @@ std::vector<BotAction> MediumBot::review_pending(const GameStateSnapshot& snap) 
                     int32_t new_px = (side == Side::Buy) ? entry->price + 1 : entry->price - 1;
                     new_px = std::clamp(new_px, int32_t{1}, int32_t{20});
                     bool ok = (side == Side::Buy) ? (snap.balance >= new_px) : (snap.hand[s] >= 1);
-                    if (ok && new_px != entry->price) {
+                    const auto& opp = pending_orders_[s][1 - sd];
+                    bool crosses_own = opp && (
+                        (side == Side::Buy  && new_px >= opp->price) ||
+                        (side == Side::Sell && new_px <= opp->price));
+                    if (ok && !crosses_own && new_px != entry->price) {
                         actions.push_back(BotCancelOrder{entry->order_id});
                         entry = std::nullopt;
                         actions.push_back(BotSubmitOrder{kAllSuits[s], side, new_px});
@@ -240,8 +244,8 @@ std::vector<BotAction> MediumBot::gap_fill(const GameStateSnapshot& snap) const 
             // Ask slot.
             if (!pending_orders_[s][1] && snap.hand[s] >= 1) {
                 if (conv && !s_goal) {
-                    // Conviction: dump non-goal at minimum price.
-                    cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Sell, 1}, ev_s});
+                    int32_t dump_px = std::max(int32_t{2}, (int32_t)std::floor(ev_s * 0.65f));
+                    cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Sell, dump_px}, ev_s});
                 } else if (ev_s < cfg_.max_ask_ev || snap.hand[s] > cfg_.offload_threshold) {
                     int32_t price = std::clamp(
                         (int32_t)std::ceil(ev_s * (2.0f - cfg_.confidence_discount)), int32_t{1}, int32_t{20});
@@ -297,6 +301,16 @@ std::vector<BotAction> MediumBot::decide(const GameStateSnapshot& snap) {
     auto review = review_pending(snap);
     auto fill   = gap_fill(snap);
     review.insert(review.end(), fill.begin(), fill.end());
+
+    bool seen[4][2] = {};
+    review.erase(std::remove_if(review.begin(), review.end(), [&](const BotAction& a) {
+        if (const auto* sub = std::get_if<BotSubmitOrder>(&a)) {
+            int si = suit_index(sub->suit), sdi = side_idx(sub->side);
+            if (seen[si][sdi]) return true;
+            seen[si][sdi] = true;
+        }
+        return false;
+    }), review.end());
 
     if (review.empty()) {
         auto quote = passive_quote(snap);

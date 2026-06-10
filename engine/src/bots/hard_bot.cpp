@@ -151,7 +151,6 @@ std::vector<BotAction> HardBot::taker_scan(const GameStateSnapshot& snap) const 
         int gs = locked_goal_suit_;
         if (snap.best_ask[gs]
                 && snap.best_ask_qty[gs] && *snap.best_ask_qty[gs] >= 3
-                && !(snap.best_ask_qty[gs] && *snap.best_ask_qty[gs] == 1)
                 && snap.hand[gs] < cfg_.hand_size_cap
                 && snap.balance >= *snap.best_ask[gs]) {
             const auto& my_ask = pending_orders_[gs][1];
@@ -159,7 +158,11 @@ std::vector<BotAction> HardBot::taker_scan(const GameStateSnapshot& snap) const 
                 float ev_s  = ev(gs);
                 float ratio = static_cast<float>(*snap.best_ask[gs]) / ev_s;
                 if (ratio <= cfg_.taker_threshold + 0.10f) {
-                    return {BotSubmitOrder{kAllSuits[gs], Side::Buy, *snap.best_ask[gs]}};
+                    int32_t room       = cfg_.hand_size_cap - snap.hand[gs];
+                    int32_t affordable = snap.balance / *snap.best_ask[gs];
+                    int32_t cross_qty  = std::min({*snap.best_ask_qty[gs], room, affordable, int32_t{4}});
+                    if (cross_qty >= 1)
+                        return {BotSubmitOrder{kAllSuits[gs], Side::Buy, *snap.best_ask[gs], cross_qty}};
                 }
             }
         }
@@ -272,7 +275,11 @@ std::vector<BotAction> HardBot::review_pending(const GameStateSnapshot& snap) {
                     int32_t new_px = (side == Side::Buy) ? entry->price + 1 : entry->price - 1;
                     new_px = std::clamp(new_px, int32_t{1}, int32_t{20});
                     bool ok = (side == Side::Buy) ? (snap.balance >= new_px) : (snap.hand[s] >= 1);
-                    if (ok && new_px != entry->price) {
+                    const auto& opp = pending_orders_[s][1 - sd];
+                    bool crosses_own = opp && (
+                        (side == Side::Buy  && new_px >= opp->price) ||
+                        (side == Side::Sell && new_px <= opp->price));
+                    if (ok && !crosses_own && new_px != entry->price) {
                         actions.push_back(BotCancelOrder{entry->order_id});
                         entry = std::nullopt;
                         actions.push_back(BotSubmitOrder{kAllSuits[s], side, new_px});
@@ -333,7 +340,9 @@ std::vector<BotAction> HardBot::gap_fill(const GameStateSnapshot& snap) const {
             // Ask slot.
             if (!pending_orders_[s][1] && snap.hand[s] >= 1) {
                 if (conv && !s_goal) {
-                    cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Sell, 1}, ev_s});
+                    int32_t dump_px  = std::max(int32_t{2}, (int32_t)std::floor(ev_s * 0.65f));
+                    int32_t dump_qty = std::min(snap.hand[s], int32_t{2});
+                    cands.push_back({BotSubmitOrder{kAllSuits[s], Side::Sell, dump_px, dump_qty}, ev_s});
                 } else if (ev_s < cfg_.max_ask_ev || snap.hand[s] > cfg_.offload_threshold) {
                     int32_t price = std::clamp(
                         (int32_t)std::ceil(ev_s * (2.0f - cfg_.confidence_discount)), int32_t{1}, int32_t{20});
@@ -368,20 +377,26 @@ std::vector<BotAction> HardBot::locked_actions(const GameStateSnapshot& snap) co
 
     std::vector<BotAction> actions;
 
-    // Bid goal suit at full EV.
+    // Bid goal suit at full EV, up to 2 cards at a time when locked in.
     if (!pending_orders_[locked_goal_suit_][0] &&
             snap.hand[locked_goal_suit_] < cfg_.hand_size_cap) {
         float   ev_s  = ev(locked_goal_suit_);
         int32_t price = std::clamp((int32_t)std::floor(ev_s), int32_t{1}, int32_t{20});
-        if (snap.balance >= price)
-            actions.push_back(BotSubmitOrder{kAllSuits[locked_goal_suit_], Side::Buy, price});
+        if (snap.balance >= price) {
+            int32_t room = cfg_.hand_size_cap - snap.hand[locked_goal_suit_];
+            int32_t qty  = std::min({room, int32_t{2}, snap.balance / price});
+            actions.push_back(BotSubmitOrder{kAllSuits[locked_goal_suit_], Side::Buy, price, std::max(int32_t{1}, qty)});
+        }
     }
 
-    // Ask all non-goal suits at price 1.
+    // Ask non-goal suits in blocks (up to 3) at a discount to drain hand faster.
     for (int s = 0; s < 4; ++s) {
         if (s == locked_goal_suit_) continue;
-        if (!pending_orders_[s][1] && snap.hand[s] >= 1)
-            actions.push_back(BotSubmitOrder{kAllSuits[s], Side::Sell, 1});
+        if (!pending_orders_[s][1] && snap.hand[s] >= 1) {
+            int32_t price = std::max(int32_t{2}, (int32_t)std::floor(ev(s) * 0.65f));
+            int32_t qty   = std::min(snap.hand[s], int32_t{3});
+            actions.push_back(BotSubmitOrder{kAllSuits[s], Side::Sell, price, qty});
+        }
     }
 
     if ((int)actions.size() > capacity) actions.resize(capacity);
@@ -467,6 +482,16 @@ std::vector<BotAction> HardBot::decide(const GameStateSnapshot& snap) {
     fill.insert(fill.end(), seed.begin(), seed.end());
 
     review.insert(review.end(), fill.begin(), fill.end());
+
+    bool seen[4][2] = {};
+    review.erase(std::remove_if(review.begin(), review.end(), [&](const BotAction& a) {
+        if (const auto* sub = std::get_if<BotSubmitOrder>(&a)) {
+            int si = suit_index(sub->suit), sdi = side_idx(sub->side);
+            if (seen[si][sdi]) return true;
+            seen[si][sdi] = true;
+        }
+        return false;
+    }), review.end());
 
     if (review.empty()) {
         auto quote = passive_quote(snap);

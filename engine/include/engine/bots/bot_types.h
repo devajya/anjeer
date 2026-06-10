@@ -151,7 +151,7 @@ struct BotPendingOrder {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-struct BotSubmitOrder { Suit suit; Side side; int32_t price; };
+struct BotSubmitOrder { Suit suit; Side side; int32_t price; int32_t qty = 1; };
 struct BotCancelOrder { std::string order_id; };
 struct BotNoAction    {};
 using  BotAction = std::variant<BotSubmitOrder, BotCancelOrder, BotNoAction>;

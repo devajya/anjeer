@@ -97,7 +97,7 @@ void BotAdapter::tick() {
     }
 
     // Expire overdue in-flight deadlines.
-    while (!flight_deadlines_.empty() && flight_deadlines_.front() <= now) {
+    while (!flight_deadlines_.empty() && flight_deadlines_.front().deadline <= now) {
         actions_in_flight_ = std::max(0, actions_in_flight_ - 1);
         flight_deadlines_.pop_front();
     }
@@ -141,8 +141,12 @@ void BotAdapter::tick() {
         auto fire    = now + std::chrono::milliseconds(delay);
 
         if (std::holds_alternative<anjeer::engine::BotSubmitOrder>(action)) {
+            const auto& sub = std::get<anjeer::engine::BotSubmitOrder>(action);
             actions_in_flight_++;
-            flight_deadlines_.push_back(now + std::chrono::milliseconds(std::max(delay * 3, 300)));
+            flight_deadlines_.push_back({
+                now + std::chrono::milliseconds(std::max(delay * 3, 300)),
+                sub.suit, sub.side
+            });
         }
         pending_.push_back({fire, action_to_net_event(action)});
     }
@@ -317,8 +321,19 @@ void BotAdapter::process_event(const std::string& json) {
             log_event("error", code + " (order gone)");
         } else if (submit_rejected) {
             actions_in_flight_ = std::max(0, actions_in_flight_ - 1);
-            if (!flight_deadlines_.empty()) flight_deadlines_.pop_front();
-            log_event("error", code + " → in_flight decremented");
+            if (!flight_deadlines_.empty()) {
+                auto rec = flight_deadlines_.front();
+                flight_deadlines_.pop_front();
+                if (code == "INSUFFICIENT_CARDS" && rec.side == anjeer::engine::Side::Sell) {
+                    int si = anjeer::engine::suit_index(rec.suit);
+                    snapshot_.hand[si] = 0;
+                    log_event("error", code + " → hand[" + std::to_string(si) + "]=0");
+                } else {
+                    log_event("error", code + " → in_flight decremented");
+                }
+            } else {
+                log_event("error", code + " → in_flight decremented (no flight record)");
+            }
         } else {
             log_event("error", code + " (ignored)");
         }
@@ -368,7 +383,8 @@ NetEvent BotAdapter::action_to_net_event(const anjeer::engine::BotAction& action
             player_slot_,
             std::string(anjeer::engine::suit_name(sub->suit)),
             sub->side,
-            sub->price
+            sub->price,
+            sub->qty
         };
     }
     if (const auto* can = std::get_if<anjeer::engine::BotCancelOrder>(&action)) {
@@ -429,7 +445,8 @@ void BotAdapter::log_tick(const std::vector<anjeer::engine::BotAction>& actions)
         if (std::holds_alternative<anjeer::engine::BotSubmitOrder>(action)) {
             const auto& s = std::get<anjeer::engine::BotSubmitOrder>(action);
             log_ << "  ACTION: SUBMIT " << (s.side == anjeer::engine::Side::Buy ? "BUY" : "SELL")
-                 << " " << snames[anjeer::engine::suit_index(s.suit)] << "@" << s.price << "\n";
+                 << " " << snames[anjeer::engine::suit_index(s.suit)] << "@" << s.price
+                 << " qty=" << s.qty << "\n";
         } else if (std::holds_alternative<anjeer::engine::BotCancelOrder>(action)) {
             log_ << "  ACTION: CANCEL id="
                  << std::get<anjeer::engine::BotCancelOrder>(action).order_id << "\n";

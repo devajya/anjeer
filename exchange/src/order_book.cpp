@@ -17,7 +17,13 @@ std::vector<TradeEvent> OrderBook::match_loop() {
         Order& bid = bids_.front();
         Order& ask = asks_.front();
         if (bid.price < ask.price) break;
-        if (bid.player_id == ask.player_id) break;
+        if (bid.player_id == ask.player_id) {
+            // Self-match: bot invariant violation (bid and ask converged).
+            // Erase the passive ask so the book doesn't deadlock; the bot will
+            // rediscover the missing slot via max_resting_ms expiry.
+            asks_.erase(asks_.begin());
+            continue;
+        }
 
         const bool    bid_is_aggressor  = bid.id > ask.id;
         const Side    aggressor_side    = bid_is_aggressor ? Side::Buy : Side::Sell;

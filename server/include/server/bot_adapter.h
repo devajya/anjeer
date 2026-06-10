@@ -93,11 +93,17 @@ private:
     sys_tp round_end_time_;
     bool   round_end_valid_ = false;
 
+    struct FlightRecord {
+        time_point                 deadline;
+        anjeer::engine::Suit       suit;
+        anjeer::engine::Side       side;
+    };
+
     std::deque<std::pair<time_point, NetEvent>>  pending_;
     int                                          actions_in_flight_       = 0;
     int                                          next_decide_interval_ms_ = 0;
     time_point                                   last_decide_at_{};
-    std::deque<time_point>                       flight_deadlines_;
+    std::deque<FlightRecord>                     flight_deadlines_;
     std::mt19937_64                              adapter_rng_;
 
     void     process_event(const std::string& json);
