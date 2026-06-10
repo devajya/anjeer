@@ -6,6 +6,7 @@
 #include "engine/game_snapshot.h"
 
 #include <array>
+#include <unordered_map>
 
 namespace anjeer::server::eval {
 
@@ -29,15 +30,19 @@ public:
     // Tests that set snap.deck_table directly don't need to call this.
     void on_session_init(const std::array<engine::DeckSpec, 12>&) override;
 
-    void on_round_start(const engine::GameStateSnapshot&) override;
-    void on_trade_event(const EvalTradeEvent&)            override;
-    void on_book_update(const EvalBookUpdate&)            override;
-    void on_round_end  (const engine::GameStateSnapshot&) override;
+    void on_round_start    (const engine::GameStateSnapshot&) override;
+    void on_trade_event    (const EvalTradeEvent&)            override;
+    void on_book_update    (const EvalBookUpdate&)            override;
+    void on_round_end      (const engine::GameStateSnapshot&) override;
+    void on_order_added    (const EvalOrderAdded&)            override;
+    void on_order_cancelled(const EvalOrderCancelled&)        override;
 
     // Test inspector — returns the normalised posterior for one slot over all 12 configs.
     const std::array<double, 12>& posteriors_for(int slot) const { return posteriors_[slot]; }
 
 private:
+    struct OrderInfo { int32_t slot; int32_t qty; };
+
     // posteriors_[slot][deck_idx] — normalised to sum 1.0 after each update
     std::array<std::array<double, 12>, 4> posteriors_{};
     std::array<engine::DeckSpec, 12>      deck_table_{};
@@ -48,6 +53,7 @@ private:
     int32_t                               points_per_card_{0};
 
     bool                                   deck_table_initialized_{false};
+    std::unordered_map<int64_t, OrderInfo> resting_orders_;  // order_id → {slot, qty}
 
     // lf_[n] = log(n!), precomputed for n in [0, 40] at construction
     std::array<double, 41> lf_{};
@@ -58,6 +64,7 @@ private:
                                          const engine::DeckSpec&   deck) const;
     void   normalize(std::array<double, 12>& p);
     void   apply_trade_heuristic(const EvalTradeEvent&);
+    void   apply_order_nudge(int32_t slot, engine::Suit suit, int32_t qty, double sign);
     void   emit_all(double time_remaining_s);
 };
 

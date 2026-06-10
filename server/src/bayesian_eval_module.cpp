@@ -69,8 +69,9 @@ void BayesianEvalModule::init_from_snapshot(const GameStateSnapshot& snap) {
     if (!deck_table_initialized_)
         deck_table_ = snap.deck_table;  // test-compat fallback; production uses on_session_init
 
-    server_hands_                   = snap.hands;
+    server_hands_            = snap.hands;
     observed_deltas_         = {};
+    resting_orders_.clear();
     time_remaining_s_        = snap.time_remaining_s;
     round_duration_approx_s_ = snap.time_remaining_s;
     points_per_card_         = snap.points_per_card;
@@ -212,6 +213,32 @@ void BayesianEvalModule::emit_all(double /*time_remaining_s*/) {
 }
 
 // ---------------------------------------------------------------------------
+// apply_order_nudge — shared helper for resting-order evidence
+//
+// sign=+1: bid placed (player wants this suit → upweight goal configs for suit)
+// sign=-1: bid cancelled (withdraw evidence)
+//
+// Nudge = ORDER_BOOST × √qty × sign, clamped to ±MAX_ORDER_NUDGE.
+// Using √qty mirrors the trade heuristic and prevents flooding.
+// ---------------------------------------------------------------------------
+void BayesianEvalModule::apply_order_nudge(int32_t slot, engine::Suit suit,
+                                            int32_t qty, double sign)
+{
+    constexpr double ORDER_BOOST    = 0.08;  // base per-order nudge (< HEURISTIC_BOOST=0.3)
+    constexpr double MAX_ORDER_NUDGE = 0.12; // per-event cap
+
+    if (slot < 0 || slot >= 4) return;
+    const double qty_scale = std::sqrt(static_cast<double>(std::max(1, qty)));
+    const double delta     = std::clamp(ORDER_BOOST * qty_scale, 0.0, MAX_ORDER_NUDGE);
+    const double log_delta = delta * sign;
+
+    for (int i = 0; i < 12; ++i)
+        if (deck_table_[i].goal_suit == suit)
+            posteriors_[slot][i] *= std::exp(log_delta);
+    normalize(posteriors_[slot]);
+}
+
+// ---------------------------------------------------------------------------
 // EvalModule interface
 // ---------------------------------------------------------------------------
 
@@ -239,9 +266,27 @@ void BayesianEvalModule::on_book_update(const EvalBookUpdate&) {
 }
 
 void BayesianEvalModule::on_round_end(const GameStateSnapshot& snap) {
-    server_hands_           = snap.hands;
+    server_hands_    = snap.hands;
     points_per_card_ = snap.points_per_card;
     emit_all(snap.time_remaining_s);
+}
+
+void BayesianEvalModule::on_order_added(const EvalOrderAdded& ev) {
+    if (!ev.is_bid) return;
+    if (ev.order_id >= 0)
+        resting_orders_[ev.order_id] = {ev.slot, ev.qty};
+    apply_order_nudge(ev.slot, ev.suit, ev.qty, +1.0);
+    emit_all(time_remaining_s_);
+}
+
+void BayesianEvalModule::on_order_cancelled(const EvalOrderCancelled& ev) {
+    auto it = resting_orders_.find(ev.order_id);
+    if (it == resting_orders_.end()) return;
+    const auto [slot, qty] = it->second;
+    resting_orders_.erase(it);
+    // Cancel nudge is 50% of the add nudge — partial retraction, not full reversal.
+    apply_order_nudge(slot, ev.suit, qty, -0.5);
+    emit_all(time_remaining_s_);
 }
 
 } // namespace anjeer::server::eval

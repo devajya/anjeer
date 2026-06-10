@@ -792,7 +792,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 added->order_id, suit, added->side, added->price, added->seq,
                 added->player_slot, added->qty)});
             eval_runner_->push_order_added(eval::EvalOrderAdded{
-                suit, added->price, added->qty, added->player_slot, added->seq});
+                suit, added->price, added->qty, added->player_slot, added->seq,
+                added->order_id, added->side == exchange::Side::Buy});
         } else if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
             const std::string suit = instrument_suit_label(exec->instrument_id);
             engine_log_.info("trade",

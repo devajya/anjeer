@@ -34,6 +34,8 @@ struct EvalOrderAdded {
     int32_t      qty;
     int32_t      slot;
     int64_t      seq;
+    int64_t      order_id{-1};
+    bool         is_bid{false};
 };
 
 // Emitted when a resting order is explicitly cancelled (not a wipe).

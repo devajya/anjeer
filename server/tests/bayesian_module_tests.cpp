@@ -883,6 +883,143 @@ TEST_CASE("Bayesian QTY: MAX_NUDGE clamp bounds large-qty posterior shift",
     REQUIRE(found);
 }
 
+// ===========================================================================
+// ORDER — Resting-order evidence nudges
+// ===========================================================================
+
+// ORDER-1: Posting a bid in a suit increases that suit's goal probability
+//          for the bidder — without any fill occurring.
+TEST_CASE("Bayesian ORDER: bid increases bidder's goal-suit posterior", "[bayesian][order]") {
+    BayesianEvalModule mod;
+    GameStateSnapshot snap = make_two_type_snap();
+    for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+
+    double clubs_before = 0.0;
+    for (int i = 0; i < 6; ++i) clubs_before += mod.posteriors_for(0)[i];
+    REQUIRE_THAT(clubs_before, Catch::Matchers::WithinAbs(0.5, 1e-9));
+
+    EvalOrderAdded ev;
+    ev.suit     = Suit::Clubs;
+    ev.price    = 100;
+    ev.qty      = 3;
+    ev.slot     = 0;
+    ev.seq      = 1;
+    ev.order_id = 42;
+    ev.is_bid   = true;
+    mod.on_order_added(ev);
+
+    double clubs_after = 0.0;
+    for (int i = 0; i < 6; ++i) clubs_after += mod.posteriors_for(0)[i];
+
+    REQUIRE(clubs_after > clubs_before);
+    REQUIRE_THAT(sum12(mod.posteriors_for(0)), Catch::Matchers::WithinAbs(1.0, 1e-9));
+}
+
+// ORDER-2: Cancelling a bid partially reverses the nudge — clubs mass drops
+//          back toward its pre-bid value but not all the way (50% reversal).
+TEST_CASE("Bayesian ORDER: cancel partially reverses bid nudge", "[bayesian][order]") {
+    BayesianEvalModule mod;
+    GameStateSnapshot snap = make_two_type_snap();
+    for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+
+    const double clubs_before = [&]{
+        double m = 0.0;
+        for (int i = 0; i < 6; ++i) m += mod.posteriors_for(0)[i];
+        return m;
+    }();
+
+    EvalOrderAdded add;
+    add.suit = Suit::Clubs; add.price = 100; add.qty = 3;
+    add.slot = 0; add.seq = 1; add.order_id = 77; add.is_bid = true;
+    mod.on_order_added(add);
+
+    const double clubs_after_add = [&]{
+        double m = 0.0;
+        for (int i = 0; i < 6; ++i) m += mod.posteriors_for(0)[i];
+        return m;
+    }();
+    REQUIRE(clubs_after_add > clubs_before);
+
+    EvalOrderCancelled cxl;
+    cxl.suit     = Suit::Clubs;
+    cxl.order_id = 77;
+    cxl.seq      = 2;
+    mod.on_order_cancelled(cxl);
+
+    const double clubs_after_cancel = [&]{
+        double m = 0.0;
+        for (int i = 0; i < 6; ++i) m += mod.posteriors_for(0)[i];
+        return m;
+    }();
+
+    // Cancel reduces the posterior relative to the post-add peak
+    REQUIRE(clubs_after_cancel < clubs_after_add);
+    // Still normalised
+    REQUIRE_THAT(sum12(mod.posteriors_for(0)), Catch::Matchers::WithinAbs(1.0, 1e-9));
+}
+
+// ORDER-3: Ask orders (is_bid=false) have no effect on the posterior.
+TEST_CASE("Bayesian ORDER: ask orders do not affect posterior", "[bayesian][order]") {
+    BayesianEvalModule mod;
+    GameStateSnapshot snap = make_two_type_snap();
+    for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+
+    std::array<double, 12> before = mod.posteriors_for(0);
+
+    EvalOrderAdded ev;
+    ev.suit = Suit::Clubs; ev.price = 105; ev.qty = 5;
+    ev.slot = 0; ev.seq = 1; ev.order_id = 99; ev.is_bid = false;
+    mod.on_order_added(ev);
+
+    const auto& after = mod.posteriors_for(0);
+    for (int i = 0; i < 12; ++i)
+        REQUIRE_THAT(after[i], Catch::Matchers::WithinAbs(before[i], 1e-12));
+}
+
+// ORDER-4: MAX_ORDER_NUDGE clamp — a very large qty bid cannot collapse the
+//          posterior to 1.0; posterior remains normalised and < 1 on any config.
+TEST_CASE("Bayesian ORDER: large-qty bid is capped by MAX_ORDER_NUDGE", "[bayesian][order]") {
+    BayesianEvalModule mod;
+    GameStateSnapshot snap = make_two_type_snap();
+    for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+
+    EvalOrderAdded ev;
+    ev.suit = Suit::Clubs; ev.price = 100; ev.qty = 10000;
+    ev.slot = 0; ev.seq = 1; ev.order_id = 1; ev.is_bid = true;
+    mod.on_order_added(ev);
+
+    REQUIRE_THAT(sum12(mod.posteriors_for(0)), Catch::Matchers::WithinAbs(1.0, 1e-9));
+    double clubs_mass = 0.0;
+    for (int i = 0; i < 6; ++i) clubs_mass += mod.posteriors_for(0)[i];
+    REQUIRE(clubs_mass < 1.0);
+}
+
+// ORDER-5: Cancelling an unknown order_id is a no-op (no crash, no mutation).
+TEST_CASE("Bayesian ORDER: cancel of unknown order_id is no-op", "[bayesian][order]") {
+    BayesianEvalModule mod;
+    GameStateSnapshot snap = make_two_type_snap();
+    for (int s = 0; s < 4; ++s) snap.hands[s] = {0, 0, 0, 0};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+
+    std::array<double, 12> before = mod.posteriors_for(0);
+
+    EvalOrderCancelled cxl;
+    cxl.suit = Suit::Clubs; cxl.order_id = 9999; cxl.seq = 5;
+    mod.on_order_cancelled(cxl);
+
+    for (int i = 0; i < 12; ++i)
+        REQUIRE_THAT(mod.posteriors_for(0)[i], Catch::Matchers::WithinAbs(before[i], 1e-12));
+}
+
 // PERF-3: Full round pipeline (round_start + 50 varied trades + round_end)
 //
 // Algorithm budget  : < 2 ms   (all ops are O(12 decks × 4 slots); measured ~0.3 ms on bare metal)
