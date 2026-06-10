@@ -65,7 +65,7 @@ def test_save_config_uses_global_path_even_when_local_exists(tmp_path):
 
 def test_poll_lobby_raises_on_timeout(config_file):
     cfg = AnjeerConfig(
-        api_key="ank_testkey",
+        api_key="ank_testkey",  # gitleaks:allow
         api_url="http://localhost:8080",
         ws_url="ws://localhost:9001/ws",
         script="python3 /tmp/bot.py",
