@@ -111,6 +111,11 @@ struct ServerConfig {
         int         sim_network_delay_ms = 50;
         bool        spawn_bots_on_leave  = false;
         std::string default_feed         = "mbp1";
+        // Global fallbacks used when a per-difficulty sub-object omits the field.
+        int         tick_interval_ms     = 1500;
+        int         tick_jitter_ms       = 500;
+        int         thinking_min_ms      = 0;
+        int         thinking_max_ms      = 0;
 
         struct PerDifficultyParams {
             int   tick_interval_ms;       // base decide cadence

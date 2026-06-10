@@ -51,13 +51,11 @@
     "scheduler_tick_ms": 100,
     "sim_network_delay_ms": 0,
     "spawn_bots_on_leave": false,
-    "tick_interval_ms": 999,
-    "tick_jitter_ms": 111,
-    "thinking_min_ms": 222,
-    "thinking_max_ms": 333,
+    "tick_interval_ms": 777,
+    "tick_jitter_ms": 88,
+    "thinking_min_ms": 11,
+    "thinking_max_ms": 22,
     "easy": {
-      "tick_interval_ms": 100, "tick_jitter_ms": 0,
-      "thinking_min_ms": 0, "thinking_max_ms": 0,
       "confidence_discount": 0.80, "taker_threshold": 0.85,
       "min_bid_ev": 3.0, "max_ask_ev": 7.0,
       "hand_size_cap": 4, "offload_threshold": 3,
@@ -67,8 +65,6 @@
       "endgame_threshold_s": 0, "early_seed_threshold": 0.0, "quoting_kappa": 0.30
     },
     "medium": {
-      "tick_interval_ms": 50, "tick_jitter_ms": 0,
-      "thinking_min_ms": 0, "thinking_max_ms": 0,
       "confidence_discount": 0.90, "taker_threshold": 0.95,
       "min_bid_ev": 2.0, "max_ask_ev": 8.0,
       "hand_size_cap": 5, "offload_threshold": 4,
@@ -78,8 +74,6 @@
       "endgame_threshold_s": 0, "early_seed_threshold": 0.0, "quoting_kappa": 0.60
     },
     "hard": {
-      "tick_interval_ms": 20, "tick_jitter_ms": 0,
-      "thinking_min_ms": 0, "thinking_max_ms": 0,
       "confidence_discount": 1.00, "taker_threshold": 1.05,
       "min_bid_ev": 1.5, "max_ask_ev": 8.5,
       "hand_size_cap": 6, "offload_threshold": 4,

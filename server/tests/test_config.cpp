@@ -56,6 +56,40 @@ TEST_CASE("load_config reads all fields from a valid JSON file", "[config]") {
     CHECK(cfg.event_bus                          == "local");
 }
 
+TEST_CASE("load_config reads per-difficulty timing from sub-objects", "[config]") {
+    auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
+
+    CHECK(cfg.bots.tick_interval_ms  == 999);
+    CHECK(cfg.bots.tick_jitter_ms    == 111);
+    CHECK(cfg.bots.thinking_min_ms   == 222);
+    CHECK(cfg.bots.thinking_max_ms   == 333);
+
+    CHECK(cfg.bots.easy.tick_interval_ms  == 100);
+    CHECK(cfg.bots.easy.tick_jitter_ms    == 0);
+    CHECK(cfg.bots.easy.thinking_min_ms   == 0);
+    CHECK(cfg.bots.easy.thinking_max_ms   == 0);
+
+    CHECK(cfg.bots.medium.tick_interval_ms == 50);
+    CHECK(cfg.bots.hard.tick_interval_ms   == 20);
+}
+
+TEST_CASE("load_config falls back to global bot timing when per-difficulty fields absent", "[config]") {
+    auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config_no_per_diff_timing.json");
+
+    CHECK(cfg.bots.tick_interval_ms == 777);
+    CHECK(cfg.bots.tick_jitter_ms   == 88);
+    CHECK(cfg.bots.thinking_min_ms  == 11);
+    CHECK(cfg.bots.thinking_max_ms  == 22);
+
+    CHECK(cfg.bots.easy.tick_interval_ms   == 777);
+    CHECK(cfg.bots.easy.tick_jitter_ms     == 88);
+    CHECK(cfg.bots.easy.thinking_min_ms    == 11);
+    CHECK(cfg.bots.easy.thinking_max_ms    == 22);
+
+    CHECK(cfg.bots.medium.tick_interval_ms == 777);
+    CHECK(cfg.bots.hard.tick_interval_ms   == 777);
+}
+
 TEST_CASE("load_config throws on missing file", "[config]") {
     CHECK_THROWS_AS(
         load_config("/nonexistent/path/config.json"),

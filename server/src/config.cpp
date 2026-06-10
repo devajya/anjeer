@@ -109,14 +109,18 @@ ServerConfig load_config(const std::string& path) {
         cfg.bots.sim_network_delay_ms = bo.at("sim_network_delay_ms").get<int>();
         cfg.bots.spawn_bots_on_leave  = bo.at("spawn_bots_on_leave").get<bool>();
         cfg.bots.default_feed         = bo.value("default_feed", "mbp1");
+        cfg.bots.tick_interval_ms     = bo.value("tick_interval_ms", cfg.bots.tick_interval_ms);
+        cfg.bots.tick_jitter_ms       = bo.value("tick_jitter_ms",   cfg.bots.tick_jitter_ms);
+        cfg.bots.thinking_min_ms      = bo.value("thinking_min_ms",  cfg.bots.thinking_min_ms);
+        cfg.bots.thinking_max_ms      = bo.value("thinking_max_ms",  cfg.bots.thinking_max_ms);
 
-        auto parse_difficulty = [](const nlohmann::json& d)
+        auto parse_difficulty = [&](const nlohmann::json& d)
             -> ServerConfig::BotsConfig::PerDifficultyParams {
             ServerConfig::BotsConfig::PerDifficultyParams p;
-            p.tick_interval_ms      = d.at("tick_interval_ms").get<int>();
-            p.tick_jitter_ms        = d.at("tick_jitter_ms").get<int>();
-            p.thinking_min_ms       = d.at("thinking_min_ms").get<int>();
-            p.thinking_max_ms       = d.at("thinking_max_ms").get<int>();
+            p.tick_interval_ms      = d.value("tick_interval_ms", cfg.bots.tick_interval_ms);
+            p.tick_jitter_ms        = d.value("tick_jitter_ms",   cfg.bots.tick_jitter_ms);
+            p.thinking_min_ms       = d.value("thinking_min_ms",  cfg.bots.thinking_min_ms);
+            p.thinking_max_ms       = d.value("thinking_max_ms",  cfg.bots.thinking_max_ms);
             p.confidence_discount   = d.at("confidence_discount").get<float>();
             p.taker_threshold       = d.at("taker_threshold").get<float>();
             p.min_bid_ev            = d.at("min_bid_ev").get<float>();
