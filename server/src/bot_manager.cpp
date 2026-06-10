@@ -335,6 +335,7 @@ anjeer::engine::BotConfig BotManager::make_engine_config(anjeer::engine::BotDiff
     cfg.nudge_max_gap         = p.nudge_max_gap;
     cfg.endgame_threshold_s   = p.endgame_threshold_s;
     cfg.early_seed_threshold  = p.early_seed_threshold;
+    cfg.quoting_kappa         = p.quoting_kappa;
     return cfg;
 }
 

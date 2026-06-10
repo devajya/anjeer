@@ -263,6 +263,29 @@ std::vector<BotAction> MediumBot::gap_fill(const GameStateSnapshot& snap) const 
     return actions;
 }
 
+// ── Passive quoting ───────────────────────────────────────────────────────────
+
+std::vector<BotAction> MediumBot::passive_quote(const GameStateSnapshot& snap) {
+    if (cfg_.quoting_kappa <= 0.0f) return {};
+    std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+    if (roll(rng_) >= cfg_.quoting_kappa) return {};
+
+    int   best_s  = 0;
+    float best_ev = ev(0);
+    for (int s = 1; s < 4; ++s) { float e = ev(s); if (e > best_ev) { best_ev = e; best_s = s; } }
+
+    int32_t bid_px = std::clamp((int32_t)std::floor(best_ev) - 1, int32_t{1}, int32_t{20});
+    int32_t ask_px = std::clamp((int32_t)std::ceil(best_ev)  + 1, int32_t{1}, int32_t{20});
+
+    std::vector<BotAction> actions;
+    if (!pending_orders_[best_s][0] && snap.balance >= bid_px
+            && snap.hand[best_s] < cfg_.hand_size_cap)
+        actions.push_back(BotSubmitOrder{kAllSuits[best_s], Side::Buy,  bid_px});
+    if (!pending_orders_[best_s][1] && snap.hand[best_s] >= 1 && ask_px > bid_px)
+        actions.push_back(BotSubmitOrder{kAllSuits[best_s], Side::Sell, ask_px});
+    return actions;
+}
+
 // ── decide() ──────────────────────────────────────────────────────────────────
 
 std::vector<BotAction> MediumBot::decide(const GameStateSnapshot& snap) {
@@ -274,6 +297,11 @@ std::vector<BotAction> MediumBot::decide(const GameStateSnapshot& snap) {
     auto review = review_pending(snap);
     auto fill   = gap_fill(snap);
     review.insert(review.end(), fill.begin(), fill.end());
+
+    if (review.empty()) {
+        auto quote = passive_quote(snap);
+        review.insert(review.end(), quote.begin(), quote.end());
+    }
     return review;
 }
 

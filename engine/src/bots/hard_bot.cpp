@@ -407,6 +407,46 @@ std::vector<BotAction> HardBot::seed_market(const GameStateSnapshot& snap) const
     return {BotSubmitOrder{kAllSuits[best_s], Side::Buy, price}};
 }
 
+// ── Passive quoting ───────────────────────────────────────────────────────────
+
+std::vector<BotAction> HardBot::passive_quote(const GameStateSnapshot& snap) {
+    if (cfg_.quoting_kappa <= 0.0f) return {};
+
+    // Suppress during endgame lock-in.
+    if (goal_suit_locked_ && cfg_.endgame_threshold_s > 0
+            && snap.time_remaining_s < static_cast<float>(cfg_.endgame_threshold_s))
+        return {};
+
+    // Suppress when at max concurrent orders.
+    int resting = 0;
+    for (int s = 0; s < 4; ++s)
+        for (int sd = 0; sd < 2; ++sd)
+            if (pending_orders_[s][sd]) resting++;
+    if (resting >= cfg_.max_concurrent_orders) return {};
+
+    std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+    if (roll(rng_) >= cfg_.quoting_kappa) return {};
+
+    int   best_s  = goal_suit_locked_ ? locked_goal_suit_ : 0;
+    float best_ev = ev(0);
+    if (!goal_suit_locked_) {
+        for (int s = 1; s < 4; ++s) { float e = ev(s); if (e > best_ev) { best_ev = e; best_s = s; } }
+    } else {
+        best_ev = ev(best_s);
+    }
+
+    int32_t bid_px = std::clamp((int32_t)std::floor(best_ev) - 1, int32_t{1}, int32_t{20});
+    int32_t ask_px = std::clamp((int32_t)std::ceil(best_ev)  + 1, int32_t{1}, int32_t{20});
+
+    std::vector<BotAction> actions;
+    if (!pending_orders_[best_s][0] && snap.balance >= bid_px
+            && snap.hand[best_s] < cfg_.hand_size_cap)
+        actions.push_back(BotSubmitOrder{kAllSuits[best_s], Side::Buy,  bid_px});
+    if (!pending_orders_[best_s][1] && snap.hand[best_s] >= 1 && ask_px > bid_px)
+        actions.push_back(BotSubmitOrder{kAllSuits[best_s], Side::Sell, ask_px});
+    return actions;
+}
+
 // ── decide() ──────────────────────────────────────────────────────────────────
 
 std::vector<BotAction> HardBot::decide(const GameStateSnapshot& snap) {
@@ -427,6 +467,11 @@ std::vector<BotAction> HardBot::decide(const GameStateSnapshot& snap) {
     fill.insert(fill.end(), seed.begin(), seed.end());
 
     review.insert(review.end(), fill.begin(), fill.end());
+
+    if (review.empty()) {
+        auto quote = passive_quote(snap);
+        review.insert(review.end(), quote.begin(), quote.end());
+    }
     return review;
 }
 

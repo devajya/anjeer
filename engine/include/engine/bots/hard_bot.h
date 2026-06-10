@@ -81,6 +81,7 @@ private:
     std::vector<BotAction> gap_fill(const GameStateSnapshot& snap) const;
     std::vector<BotAction> locked_actions(const GameStateSnapshot& snap) const;
     std::vector<BotAction> seed_market(const GameStateSnapshot& snap) const;
+    std::vector<BotAction> passive_quote(const GameStateSnapshot& snap);
 };
 
 std::unique_ptr<HardBot> make_hard_bot(const BotConfig& cfg, uint64_t seed);

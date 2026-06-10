@@ -61,6 +61,7 @@ private:
     std::vector<BotAction> taker_scan(const GameStateSnapshot& snap) const;
     std::vector<BotAction> review_pending(const GameStateSnapshot& snap);
     std::vector<BotAction> gap_fill(const GameStateSnapshot& snap) const;
+    std::vector<BotAction> passive_quote(const GameStateSnapshot& snap);
 };
 
 std::unique_ptr<MediumBot> make_medium_bot(const BotConfig& cfg, uint64_t seed);

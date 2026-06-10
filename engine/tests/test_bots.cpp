@@ -28,6 +28,7 @@ static BotConfig cfg_default() {
     c.nudge_max_gap         = 2;
     c.endgame_threshold_s   = 0;
     c.early_seed_threshold  = 0.0f;
+    c.quoting_kappa         = 1.0f;  // deterministic for tests
     return c;
 }
 
@@ -432,4 +433,108 @@ TEST_CASE("HardBot: locked taker crosses goal-suit ask more aggressively with la
     snap_locked_large.best_ask_qty[0] = 3;
     auto acts_locked = bot->decide(snap_locked_large);
     REQUIRE(cross_at(acts_locked, Suit::Clubs, 10));
+}
+
+// ── T6: passive quoting incentive ────────────────────────────────────────────
+
+// Helper: does the action list contain any BUY or SELL submit?
+static bool has_any_submit(const std::vector<BotAction>& acts) {
+    return std::any_of(acts.begin(), acts.end(), [](const BotAction& a) {
+        return std::holds_alternative<BotSubmitOrder>(a);
+    });
+}
+
+TEST_CASE("EasyBot: passive_quote fires when kappa=1 and primary loop produces nothing",
+          "[bots][easy][quoting]") {
+    // Use hand with no cards (can't taker, can't gap_fill sell) and hand_size_cap=5 >0
+    // so bid can still be placed. With kappa=1.0 (set in cfg_default) and an otherwise
+    // empty tick, passive_quote must emit at least one submit.
+    std::array<int,4> hand = {0, 0, 0, 0};
+    EasyBot bot(cfg_default(), kSeed);
+    bot.on_event(make_round_start(hand));
+
+    // No book info, no pending, no cards to sell → taker empty, review empty, gap_fill empty
+    // (gap_fill skips asks because hand[s]==0; bids may fire too — but kappa=1 ensures quote)
+    auto snap = make_snapshot(hand, 120.0f);
+    auto acts = bot.decide(snap);
+    // With kappa=1 the passive_quote must add a bid for the highest-EV suit
+    REQUIRE(has_any_submit(acts));
+}
+
+TEST_CASE("EasyBot: passive_quote suppressed when kappa=0", "[bots][easy][quoting]") {
+    auto cfg = cfg_default();
+    cfg.quoting_kappa = 0.0f;
+    std::array<int,4> hand = {0, 0, 0, 0};
+    EasyBot bot(cfg, kSeed);
+    bot.on_event(make_round_start(hand));
+
+    auto snap = make_snapshot(hand, 120.0f, 0, 4, 0);  // balance=0 → gap_fill can't bid either
+    auto acts = bot.decide(snap);
+    REQUIRE_FALSE(has_any_submit(acts));
+}
+
+TEST_CASE("MediumBot: passive_quote fires when kappa=1 and primary loop produces nothing",
+          "[bots][medium][quoting]") {
+    std::array<int,4> hand = {0, 0, 0, 0};
+    auto bot = make_medium_bot(cfg_default(), kSeed);
+    bot->on_event(make_round_start(hand));
+
+    auto snap = make_snapshot(hand, 120.0f);
+    auto acts = bot->decide(snap);
+    REQUIRE(has_any_submit(acts));
+}
+
+TEST_CASE("HardBot: passive_quote fires when kappa=1 and primary loop produces nothing",
+          "[bots][hard][quoting]") {
+    std::array<int,4> hand = {0, 0, 0, 0};
+    auto bot = make_hard_bot(cfg_default(), kSeed);
+    bot->on_event(make_round_start(hand));
+
+    auto snap = make_snapshot(hand, 120.0f);
+    auto acts = bot->decide(snap);
+    REQUIRE(has_any_submit(acts));
+}
+
+TEST_CASE("HardBot: passive_quote suppressed during endgame lock-in", "[bots][hard][quoting]") {
+    auto cfg = cfg_default();
+    cfg.endgame_threshold_s = 30;
+    cfg.quoting_kappa       = 1.0f;
+
+    std::array<int,4> hand = {0, 0, 0, 0};
+    auto bot = make_hard_bot(cfg, kSeed);
+    bot->on_event(make_round_start(hand));
+
+    // Force lock-in
+    std::array<float, 12> w{};
+    w[0] = 0.97f;
+    for (int d = 1; d < 12; ++d) w[d] = 0.03f / 11.0f;
+    bot->set_deck_weights(w);
+    bot->on_event(BotTradeEvent{Suit::Diamonds, 5, std::nullopt});
+    REQUIRE(bot->is_locked_in());
+
+    // Within endgame window (time_remaining < threshold) with balance=0:
+    // locked_actions can't bid either → only passive_quote might fire, but endgame suppresses it.
+    auto snap_endgame = make_snapshot(hand, 10.0f, 0, 4, 0);  // 10s < 30s threshold, balance=0
+    auto acts = bot->decide(snap_endgame);
+    REQUIRE_FALSE(has_any_submit(acts));
+}
+
+TEST_CASE("HardBot: passive_quote suppressed when at max_concurrent_orders",
+          "[bots][hard][quoting]") {
+    auto cfg = cfg_default();
+    cfg.quoting_kappa         = 1.0f;
+    cfg.max_concurrent_orders = 2;
+
+    std::array<int,4> hand = {0, 0, 0, 0};
+    auto bot = make_hard_bot(cfg, kSeed);
+    bot->on_event(make_round_start(hand));
+
+    // Simulate 2 resting orders by injecting acks for two suits
+    bot->on_event(BotOrderAckEvent{"o1", Suit::Clubs,    Side::Buy, 5});
+    bot->on_event(BotOrderAckEvent{"o2", Suit::Diamonds, Side::Buy, 5});
+
+    auto snap = make_snapshot(hand, 120.0f, 0, 4, 0);  // balance=0 prevents new bids from gap_fill
+    auto acts = bot->decide(snap);
+    // All capacity used → passive_quote suppressed; taker/review/fill all empty → no actions
+    REQUIRE_FALSE(has_any_submit(acts));
 }

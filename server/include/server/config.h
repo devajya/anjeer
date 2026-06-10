@@ -131,6 +131,7 @@ struct ServerConfig {
             int   nudge_max_gap;          // cancel-repost if |EV - price| exceeds this
             int   endgame_threshold_s;    // seconds remaining at which endgame mode activates
             float early_seed_threshold;   // hard only: seed bid when max(P) < this in first half
+            float quoting_kappa;          // probability of posting passive quote when idle
         } easy, medium, hard;
     } bots;
 

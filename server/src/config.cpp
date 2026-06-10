@@ -131,6 +131,7 @@ ServerConfig load_config(const std::string& path) {
             p.nudge_max_gap         = d.at("nudge_max_gap").get<int>();
             p.endgame_threshold_s   = d.at("endgame_threshold_s").get<int>();
             p.early_seed_threshold  = d.at("early_seed_threshold").get<float>();
+            p.quoting_kappa         = d.at("quoting_kappa").get<float>();
             return p;
         };
         cfg.bots.easy   = parse_difficulty(bo.at("easy"));

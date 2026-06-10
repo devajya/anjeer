@@ -136,6 +136,7 @@ struct BotConfig {
     int   nudge_max_gap;          // Easy=3,    Medium=2,    Hard=1
     int   endgame_threshold_s;    // Easy=0,    Medium=15,   Hard=45
     float early_seed_threshold;   // Hard=0.40; Easy/Medium: set to 0
+    float quoting_kappa;          // Easy=0.30, Medium=0.60, Hard=1.00
 };
 
 // ── Pending orders ────────────────────────────────────────────────────────────
