@@ -60,13 +60,15 @@ EvalBookUpdate make_one_sided_bid(Suit suit, int bid) {
     return b;
 }
 
-EvalTradeEvent make_trade(int buyer, int seller, Suit suit, int price, int64_t ts_ms) {
+EvalTradeEvent make_trade(int buyer, int seller, Suit suit, int price, int64_t ts_ms,
+                          int32_t qty = 1) {
     EvalTradeEvent t;
     t.buyer_slot   = buyer;
     t.seller_slot  = seller;
     t.price        = price;
     t.suit         = suit;
     t.timestamp_ms = ts_ms;
+    t.qty          = qty;
     return t;
 }
 
@@ -519,6 +521,56 @@ TEST_CASE("Execution L2: no NaN/Inf under 1000-event stress", "[execution][L2]")
     REQUIRE(last->payload.contains("action"));
     REQUIRE(last->payload.contains("suit"));
     REQUIRE(last->payload.contains("price"));
+}
+
+// ===========================================================================
+// QTY — Multi-quantity intensity and leakage scaling
+// ===========================================================================
+
+// QTY-E1: qty=5 trade produces higher trade_intensity than qty=1 at the same interval.
+TEST_CASE("Execution QTY: larger qty produces higher trade_intensity", "[execution][qty]") {
+    auto intensity_after_one_trade = [](int32_t qty) {
+        ExecutionEvalModule mod;
+        GameStateSnapshot snap = make_exec_snap();
+        mod.on_round_start(snap);
+        mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 100, 0, qty));
+        return mod.trade_intensity_for(suit_index(Suit::Clubs));
+    };
+
+    REQUIRE(intensity_after_one_trade(5) > intensity_after_one_trade(1));
+}
+
+// QTY-E2: qty=5 directional cross produces higher leakage_penalty than qty=1 cross.
+TEST_CASE("Execution QTY: larger qty directional cross raises leakage more", "[execution][qty]") {
+    auto leakage_after_cross = [](int32_t qty) {
+        ExecutionEvalModule mod;
+        GameStateSnapshot snap = make_exec_snap();
+        mod.on_round_start(snap);
+        mod.on_book_update(make_book(Suit::Spades, 100, 105));
+        mod.on_trade_event(make_trade(0, 1, Suit::Spades, 105, 0, qty));
+        return mod.leakage_penalty_for(suit_index(Suit::Spades));
+    };
+
+    REQUIRE(leakage_after_cross(5) > leakage_after_cross(1));
+}
+
+// QTY-E3: Exact EWMA recurrence with qty=5.
+// Default first-trade interval is 100ms; rate = qty*1000/interval = 5*10 = 50 units/s.
+TEST_CASE("Execution QTY: trade_intensity EWMA follows qty-scaled recurrence",
+          "[execution][qty]") {
+    ExecutionEvalModule mod;
+    GameStateSnapshot snap = make_exec_snap();
+    mod.on_round_start(snap);
+
+    mod.on_trade_event(make_trade(0, 1, Suit::Hearts, 100, 0, 5));
+    const double after_one = mod.trade_intensity_for(suit_index(Suit::Hearts));
+    REQUIRE_THAT(after_one, Catch::Matchers::WithinAbs(EWMA_ALPHA * 50.0, 1e-9));
+
+    mod.on_trade_event(make_trade(0, 1, Suit::Hearts, 100, 100, 5));
+    const double after_two = mod.trade_intensity_for(suit_index(Suit::Hearts));
+    REQUIRE_THAT(after_two,
+                 Catch::Matchers::WithinAbs(EWMA_ALPHA * 50.0 + (1.0 - EWMA_ALPHA) * after_one,
+                                            1e-9));
 }
 
 // ===========================================================================

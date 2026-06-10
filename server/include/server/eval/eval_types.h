@@ -16,6 +16,7 @@ struct EvalTradeEvent {
     int32_t      price;
     engine::Suit suit;
     int64_t      timestamp_ms;
+    int32_t      qty{1};
 };
 
 struct EvalBookUpdate {
@@ -24,6 +25,23 @@ struct EvalBookUpdate {
     std::optional<int32_t> best_ask;
     std::optional<int32_t> best_bid_slot;
     std::optional<int32_t> best_ask_slot;
+};
+
+// Emitted when a new resting order is placed (non-crossing submit).
+struct EvalOrderAdded {
+    engine::Suit suit;
+    int32_t      price;
+    int32_t      qty;
+    int32_t      slot;
+    int64_t      seq;
+};
+
+// Emitted when a resting order is explicitly cancelled (not a wipe).
+// slot is -1 when the placing player cannot be attributed from the market stream.
+struct EvalOrderCancelled {
+    engine::Suit suit;
+    int64_t      order_id;
+    int64_t      seq;
 };
 
 struct EvalOutput {

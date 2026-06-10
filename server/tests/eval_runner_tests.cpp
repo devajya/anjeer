@@ -18,11 +18,13 @@ namespace {
 
 // Records which on_* methods were called, in order.
 struct RecordingModule : EvalModule {
-    enum class EventKind { RoundStart, Trade, Book, RoundEnd };
+    enum class EventKind { RoundStart, Trade, Book, RoundEnd, OrderAdded, OrderCancelled };
 
     std::mutex              mu;
     std::vector<EventKind>  events;
     std::vector<int32_t>    trade_prices;  // for FIFO-order verification
+    std::vector<int32_t>    order_added_prices;
+    std::vector<int64_t>    order_cancelled_ids;
 
     void on_round_start(const GameStateSnapshot&) override {
         std::lock_guard<std::mutex> lk(mu);
@@ -40,6 +42,16 @@ struct RecordingModule : EvalModule {
     void on_round_end(const GameStateSnapshot&) override {
         std::lock_guard<std::mutex> lk(mu);
         events.push_back(EventKind::RoundEnd);
+    }
+    void on_order_added(const EvalOrderAdded& ev) override {
+        std::lock_guard<std::mutex> lk(mu);
+        events.push_back(EventKind::OrderAdded);
+        order_added_prices.push_back(ev.price);
+    }
+    void on_order_cancelled(const EvalOrderCancelled& ev) override {
+        std::lock_guard<std::mutex> lk(mu);
+        events.push_back(EventKind::OrderCancelled);
+        order_cancelled_ids.push_back(ev.order_id);
     }
 
     size_t count() {
@@ -148,4 +160,76 @@ TEST_CASE("EvalRunner delivers events in FIFO order") {
     CHECK(rec->trade_prices[0] == 10);
     CHECK(rec->trade_prices[1] == 20);
     CHECK(rec->trade_prices[2] == 30);
+}
+
+// T5: push_order_added routes to all registered modules with correct fields.
+TEST_CASE("EvalRunner routes push_order_added to all modules") {
+    auto* a = new RecordingModule;
+    auto* b = new RecordingModule;
+
+    std::vector<std::unique_ptr<EvalModule>> mods;
+    mods.push_back(std::unique_ptr<EvalModule>(a));
+    mods.push_back(std::unique_ptr<EvalModule>(b));
+
+    EvalRunner runner(std::move(mods), nullptr);
+    runner.start();
+
+    EvalOrderAdded ev{Suit::Clubs, 105, 3, 2, 42};
+    runner.push_order_added(ev);
+
+    wait_for(*a, 1);
+    wait_for(*b, 1);
+    runner.stop();
+
+    REQUIRE(a->count() == 1);
+    REQUIRE(b->count() == 1);
+    CHECK(a->events[0] == RecordingModule::EventKind::OrderAdded);
+    CHECK(b->events[0] == RecordingModule::EventKind::OrderAdded);
+    CHECK(a->order_added_prices[0] == 105);
+    CHECK(b->order_added_prices[0] == 105);
+}
+
+// T6: push_order_cancelled routes to all registered modules with correct fields.
+TEST_CASE("EvalRunner routes push_order_cancelled to all modules") {
+    auto* a = new RecordingModule;
+    auto* b = new RecordingModule;
+
+    std::vector<std::unique_ptr<EvalModule>> mods;
+    mods.push_back(std::unique_ptr<EvalModule>(a));
+    mods.push_back(std::unique_ptr<EvalModule>(b));
+
+    EvalRunner runner(std::move(mods), nullptr);
+    runner.start();
+
+    EvalOrderCancelled ev{Suit::Hearts, 99LL, 7LL};
+    runner.push_order_cancelled(ev);
+
+    wait_for(*a, 1);
+    wait_for(*b, 1);
+    runner.stop();
+
+    REQUIRE(a->count() == 1);
+    REQUIRE(b->count() == 1);
+    CHECK(a->events[0] == RecordingModule::EventKind::OrderCancelled);
+    CHECK(b->events[0] == RecordingModule::EventKind::OrderCancelled);
+    CHECK(a->order_cancelled_ids[0] == 99LL);
+    CHECK(b->order_cancelled_ids[0] == 99LL);
+}
+
+// T7: Modules that do not override on_order_added / on_order_cancelled do not crash.
+TEST_CASE("EvalRunner: modules with no-op order events do not crash") {
+    auto* blocking = new BlockingModule;
+    std::vector<std::unique_ptr<EvalModule>> mods;
+    mods.push_back(std::unique_ptr<EvalModule>(blocking));
+
+    EvalRunner runner(std::move(mods), nullptr);
+    runner.start();
+
+    // BlockingModule inherits no-op on_order_added / on_order_cancelled
+    runner.push_order_added    ({Suit::Spades, 100, 1, 0, 1});
+    runner.push_order_cancelled({Suit::Spades, 42LL, 2LL});
+
+    blocking->blocked.store(false, std::memory_order_release);
+    runner.stop();
+    // reaching here without crash or hang = pass
 }

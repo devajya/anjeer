@@ -116,13 +116,14 @@ void BayesianEvalModule::apply_trade_heuristic(const EvalTradeEvent& ev) {
     constexpr double MAX_NUDGE           = 0.25;  // clamp prevents posterior collapse
 
     const double t_remaining = std::max(0.0, round_duration_approx_s_ - ev.timestamp_ms / 1000.0);
-    const double weight = t_remaining / (t_remaining + TAU);
-    const int si = suit_index(ev.suit);
+    const double weight      = t_remaining / (t_remaining + TAU);
+    const double qty_scale   = std::sqrt(static_cast<double>(std::max(1, ev.qty)));
+    const int    si          = suit_index(ev.suit);
 
     // ── Buyer signal ──────────────────────────────────────────────────────────
     const int buyer = ev.buyer_slot;
     if (buyer >= 0 && buyer < 4) {
-        const double delta = std::clamp(weight * HEURISTIC_BOOST, 0.0, MAX_NUDGE);
+        const double delta = std::clamp(weight * HEURISTIC_BOOST * qty_scale, 0.0, MAX_NUDGE);
         for (int i = 0; i < 12; ++i)
             if (deck_table_[i].goal_suit == ev.suit)
                 posteriors_[buyer][i] *= std::exp(delta);
@@ -139,7 +140,7 @@ void BayesianEvalModule::apply_trade_heuristic(const EvalTradeEvent& ev) {
         const int obs_holding = std::max(0, observed_deltas_[seller][si]);
         const double sell_strength = SELL_EVIDENCE_RATIO * HEURISTIC_BOOST
                                    / (1.0 + static_cast<double>(obs_holding));
-        const double delta = std::clamp(weight * sell_strength, 0.0, MAX_NUDGE);
+        const double delta = std::clamp(weight * sell_strength * qty_scale, 0.0, MAX_NUDGE);
         for (int i = 0; i < 12; ++i)
             if (deck_table_[i].goal_suit == ev.suit)
                 posteriors_[seller][i] *= std::exp(-delta);
@@ -222,12 +223,12 @@ void BayesianEvalModule::on_round_start(const GameStateSnapshot& snap) {
 void BayesianEvalModule::on_trade_event(const EvalTradeEvent& ev) {
     const int si = suit_index(ev.suit);
     if (ev.buyer_slot >= 0 && ev.buyer_slot < 4) {
-        server_hands_[ev.buyer_slot][si]    = std::max(0, server_hands_[ev.buyer_slot][si] + 1);
-        observed_deltas_[ev.buyer_slot][si] += 1;
+        server_hands_[ev.buyer_slot][si]    = std::max(0, server_hands_[ev.buyer_slot][si] + ev.qty);
+        observed_deltas_[ev.buyer_slot][si] += ev.qty;
     }
     if (ev.seller_slot >= 0 && ev.seller_slot < 4) {
-        server_hands_[ev.seller_slot][si]    = std::max(0, server_hands_[ev.seller_slot][si] - 1);
-        observed_deltas_[ev.seller_slot][si] -= 1;
+        server_hands_[ev.seller_slot][si]    = std::max(0, server_hands_[ev.seller_slot][si] - ev.qty);
+        observed_deltas_[ev.seller_slot][si] -= ev.qty;
     }
     apply_trade_heuristic(ev);
     emit_all(time_remaining_s_);

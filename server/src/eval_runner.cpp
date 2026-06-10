@@ -62,6 +62,14 @@ void EvalRunner::push_round_end(const engine::GameStateSnapshot& snap) {
     try_push({TaggedEvent::RoundEnd, snap});
 }
 
+void EvalRunner::push_order_added(const EvalOrderAdded& ev) {
+    try_push({TaggedEvent::OrderAdded, ev});
+}
+
+void EvalRunner::push_order_cancelled(const EvalOrderCancelled& ev) {
+    try_push({TaggedEvent::OrderCancelled, ev});
+}
+
 void EvalRunner::run_loop() {
     while (running_.load(std::memory_order_acquire)) {
         TaggedEvent ev;
@@ -107,6 +115,12 @@ void EvalRunner::dispatch(const TaggedEvent& te) {
                     break;
                 case TaggedEvent::RoundEnd:
                     m->on_round_end(std::get<engine::GameStateSnapshot>(te.ev));
+                    break;
+                case TaggedEvent::OrderAdded:
+                    m->on_order_added(std::get<EvalOrderAdded>(te.ev));
+                    break;
+                case TaggedEvent::OrderCancelled:
+                    m->on_order_cancelled(std::get<EvalOrderCancelled>(te.ev));
                     break;
             }
         } catch (const std::exception& ex) {

@@ -791,6 +791,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
             outbound_.enqueue(GameMboEvent{wire::order_added(
                 added->order_id, suit, added->side, added->price, added->seq,
                 added->player_slot, added->qty)});
+            eval_runner_->push_order_added(eval::EvalOrderAdded{
+                suit, added->price, added->qty, added->player_slot, added->seq});
         } else if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
             const std::string suit = instrument_suit_label(exec->instrument_id);
             engine_log_.info("trade",
@@ -867,6 +869,8 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 cxl->order_id,
                 engine::kAllSuits[cxl->instrument_id],
                 cxl->seq)});
+            eval_runner_->push_order_cancelled(eval::EvalOrderCancelled{
+                engine::kAllSuits[cxl->instrument_id], cxl->order_id, cxl->seq});
         }
     }
 
@@ -921,7 +925,8 @@ void GameSession::apply_post_trade_state(const exchange::ExchangeResult& result)
             recent_trades_.push_back(
                 {exec->buyer_slot, exec->seller_slot, exec->price, *suit_opt, elapsed_ms});
             eval_runner_->push_trade(eval::EvalTradeEvent{
-                exec->buyer_slot, exec->seller_slot, exec->price, *suit_opt, elapsed_ms});
+                exec->buyer_slot, exec->seller_slot, exec->price, *suit_opt, elapsed_ms,
+                exec->qty_filled});
             engine_log_.info("eval",
                 "[eval] trade pushed suit=" + suit + " price=" + std::to_string(exec->price));
         }

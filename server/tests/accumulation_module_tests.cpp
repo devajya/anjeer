@@ -40,13 +40,14 @@ GameStateSnapshot make_acc_snap(int num_slots = 4) {
     return s;
 }
 
-EvalTradeEvent make_trade(int buyer, int seller, Suit suit, int64_t ts_ms) {
+EvalTradeEvent make_trade(int buyer, int seller, Suit suit, int64_t ts_ms, int32_t qty = 1) {
     EvalTradeEvent t;
     t.buyer_slot   = buyer;
     t.seller_slot  = seller;
     t.price        = 100;
     t.suit         = suit;
     t.timestamp_ms = ts_ms;
+    t.qty          = qty;
     return t;
 }
 
@@ -668,6 +669,77 @@ TEST_CASE("Accumulation perf: full round pipeline (start+50 trades+end) < 3ms",
     const double elapsed_us =
         std::chrono::duration<double, std::micro>(t1 - t0).count();
     REQUIRE(elapsed_us < 4000.0);
+}
+
+// ===========================================================================
+// QTY — Multi-quantity delta tracking
+// ===========================================================================
+
+// QTY-1: A qty=5 buy increments the buyer's delta by 5, seller's by -5.
+TEST_CASE("Accumulation QTY: qty=5 buy produces delta of 5", "[accumulation][qty]") {
+    AccumulationEvalModule mod;
+    GameStateSnapshot snap = make_acc_snap();
+    mod.on_round_start(snap);
+
+    mod.on_trade_event(make_trade(0, 1, Suit::Clubs, 0, 5));
+
+    REQUIRE_THAT(mod.signed_delta(0, suit_index(Suit::Clubs)),
+                 Catch::Matchers::WithinAbs(5.0, 1e-9));
+    REQUIRE_THAT(mod.signed_delta(1, suit_index(Suit::Clubs)),
+                 Catch::Matchers::WithinAbs(-5.0, 1e-9));
+}
+
+// QTY-2: qty=1 (legacy default) still produces delta of 1.
+TEST_CASE("Accumulation QTY: qty=1 produces delta of 1", "[accumulation][qty]") {
+    AccumulationEvalModule mod;
+    GameStateSnapshot snap = make_acc_snap();
+    mod.on_round_start(snap);
+
+    mod.on_trade_event(make_trade(0, 1, Suit::Spades, 0, 1));
+
+    REQUIRE_THAT(mod.signed_delta(0, suit_index(Suit::Spades)),
+                 Catch::Matchers::WithinAbs(1.0, 1e-9));
+    REQUIRE_THAT(mod.signed_delta(1, suit_index(Suit::Spades)),
+                 Catch::Matchers::WithinAbs(-1.0, 1e-9));
+}
+
+// QTY-3: A single qty=5 buy produces higher confidence than a single qty=1 buy.
+TEST_CASE("Accumulation QTY: larger qty produces higher confidence than qty=1",
+          "[accumulation][qty]") {
+    auto conf_for_qty = [](int32_t qty) {
+        std::vector<EvalOutput> outputs;
+        AccumulationEvalModule mod;
+        mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
+        GameStateSnapshot snap = make_acc_snap();
+        mod.on_round_start(snap);
+        mod.on_trade_event(make_trade(0, 1, Suit::Hearts, 0, qty));
+        mod.on_round_end(snap);
+        for (auto it = outputs.rbegin(); it != outputs.rend(); ++it) {
+            if (it->type != EvalOutput::Type::AccumulationSignal) continue;
+            for (const auto& p : it->payload["players"])
+                if (p["slot"].get<int>() == 0)
+                    return p["confidence"].get<double>();
+        }
+        return -1.0;
+    };
+
+    REQUIRE(conf_for_qty(5) > conf_for_qty(1));
+}
+
+// QTY-4: Mixed qty accumulation — deltas add by qty across multiple trades.
+TEST_CASE("Accumulation QTY: mixed qty trades accumulate correctly",
+          "[accumulation][qty]") {
+    AccumulationEvalModule mod;
+    GameStateSnapshot snap = make_acc_snap();
+    mod.on_round_start(snap);
+
+    mod.on_trade_event(make_trade(0, 1, Suit::Diamonds, 0,   3));
+    mod.on_trade_event(make_trade(0, 1, Suit::Diamonds, 100, 2));
+
+    REQUIRE_THAT(mod.signed_delta(0, suit_index(Suit::Diamonds)),
+                 Catch::Matchers::WithinAbs(5.0, 1e-9));
+    REQUIRE_THAT(mod.signed_delta(1, suit_index(Suit::Diamonds)),
+                 Catch::Matchers::WithinAbs(-5.0, 1e-9));
 }
 
 // PERF-3: High-volume burst — 1000 on_trade_event calls < 200 ms total.

@@ -730,6 +730,159 @@ TEST_CASE("Bayesian: bot-slot trade events are ignored without crash", "[bayesia
     (void)before; // documented intent; normalisation check above is the hard invariant
 }
 
+// ===========================================================================
+// QTY — Multi-quantity heuristic scaling
+// ===========================================================================
+
+// QTY-B1: qty=5 buy shifts goal-suit posterior more than qty=1 buy under
+// identical conditions.
+TEST_CASE("Bayesian QTY: larger qty produces stronger posterior shift", "[bayesian][qty]") {
+    auto clubs_marginal_after_buy = [](int32_t qty) {
+        std::vector<EvalOutput> outputs;
+        BayesianEvalModule mod;
+        mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
+        GameStateSnapshot snap = make_two_type_snap();
+        snap.hands[0] = {2, 2, 1, 1};
+        snap.time_remaining_s = 120.0;
+        mod.on_round_start(snap);
+        outputs.clear();
+
+        EvalTradeEvent ev;
+        ev.buyer_slot   = 0;
+        ev.seller_slot  = 1;
+        ev.price        = 100;
+        ev.suit         = Suit::Clubs;
+        ev.timestamp_ms = 0;
+        ev.qty          = qty;
+        mod.on_trade_event(ev);
+
+        for (const auto& out : outputs) {
+            if (out.type != EvalOutput::Type::PosteriorUpdate) continue;
+            if (out.target_slot != 0) continue;
+            double clubs_total = 0.0;
+            for (const auto& cfg : out.payload["configurations"])
+                if (cfg["goal_suit"].get<std::string>() == "clubs")
+                    clubs_total += cfg["probability"].get<double>();
+            return clubs_total;
+        }
+        return -1.0;
+    };
+
+    REQUIRE(clubs_marginal_after_buy(5) > clubs_marginal_after_buy(1));
+}
+
+// QTY-B2: At low time-weight (ts near end of round), unscaled nudges are small
+// enough that neither qty=1 nor qty=4 hits MAX_NUDGE, letting us verify the
+// sqrt(qty) ratio in log-space.
+// Expected: log-odds shift with qty=4 ≈ 2× that of qty=1 (sqrt(4)=2).
+TEST_CASE("Bayesian QTY: log-odds shift scales as sqrt(qty)", "[bayesian][qty]") {
+    // Helper: return clubs marginal for slot 0 before and after one trade;
+    // caller computes log-odds delta.
+    auto run_and_get_marginals = [](int32_t qty, int64_t ts_ms) {
+        std::vector<EvalOutput> outputs;
+        BayesianEvalModule mod;
+        mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
+
+        GameStateSnapshot snap = make_two_type_snap();
+        snap.hands[0] = {2, 2, 1, 1};
+        snap.time_remaining_s = 120.0;
+        mod.on_round_start(snap);
+
+        double before_clubs = 0.0;
+        for (const auto& out : outputs)
+            if (out.type == EvalOutput::Type::PosteriorUpdate && out.target_slot == 0)
+                for (const auto& cfg : out.payload["configurations"])
+                    if (cfg["goal_suit"].get<std::string>() == "clubs")
+                        before_clubs += cfg["probability"].get<double>();
+        outputs.clear();
+
+        EvalTradeEvent ev;
+        ev.buyer_slot   = 0;
+        ev.seller_slot  = 1;
+        ev.price        = 100;
+        ev.suit         = Suit::Clubs;
+        ev.timestamp_ms = ts_ms;
+        ev.qty          = qty;
+        mod.on_trade_event(ev);
+
+        double after_clubs = 0.0;
+        for (const auto& out : outputs)
+            if (out.type == EvalOutput::Type::PosteriorUpdate && out.target_slot == 0)
+                for (const auto& cfg : out.payload["configurations"])
+                    if (cfg["goal_suit"].get<std::string>() == "clubs")
+                        after_clubs += cfg["probability"].get<double>();
+
+        return std::make_pair(before_clubs, after_clubs);
+    };
+
+    // ts=110000ms → t_remaining=10s → weight=10/70≈0.143; at this weight,
+    // qty=1: delta=0.143*0.3*1=0.043, qty=4: delta=0.143*0.3*2=0.086 — both below MAX_NUDGE=0.25
+    const auto [b1, a1] = run_and_get_marginals(1, 110000);
+    const auto [b4, a4] = run_and_get_marginals(4, 110000);
+
+    REQUIRE(b1 > 0.0);
+    REQUIRE(a1 > b1);
+    REQUIRE(a4 > b4);
+
+    // log-odds: log(p / (1-p))
+    const double lo_before = std::log(b1 / (1.0 - b1));
+    const double lo_after1 = std::log(a1 / (1.0 - a1));
+    const double lo_after4 = std::log(a4 / (1.0 - a4));
+
+    const double shift1 = lo_after1 - lo_before;
+    const double shift4 = lo_after4 - lo_before;
+
+    REQUIRE(shift1 > 0.0);
+    REQUIRE(shift4 > shift1);
+    // ratio should be sqrt(4)/sqrt(1) = 2.0, ±10% tolerance
+    REQUIRE_THAT(shift4 / shift1, Catch::Matchers::WithinRel(2.0, 0.10));
+}
+
+// QTY-B3: MAX_NUDGE caps the heuristic even for very large qty — posterior
+// remains normalised and no single trade collapses it to 1.0.
+TEST_CASE("Bayesian QTY: MAX_NUDGE clamp bounds large-qty posterior shift",
+          "[bayesian][qty]") {
+    std::vector<EvalOutput> outputs;
+    BayesianEvalModule mod;
+    mod.set_output_cb([&](EvalOutput o) { outputs.push_back(std::move(o)); });
+
+    GameStateSnapshot snap = make_two_type_snap();
+    snap.hands[0] = {2, 2, 1, 1};
+    snap.time_remaining_s = 120.0;
+    mod.on_round_start(snap);
+    outputs.clear();
+
+    EvalTradeEvent ev;
+    ev.buyer_slot   = 0;
+    ev.seller_slot  = 1;
+    ev.price        = 100;
+    ev.suit         = Suit::Clubs;
+    ev.timestamp_ms = 0;
+    ev.qty          = 1000;
+    mod.on_trade_event(ev);
+
+    bool found = false;
+    for (const auto& out : outputs) {
+        if (out.type != EvalOutput::Type::PosteriorUpdate || out.target_slot != 0) continue;
+        found = true;
+        double total = 0.0;
+        for (const auto& cfg : out.payload["configurations"]) {
+            const double p = cfg["probability"].get<double>();
+            REQUIRE(p >= 0.0);
+            REQUIRE(p <= 1.0);
+            total += p;
+        }
+        REQUIRE_THAT(total, Catch::Matchers::WithinAbs(1.0, 1e-9));
+
+        double clubs_total = 0.0;
+        for (const auto& cfg : out.payload["configurations"])
+            if (cfg["goal_suit"].get<std::string>() == "clubs")
+                clubs_total += cfg["probability"].get<double>();
+        REQUIRE(clubs_total < 1.0);
+    }
+    REQUIRE(found);
+}
+
 // PERF-3: Full round pipeline (round_start + 50 varied trades + round_end)
 //
 // Algorithm budget  : < 2 ms   (all ops are O(12 decks × 4 slots); measured ~0.3 ms on bare metal)

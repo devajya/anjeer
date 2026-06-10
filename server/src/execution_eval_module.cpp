@@ -17,12 +17,12 @@ void ExecutionEvalModule::on_trade_event(const EvalTradeEvent& t) {
     const int  idx = engine::suit_index(t.suit);
     SuitStats& ss  = suit_stats_[idx];
 
-    // trade_intensity: rate-based EWMA in trades/s; 100 ms default for the first trade.
+    // trade_intensity: volume-weighted EWMA in qty/s; 100 ms default for the first trade.
     const int64_t interval_ms = (ss.last_trade_ts_ms < 0)
                                 ? 100LL
                                 : (t.timestamp_ms - ss.last_trade_ts_ms);
     if (interval_ms > 0) {
-        const double rate  = 1000.0 / static_cast<double>(interval_ms);
+        const double rate  = static_cast<double>(t.qty) * 1000.0 / static_cast<double>(interval_ms);
         ss.trade_intensity = EWMA_ALPHA * rate + (1.0 - EWMA_ALPHA) * ss.trade_intensity;
     }
 
@@ -33,9 +33,9 @@ void ExecutionEvalModule::on_trade_event(const EvalTradeEvent& t) {
     for (SuitStats& s : suit_stats_)
         s.leakage_penalty *= LEAKAGE_DECAY;
 
-    // Directional cross: buyer lifts the ask → information leakage signal.
+    // Directional cross: buyer lifts the ask → information leakage signal, scaled by qty.
     if (ss.best_ask.has_value() && t.price >= *ss.best_ask)
-        ss.leakage_penalty += LEAKAGE_STEP;
+        ss.leakage_penalty += LEAKAGE_STEP * static_cast<double>(t.qty);
 
     compute_and_emit();
 }

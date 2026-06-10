@@ -34,18 +34,21 @@ public:
     void init_session(const std::array<engine::DeckSpec, 12>&);
 
     // Non-blocking: drops silently if queue is at capacity.
-    void push_round_start(const engine::GameStateSnapshot&);
-    void push_trade      (const EvalTradeEvent&);
-    void push_book_update(const EvalBookUpdate&);
-    void push_round_end  (const engine::GameStateSnapshot&);
+    void push_round_start    (const engine::GameStateSnapshot&);
+    void push_trade          (const EvalTradeEvent&);
+    void push_book_update    (const EvalBookUpdate&);
+    void push_round_end      (const engine::GameStateSnapshot&);
+    void push_order_added    (const EvalOrderAdded&);
+    void push_order_cancelled(const EvalOrderCancelled&);
 
     // Monotonically increasing count of dropped events (for diagnostics / tests).
     size_t dropped_count() const { return dropped_.load(std::memory_order_relaxed); }
 
 private:
     struct TaggedEvent {
-        enum Tag { RoundStart, Trade, Book, RoundEnd } tag;
-        std::variant<engine::GameStateSnapshot, EvalTradeEvent, EvalBookUpdate> ev;
+        enum Tag { RoundStart, Trade, Book, RoundEnd, OrderAdded, OrderCancelled } tag;
+        std::variant<engine::GameStateSnapshot, EvalTradeEvent, EvalBookUpdate,
+                     EvalOrderAdded, EvalOrderCancelled> ev;
     };
 
     bool try_push(TaggedEvent ev);
