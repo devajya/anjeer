@@ -1,0 +1,123 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 9001,
+    "http_port": 10000,
+    "cors_origin": "OVERRIDE_VIA_ANJEER_CORS_ORIGIN",
+    "heartbeat_interval_ms": 1000,
+    "ping_interval_ms": 1000,
+    "ping_timeout_ms": 9000
+  },
+  "order_book": {
+    "min_price": 1,
+    "max_price": 99,
+    "nudge_initial_buy_price": 1,
+    "nudge_initial_sell_price": 99,
+    "active_suits": [
+      "clubs",
+      "diamonds",
+      "hearts",
+      "spades"
+    ]
+  },
+  "game": {
+    "player_count": 2,
+    "total_cards": 40,
+    "countdown_seconds": 3,
+    "round_duration_seconds": 240,
+    "inter_round_seconds": 30,
+    "hard": {
+      "deck_multiplier": 2
+    }
+  },
+  "scoring": {
+    "starting_balance": 400,
+    "pot_size": 200,
+    "points_per_card": 10
+  },
+  "db": {
+    "connection_string": "OVERRIDE_VIA_ANJEER_DB_CONN",
+    "pool_size": 4,
+    "migrations_dir": "db/migrations"
+  },
+  "auth": {
+    "jwt_secret": "OVERRIDE_VIA_ANJEER_JWT_SECRET",
+    "access_token_ttl_seconds": 900,
+    "refresh_token_ttl_seconds": 604800,
+    "spectate_token_ttl_minutes": 60,
+    "secure_cookies": true,
+    "github": {
+      "client_id": "OVERRIDE_VIA_ANJEER_GITHUB_CLIENT_ID",
+      "client_secret": "OVERRIDE_VIA_ANJEER_GITHUB_CLIENT_SECRET",
+      "redirect_uri": "OVERRIDE_VIA_ANJEER_GITHUB_REDIRECT_URI"
+    },
+    "google": {
+      "client_id": "OVERRIDE_VIA_ANJEER_GOOGLE_CLIENT_ID",
+      "client_secret": "OVERRIDE_VIA_ANJEER_GOOGLE_CLIENT_SECRET",
+      "redirect_uri": "OVERRIDE_VIA_ANJEER_GOOGLE_REDIRECT_URI"
+    }
+  },
+  "lobby": {
+    "min_players": 2,
+    "max_players": 5
+  },
+  "event_bus": "local",
+  "bots": {
+    "scheduler_threads": 2,
+    "scheduler_tick_ms": 150,
+    "sim_network_delay_ms": 50,
+    "spawn_bots_on_leave": false,
+    "default_feed": "mbp1",
+    "tick_interval_ms": 1500,
+    "tick_jitter_ms": 500,
+    "thinking_min_ms": 0,
+    "thinking_max_ms": 0,
+    "easy": {
+      "tick_interval_ms": 3000, "tick_jitter_ms": 1000,
+      "thinking_min_ms": 1500, "thinking_max_ms": 3000,
+      "confidence_discount": 0.80, "taker_threshold": 0.85,
+      "min_bid_ev": 3.0, "max_ask_ev": 7.0,
+      "hand_size_cap": 4, "offload_threshold": 3,
+      "max_concurrent_orders": 2, "conviction_threshold": 0.0,
+      "max_resting_ms": 9000, "nudge_probability": 0.60,
+      "nudge_patience_ms": 3000, "nudge_max_gap": 3,
+      "endgame_threshold_s": 0, "early_seed_threshold": 0.0, "quoting_kappa": 0.30
+    },
+    "medium": {
+      "tick_interval_ms": 1500, "tick_jitter_ms": 500,
+      "thinking_min_ms": 500, "thinking_max_ms": 1500,
+      "confidence_discount": 0.90, "taker_threshold": 0.95,
+      "min_bid_ev": 2.0, "max_ask_ev": 8.0,
+      "hand_size_cap": 5, "offload_threshold": 4,
+      "max_concurrent_orders": 4, "conviction_threshold": 0.70,
+      "max_resting_ms": 5000, "nudge_probability": 0.40,
+      "nudge_patience_ms": 1500, "nudge_max_gap": 2,
+      "endgame_threshold_s": 15, "early_seed_threshold": 0.0, "quoting_kappa": 0.60
+    },
+    "hard": {
+      "tick_interval_ms": 950, "tick_jitter_ms": 300,
+      "thinking_min_ms": 150, "thinking_max_ms": 500,
+      "confidence_discount": 1.00, "taker_threshold": 1.05,
+      "min_bid_ev": 1.5, "max_ask_ev": 8.5,
+      "hand_size_cap": 6, "offload_threshold": 4,
+      "max_concurrent_orders": 6, "conviction_threshold": 0.90,
+      "max_resting_ms": 4500, "nudge_probability": 0.10,
+      "nudge_patience_ms": 800, "nudge_max_gap": 1,
+      "endgame_threshold_s": 25, "early_seed_threshold": 0.40, "quoting_kappa": 1.00
+    }
+  },
+  "rate_limit": {
+    "capacity": 20,
+    "refill_rate": 5.0,
+    "suspend_threshold": 50,
+    "suspend_seconds": 30
+  },
+  "reconnect": {
+    "reconnect_window_seconds": 20,
+    "max_queue_size": 8,
+    "token_ttl_seconds": 7200
+  },
+  "market_data": {
+    "mbp_depth": 5
+  }
+}

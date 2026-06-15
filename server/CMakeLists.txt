@@ -172,6 +172,7 @@ target_include_directories(server_tests PRIVATE include)
 # Inject fixture path at compile time — avoids CTest working-directory issues.
 target_compile_definitions(server_tests PRIVATE
     TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
+    PROJECT_ROOT_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 target_link_libraries(server_tests PRIVATE

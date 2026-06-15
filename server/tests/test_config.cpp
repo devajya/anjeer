@@ -11,6 +11,9 @@
 #ifndef TEST_FIXTURES_DIR
 #  error "TEST_FIXTURES_DIR must be defined by CMake target_compile_definitions"
 #endif
+#ifndef PROJECT_ROOT_DIR
+#  error "PROJECT_ROOT_DIR must be defined by CMake target_compile_definitions"
+#endif
 
 using anjeer::server::load_config;
 
@@ -139,4 +142,18 @@ TEST_CASE("empty env var does not override field", "[config][env]") {
     auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
     ::unsetenv("ANJEER_DB_CONN");
     REQUIRE(cfg.db.connection_string == "postgresql:///anjeer_test");
+}
+
+TEST_CASE("prod.json parses successfully with sentinel strings", "[config][prod]") {
+    REQUIRE_NOTHROW(load_config(std::string(PROJECT_ROOT_DIR) + "/config/prod.json"));
+}
+
+TEST_CASE("prod.json has secure_cookies enabled", "[config][prod]") {
+    auto cfg = load_config(std::string(PROJECT_ROOT_DIR) + "/config/prod.json");
+    REQUIRE(cfg.auth.secure_cookies == true);
+}
+
+TEST_CASE("prod.json has bots.scheduler_threads = 2", "[config][prod]") {
+    auto cfg = load_config(std::string(PROJECT_ROOT_DIR) + "/config/prod.json");
+    REQUIRE(cfg.bots.scheduler_threads == 2);
 }

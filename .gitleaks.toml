@@ -13,9 +13,11 @@ title = "Anjeer gitleaks config"
     '''test-secret-do-not-use-in-prod''',
     '''test_user_\d+''',
     '''test_secret''',
+    '''OVERRIDE_VIA_ANJEER_''',
   ]
   paths = [
     '''server/tests/fixtures/.*''',
     '''db/seeds/.*''',
     '''config/default\.example\.json''',
+    '''config/prod\.json''',
   ]
