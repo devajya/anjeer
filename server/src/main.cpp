@@ -72,6 +72,16 @@ int main(int argc, char* argv[]) {
                                                                api_key_repo, spectate_token_repo,
                                                                event_bus, db_pool});
 
+    try {
+        pqxx::connection cleanup_conn(cfg.db.connection_string);
+        pqxx::work txn(cleanup_conn);
+        txn.exec("DELETE FROM lobbies WHERE status = 'closed'");
+        spectate_token_repo.cleanup_expired(txn);
+        txn.commit();
+    } catch (const std::exception& e) {
+        std::cerr << "[warn] startup cleanup failed (non-fatal): " << e.what() << "\n";
+    }
+
     std::atomic<bool> http_shutdown_clean{false};
 
     std::thread http_thread([&http_server] { http_server.run(); });

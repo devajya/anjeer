@@ -199,6 +199,13 @@ target_include_directories(test_health PRIVATE include)
 target_link_libraries(test_health PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(test_health)
 
+add_executable(test_startup_cleanup
+    tests/test_startup_cleanup.cpp
+)
+target_include_directories(test_startup_cleanup PRIVATE include)
+target_link_libraries(test_startup_cleanup PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(test_startup_cleanup)
+
 # ---------------------------------------------------------------------------
 # Integration tests — spin up a real WsServer and connect a WS client
 # ---------------------------------------------------------------------------

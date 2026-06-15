@@ -128,7 +128,8 @@ test-unit: $(BUILD_DIR)/Makefile
 		--target market_data_wire_tests \
 		--target test_logger \
 		--target test_spectate_cleanup \
-		--target test_health
+		--target test_health \
+		--target test_startup_cleanup
 	find $(BUILD_DIR) -maxdepth 2 \( -name '*_tests' -o -name 'test_*' \) -exec chmod +x {} +
 	# AGENT-CTX: -j runs test binaries in parallel; ws_server_tests is registered
 	# RUN_SERIAL in CMakeLists so ctest automatically holds it until parallel tests finish.
