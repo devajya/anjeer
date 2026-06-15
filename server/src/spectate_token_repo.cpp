@@ -65,6 +65,10 @@ std::optional<SpectateToken> SpectateTokenRepo::find_valid_and_consume(
     return row_to_token(r[0]);
 }
 
+void SpectateTokenRepo::cleanup_expired(DbTxn& txn) {
+    txn.exec("DELETE FROM spectate_tokens WHERE expires_at < NOW()");
+}
+
 // ── Private helpers ────────────────────────────────────────────────────────────
 
 SpectateToken SpectateTokenRepo::row_to_token(const pqxx::row& row) {

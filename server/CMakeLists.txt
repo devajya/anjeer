@@ -689,6 +689,25 @@ target_link_libraries(reconnect_token_repo_tests PRIVATE
 add_test(NAME reconnect_token_repo_tests COMMAND reconnect_token_repo_tests)
 set_tests_properties(reconnect_token_repo_tests PROPERTIES RUN_SERIAL TRUE)
 
+add_executable(test_spectate_cleanup
+    tests/test_spectate_cleanup.cpp
+    src/db.cpp
+    src/crypto_util.cpp
+    src/spectate_token_repo.cpp
+)
+target_include_directories(test_spectate_cleanup PRIVATE include)
+target_compile_definitions(test_spectate_cleanup PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+target_link_libraries(test_spectate_cleanup PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+add_test(NAME test_spectate_cleanup COMMAND test_spectate_cleanup)
+set_tests_properties(test_spectate_cleanup PROPERTIES RUN_SERIAL TRUE)
+
 # ---------------------------------------------------------------------------
 # SimpleCache unit tests — header-only template, no DB, no network
 # ---------------------------------------------------------------------------
