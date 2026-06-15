@@ -1,5 +1,6 @@
 #include "server/config.h"
 
+#include <cstdlib>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -159,6 +160,19 @@ ServerConfig load_config(const std::string& path) {
 
         const auto& md = j.at("market_data");
         cfg.market_data.mbp_depth = md.at("mbp_depth").get<int>();
+
+        auto override_str = [](const char* env, std::string& field) {
+            if (const char* v = std::getenv(env); v && *v) field = v;
+        };
+        override_str("ANJEER_DB_CONN",              cfg.db.connection_string);
+        override_str("ANJEER_JWT_SECRET",           cfg.auth.jwt_secret);
+        override_str("ANJEER_GITHUB_CLIENT_ID",     cfg.auth.github.client_id);
+        override_str("ANJEER_GITHUB_CLIENT_SECRET", cfg.auth.github.client_secret);
+        override_str("ANJEER_GOOGLE_CLIENT_ID",     cfg.auth.google.client_id);
+        override_str("ANJEER_GOOGLE_CLIENT_SECRET", cfg.auth.google.client_secret);
+        override_str("ANJEER_CORS_ORIGIN",          cfg.cors_origin);
+        override_str("ANJEER_GITHUB_REDIRECT_URI",  cfg.auth.github.redirect_uri);
+        override_str("ANJEER_GOOGLE_REDIRECT_URI",  cfg.auth.google.redirect_uri);
 
         return cfg;
     } catch (const nlohmann::json::exception& e) {

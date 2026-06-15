@@ -1,5 +1,6 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 
@@ -106,12 +107,36 @@ TEST_CASE("load_config throws on malformed JSON", "[config]") {
 }
 
 TEST_CASE("load_config throws when a required field is missing", "[config]") {
-    // AGENT-CTX: missing_field.json omits 'port' to verify strict field checking.
-    // This test also covers the case where order_book is absent: if missing_field.json
-    // happens to include a valid server section but no order_book section, it still
-    // throws (for the missing order_book key), satisfying the same invariant.
     CHECK_THROWS_AS(
         load_config(std::string(TEST_FIXTURES_DIR) + "/missing_field.json"),
         std::runtime_error
     );
+}
+
+TEST_CASE("env var ANJEER_DB_CONN overrides connection_string", "[config][env]") {
+    ::setenv("ANJEER_DB_CONN", "postgresql://overridden/db", 1);
+    auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
+    ::unsetenv("ANJEER_DB_CONN");
+    REQUIRE(cfg.db.connection_string == "postgresql://overridden/db");
+}
+
+TEST_CASE("env var ANJEER_JWT_SECRET overrides jwt_secret", "[config][env]") {
+    ::setenv("ANJEER_JWT_SECRET", "injected-secret-xyz", 1);
+    auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
+    ::unsetenv("ANJEER_JWT_SECRET");
+    REQUIRE(cfg.auth.jwt_secret == "injected-secret-xyz");
+}
+
+TEST_CASE("env var ANJEER_CORS_ORIGIN overrides cors_origin", "[config][env]") {
+    ::setenv("ANJEER_CORS_ORIGIN", "https://anjeer.example.com", 1);
+    auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
+    ::unsetenv("ANJEER_CORS_ORIGIN");
+    REQUIRE(cfg.cors_origin == "https://anjeer.example.com");
+}
+
+TEST_CASE("empty env var does not override field", "[config][env]") {
+    ::setenv("ANJEER_DB_CONN", "", 1);
+    auto cfg = load_config(std::string(TEST_FIXTURES_DIR) + "/test_config.json");
+    ::unsetenv("ANJEER_DB_CONN");
+    REQUIRE(cfg.db.connection_string == "postgresql:///anjeer_test");
 }
