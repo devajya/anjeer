@@ -170,6 +170,7 @@ void HttpServer::run()
         .headers("Content-Type", "Cookie")
         .allow_credentials();
 
+    register_health_routes(app);
     register_auth_routes(app);
     register_player_routes(app);
     register_lobby_routes(app);
@@ -1208,6 +1209,26 @@ void HttpServer::register_config_routes(App& app)
         j["max_queue_size"]           = config_.reconnect.max_queue_size;
         res.set_header("Content-Type", "application/json");
         res.write(j.dump());
+        res.end();
+    });
+}
+
+template<typename App>
+void HttpServer::register_health_routes(App& app)
+{
+    CROW_ROUTE(app, "/health")
+    ([this](const crow::request&, crow::response& res) {
+        res.set_header("Content-Type", "application/json");
+        try {
+            auto handle = db_pool_.acquire();
+            pqxx::nontransaction ntxn(handle.get());
+            ntxn.exec("SELECT 1");
+            res.code = 200;
+            res.write(R"({"status":"ok"})");
+        } catch (const std::exception&) {
+            res.code = 503;
+            res.write(R"({"status":"error","detail":"db unreachable"})");
+        }
         res.end();
     });
 }

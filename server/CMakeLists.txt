@@ -192,6 +192,13 @@ target_include_directories(test_logger PRIVATE include)
 target_link_libraries(test_logger PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(test_logger)
 
+add_executable(test_health
+    tests/test_health.cpp
+)
+target_include_directories(test_health PRIVATE include)
+target_link_libraries(test_health PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(test_health)
+
 # ---------------------------------------------------------------------------
 # Integration tests — spin up a real WsServer and connect a WS client
 # ---------------------------------------------------------------------------
