@@ -3,7 +3,9 @@
 // crow.h is excluded from this header intentionally — Crow's large include chain
 // is isolated to http_server.cpp where the App local variable lives.
 
+#include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -40,6 +42,7 @@ public:
     explicit HttpServer(const ServerConfig& config, HttpServerDeps deps);
 
     void run();
+    void stop();
 
 private:
     // Uses OpenSSL RAND_bytes — std::random_device is not sufficient for CSRF nonces.
@@ -78,6 +81,9 @@ private:
     Logger              http_log_;
 
     std::unordered_map<std::string, std::unique_ptr<IOAuthProvider>> providers_;
+
+    std::function<void()>  stop_fn_;
+    std::atomic<bool>      stop_requested_{false};
 
     // AGENT-CTX: api_keys_cache_ is keyed by player_id (int64_t) and stores the
     // serialised JSON array for GET /players/me/api-keys. TTL is 60 s.

@@ -153,6 +153,12 @@ HttpServer::HttpServer(const ServerConfig& config, HttpServerDeps deps)
     providers_["google"] = std::make_unique<GoogleOAuthProvider>(config.auth.google);
 }
 
+void HttpServer::stop()
+{
+    stop_requested_.store(true);
+    if (stop_fn_) stop_fn_();
+}
+
 void HttpServer::run()
 {
     crow::App<crow::CORSHandler> app;
@@ -182,7 +188,9 @@ void HttpServer::run()
 
     app.loglevel(crow::LogLevel::Warning);
     http_log_.info("startup", "listening on :" + std::to_string(config_.http_port));
+    stop_fn_ = [&app]{ app.stop(); };
     app.port(config_.http_port).run();
+    stop_fn_ = nullptr;
 }
 
 template<typename App>
