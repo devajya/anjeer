@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
+#include <functional>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -728,7 +730,16 @@ void WsServer::run() {
     if (!listen_ok)
         throw std::runtime_error("failed to listen on port " + std::to_string(cfg_.port));
 
+    static std::function<void()> s_sigterm_fn;
+    s_sigterm_fn = [loop, &app]{ loop->defer([&app]{ app.close(); }); };
+    struct sigaction sa{};
+    sa.sa_handler = [](int){ if (s_sigterm_fn) s_sigterm_fn(); };
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGTERM, &sa, nullptr);
+
     app.run();
+    s_sigterm_fn = nullptr;
 
     // Clean up event bus subscription before returning
     event_bus_.unsubscribe(game_start_sub_id_);
