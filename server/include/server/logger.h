@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -34,8 +35,9 @@ public:
     void error(std::string_view comp, std::string_view msg) { log(Level::ERROR, comp, msg); }
 
 private:
-    std::ofstream file_;
-    std::mutex    mutex_;
+    std::optional<std::ofstream> file_;
+    bool       file_enabled_ = false;
+    std::mutex mutex_;
 
     static std::string now_iso();
     static const char* level_str(Level l) noexcept;

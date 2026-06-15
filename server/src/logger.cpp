@@ -1,6 +1,7 @@
 #include "server/logger.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <iomanip>
@@ -11,16 +12,23 @@
 namespace anjeer::server {
 
 Logger::Logger(const std::string& filepath) {
-    // Create parent directories (e.g. logs/) if they don't exist yet.
+    const char* env = std::getenv("ANJEER_LOG_FILE");
+    if (env && std::string(env) == "none") {
+        return;
+    }
+
     const auto parent = std::filesystem::path(filepath).parent_path();
     if (!parent.empty()) {
         std::filesystem::create_directories(parent);
     }
 
-    file_.open(filepath, std::ios::app);
-    if (!file_.is_open()) {
+    file_.emplace();
+    file_->open(filepath, std::ios::app);
+    if (!file_->is_open()) {
+        file_.reset();
         throw std::runtime_error("Logger: cannot open log file: " + filepath);
     }
+    file_enabled_ = true;
 }
 
 void Logger::log(Level level, std::string_view component, std::string_view message) {
@@ -29,8 +37,10 @@ void Logger::log(Level level, std::string_view component, std::string_view messa
         std::string(component) + "] " + std::string(message) + "\n";
 
     std::lock_guard<std::mutex> lk(mutex_);
-    file_ << line;
-    file_.flush();           // flush every line — debug logger, correctness over perf
+    if (file_enabled_) {
+        (*file_) << line;
+        file_->flush();
+    }
     std::cout << line;
 }
 

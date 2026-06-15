@@ -183,6 +183,14 @@ include(CTest)
 include(Catch)
 catch_discover_tests(server_tests)
 
+add_executable(test_logger
+    tests/test_logger.cpp
+    src/logger.cpp
+)
+target_include_directories(test_logger PRIVATE include)
+target_link_libraries(test_logger PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(test_logger)
+
 # ---------------------------------------------------------------------------
 # Integration tests — spin up a real WsServer and connect a WS client
 # ---------------------------------------------------------------------------
