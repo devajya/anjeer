@@ -1,0 +1,80 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs: []
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++ \
+            libpq-dev libcurl4-openssl-dev libssl-dev \
+            ca-certificates
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: fetchcontent-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: fetchcontent-
+
+      - name: Build server binary
+        run: make build
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create deployment tarball
+        run: |
+          tar -czf anjeer-deploy.tar.gz \
+            build/server/server \
+            config/prod.json \
+            db/migrations \
+            frontend/dist
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          echo "$EC2_SSH_KEY" > /tmp/ec2_key
+          chmod 600 /tmp/ec2_key
+
+          scp -i /tmp/ec2_key -o StrictHostKeyChecking=no \
+            anjeer-deploy.tar.gz \
+            ubuntu@$EC2_HOST:/tmp/anjeer-deploy.tar.gz
+
+          ssh -i /tmp/ec2_key -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'REMOTE'
+            set -euo pipefail
+
+            cd /tmp
+            tar -xzf anjeer-deploy.tar.gz
+
+            sudo psql -v ON_ERROR_STOP=1 \
+              "$(grep ANJEER_DB_CONN /etc/anjeer/env | cut -d= -f2-)" \
+              -f <(cat db/migrations/*.sql) 2>/dev/null || true
+
+            sudo cp build/server/server /opt/anjeer/anjeer_server
+            sudo cp config/prod.json /opt/anjeer/config/prod.json
+            sudo cp -r db/migrations /opt/anjeer/db/migrations
+            sudo cp -r frontend/dist /opt/anjeer/dist
+
+            sudo chown -R anjeer:anjeer /opt/anjeer
+            sudo systemctl restart anjeer
+
+            sleep 5
+            curl -f http://localhost:10000/health
+          REMOTE
