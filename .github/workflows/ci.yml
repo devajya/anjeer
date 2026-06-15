@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: anjeer_test
+          POSTGRES_USER: runner
+          POSTGRES_PASSWORD: ""
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DB_CONN: postgresql://runner@localhost/anjeer_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build g++ \
+            libpq-dev libcurl4-openssl-dev libssl-dev \
+            ca-certificates
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: fetchcontent-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: fetchcontent-
+
+      - name: Build
+        run: make build
+
+      - name: Run C++ tests
+        run: |
+          cd build
+          ctest --output-on-failure -j$(nproc) -E session_queue_tsan_tests
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run test
