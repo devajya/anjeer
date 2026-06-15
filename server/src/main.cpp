@@ -13,6 +13,8 @@
 #include "server/spectate_token_repo.h"
 #include "server/ws_server.h"
 
+#include <atomic>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -70,14 +72,24 @@ int main(int argc, char* argv[]) {
                                                                api_key_repo, spectate_token_repo,
                                                                event_bus, db_pool});
 
+    std::atomic<bool> http_shutdown_clean{false};
+
     std::thread http_thread([&http_server] { http_server.run(); });
-    http_thread.detach();
+
+    std::thread http_watcher([&]{
+        http_thread.join();
+        if (!http_shutdown_clean.load()) std::exit(1);
+    });
+    http_watcher.detach();
 
     anjeer::server::WsServer ws_server(cfg, anjeer::server::WsServerDeps{
                                            lobby_gateway, db_pool, lobby_repo,
                                            auth_service, api_key_repo, event_bus,
                                            bot_manager});
     ws_server.run();
+
+    http_shutdown_clean.store(true);
+    http_server.stop();
 
     return 0;
 }
