@@ -23,7 +23,7 @@ STAGED=$(git diff --cached -U0 -- ':!server/tests/fixtures/' ':!db/seeds/')
 CRED_PATTERN='"(client_secret|client_id|jwt_secret|api_key|private_key|refresh_token)"\s*:\s*"([^"]{10,})"'
 
 # Values that are obviously fake — allow these through.
-SAFE_PATTERN='test[_-]|fake[_-]|dummy|placeholder|example|changeme|do.not.use|localhost|127\.0\.'
+SAFE_PATTERN='test[_-]|fake[_-]|dummy|placeholder|example|changeme|do.not.use|localhost|127\.0\.|OVERRIDE_VIA_'
 
 HITS=$(printf '%s' "$STAGED" \
     | grep -E '^\+' \

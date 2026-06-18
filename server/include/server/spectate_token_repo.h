@@ -38,6 +38,8 @@ public:
     std::optional<SpectateToken> find_valid_and_consume(DbTxn& txn,
                                                          const std::string& raw_token);
 
+    void cleanup_expired(DbTxn& txn);
+
 private:
     int ttl_minutes_;
 

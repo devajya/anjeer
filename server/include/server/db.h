@@ -63,12 +63,17 @@ public:
     // Blocks until a connection is available.
     Handle acquire();
 
+    size_t available_count() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return available_.size();
+    }
+
 private:
     void release(pqxx::connection* conn);
 
     std::vector<std::unique_ptr<pqxx::connection>> owned_;
     std::queue<pqxx::connection*>                  available_;
-    std::mutex                                     mu_;
+    mutable std::mutex                             mu_;
     std::condition_variable                        cv_;
 };
 

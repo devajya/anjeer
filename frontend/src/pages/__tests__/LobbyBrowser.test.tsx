@@ -102,7 +102,7 @@ describe('LobbyBrowser — lobby list', () => {
     renderBrowser()
 
     await waitFor(() => {
-      expect(screen.getByText(/No open lobbies/i)).toBeInTheDocument()
+      expect(screen.getByText(/No games open/i)).toBeInTheDocument()
     })
   })
 })
@@ -146,7 +146,7 @@ describe('LobbyBrowser — join by code', () => {
     vi.stubGlobal('fetch', makeFetch({ list: [] }))
     renderBrowser()
 
-    await waitFor(() => screen.getByText(/No open lobbies/i))
+    await waitFor(() => screen.getByText(/No games open/i))
 
     fireEvent.change(screen.getByLabelText('Lobby code'), { target: { value: 'XXXXXX' } })
     fireEvent.click(screen.getByText('Join by Code'))
@@ -189,7 +189,7 @@ describe('LobbyBrowser — Active tab', () => {
     fireEvent.click(screen.getByText(/^Active/))
 
     await waitFor(() => {
-      expect(screen.getByText(/No active games right now/i)).toBeInTheDocument()
+      expect(screen.getByText(/No active games/i)).toBeInTheDocument()
     })
   })
 
@@ -246,7 +246,7 @@ describe('LobbyBrowser — mode separation (Task 9)', () => {
   test('Starting tab does not show API-mode waiting lobbies', async () => {
     vi.stubGlobal('fetch', makeFetch({ list: [API_WAITING] }))
     renderBrowser()
-    await waitFor(() => screen.getByText(/No open lobbies/i))
+    await waitFor(() => screen.getByText(/No games open/i))
     expect(screen.queryByText('APIABC')).not.toBeInTheDocument()
   })
 })

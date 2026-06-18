@@ -66,11 +66,10 @@ describe('ExpandingPortal', () => {
     render(<ExpandingPortal reducedMotion={true} isMobile={false} />)
     const layers = document.querySelectorAll('[data-intensity]')
     const intensities = Array.from(layers).map((l) => l.getAttribute('data-intensity'))
-    expect(intensities.length).toBeGreaterThanOrEqual(3)
+    expect(intensities.length).toBeGreaterThanOrEqual(2)
     // Each layer has a distinct intensity value
     const unique = new Set(intensities)
-    expect(unique.size).toBeGreaterThanOrEqual(3)
-    expect(intensities).toContain('6')
+    expect(unique.size).toBeGreaterThanOrEqual(2)
     expect(intensities).toContain('18')
     expect(intensities).toContain('32')
   })

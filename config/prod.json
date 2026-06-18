@@ -1,10 +1,9 @@
 {
-  "_readme": "Rename this file to default.json before running the server. All fields are required \u2014 no defaults are applied at load time.",
   "server": {
     "host": "0.0.0.0",
     "port": 9001,
-    "http_port": 8080,
-    "cors_origin": "http://localhost:5173",
+    "http_port": 10000,
+    "cors_origin": "OVERRIDE_VIA_ANJEER_CORS_ORIGIN",
     "heartbeat_interval_ms": 1000,
     "ping_interval_ms": 1000,
     "ping_timeout_ms": 9000
@@ -37,34 +36,34 @@
     "points_per_card": 10
   },
   "db": {
-    "connection_string": "postgresql:///anjeer_dev",
+    "connection_string": "OVERRIDE_VIA_ANJEER_DB_CONN",
     "pool_size": 4,
     "migrations_dir": "db/migrations"
   },
   "auth": {
-    "jwt_secret": "CHANGE_ME",
+    "jwt_secret": "OVERRIDE_VIA_ANJEER_JWT_SECRET",
     "access_token_ttl_seconds": 900,
     "refresh_token_ttl_seconds": 604800,
-    "spectate_token_ttl_minutes": 30,
-    "secure_cookies": false,
+    "spectate_token_ttl_minutes": 60,
+    "secure_cookies": true,
     "github": {
-      "client_id": "YOUR_GITHUB_CLIENT_ID",
-      "client_secret": "YOUR_GITHUB_CLIENT_SECRET",
-      "redirect_uri": "http://localhost:8080/auth/callback"
+      "client_id": "OVERRIDE_VIA_ANJEER_GITHUB_CLIENT_ID",
+      "client_secret": "OVERRIDE_VIA_ANJEER_GITHUB_CLIENT_SECRET",
+      "redirect_uri": "OVERRIDE_VIA_ANJEER_GITHUB_REDIRECT_URI"
     },
     "google": {
-      "client_id": "YOUR_GOOGLE_CLIENT_ID",
-      "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
-      "redirect_uri": "http://localhost:8080/auth/callback"
+      "client_id": "OVERRIDE_VIA_ANJEER_GOOGLE_CLIENT_ID",
+      "client_secret": "OVERRIDE_VIA_ANJEER_GOOGLE_CLIENT_SECRET",
+      "redirect_uri": "OVERRIDE_VIA_ANJEER_GOOGLE_REDIRECT_URI"
     }
   },
   "lobby": {
-    "min_players": 4,
+    "min_players": 2,
     "max_players": 5
   },
   "event_bus": "local",
   "bots": {
-    "scheduler_threads": 4,
+    "scheduler_threads": 2,
     "scheduler_tick_ms": 150,
     "sim_network_delay_ms": 50,
     "spawn_bots_on_leave": false,
@@ -80,7 +79,7 @@
       "min_bid_ev": 3.0, "max_ask_ev": 7.0,
       "hand_size_cap": 4, "offload_threshold": 3,
       "max_concurrent_orders": 2, "conviction_threshold": 0.0,
-      "max_resting_ms": 6000, "nudge_probability": 0.60,
+      "max_resting_ms": 9000, "nudge_probability": 0.60,
       "nudge_patience_ms": 3000, "nudge_max_gap": 3,
       "endgame_threshold_s": 0, "early_seed_threshold": 0.0, "quoting_kappa": 0.30
     },
@@ -91,20 +90,20 @@
       "min_bid_ev": 2.0, "max_ask_ev": 8.0,
       "hand_size_cap": 5, "offload_threshold": 4,
       "max_concurrent_orders": 4, "conviction_threshold": 0.70,
-      "max_resting_ms": 3000, "nudge_probability": 0.40,
+      "max_resting_ms": 5000, "nudge_probability": 0.40,
       "nudge_patience_ms": 1500, "nudge_max_gap": 2,
       "endgame_threshold_s": 15, "early_seed_threshold": 0.0, "quoting_kappa": 0.60
     },
     "hard": {
-      "tick_interval_ms": 2250, "tick_jitter_ms": 250,
+      "tick_interval_ms": 2450, "tick_jitter_ms": 300,
       "thinking_min_ms": 150, "thinking_max_ms": 500,
       "confidence_discount": 1.00, "taker_threshold": 1.05,
       "min_bid_ev": 1.5, "max_ask_ev": 8.5,
       "hand_size_cap": 6, "offload_threshold": 4,
-      "max_concurrent_orders": 6, "conviction_threshold": 0.85,
-      "max_resting_ms": 1500, "nudge_probability": 0.10,
-      "nudge_patience_ms": 500, "nudge_max_gap": 1,
-      "endgame_threshold_s": 45, "early_seed_threshold": 0.40, "quoting_kappa": 1.00
+      "max_concurrent_orders": 6, "conviction_threshold": 0.90,
+      "max_resting_ms": 4500, "nudge_probability": 0.10,
+      "nudge_patience_ms": 800, "nudge_max_gap": 1,
+      "endgame_threshold_s": 25, "early_seed_threshold": 0.40, "quoting_kappa": 1.00
     }
   },
   "rate_limit": {

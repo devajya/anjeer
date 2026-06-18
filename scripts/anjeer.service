@@ -1,0 +1,19 @@
+[Unit]
+Description=Anjeer Game Server
+After=network.target
+
+[Service]
+Type=simple
+User=anjeer
+WorkingDirectory=/opt/anjeer
+EnvironmentFile=/etc/anjeer/env
+ExecStart=/opt/anjeer/anjeer_server --config /opt/anjeer/config/prod.json
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
