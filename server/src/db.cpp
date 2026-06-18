@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -128,12 +129,8 @@ void DbMigrator::run() {
     }
     std::sort(pending.begin(), pending.end());
 
-    // Apply each pending migration in its own transaction.
-    // AGENT-CTX: Each migration is an atomic unit. A failure leaves all
-    // previously-applied migrations committed (no rollback across files).
-    // The server will fail to start on the next run with the same error until
-    // the broken migration is fixed. This is intentional — silent skipping
-    // would leave the schema in an unknown partial state.
+    std::cout << "[migrator] " << pending.size() << " pending migration(s)\n";
+
     for (const auto& [version, path] : pending) {
         std::ifstream file(path);
         if (!file.is_open()) {
@@ -144,11 +141,13 @@ void DbMigrator::run() {
             std::istreambuf_iterator<char>{}
         );
 
+        std::cout << "[migrator] applying v" << version << ": " << path.filename().string() << "\n";
         pqxx::work txn(conn_);
         txn.exec(sql);
         txn.exec_params(
             "INSERT INTO schema_migrations (version) VALUES ($1)", version);
         txn.commit();
+        std::cout << "[migrator] v" << version << " applied\n";
     }
 }
 
