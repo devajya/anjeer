@@ -63,9 +63,10 @@ jobs:
             cd /tmp
             tar -xzf anjeer-deploy.tar.gz
 
-            sudo psql -v ON_ERROR_STOP=1 \
-              "$(grep ANJEER_DB_CONN /etc/anjeer/env | cut -d= -f2-)" \
-              -f <(cat db/migrations/*.sql) 2>/dev/null || true
+            DB_CONN=$(grep ANJEER_DB_CONN /etc/anjeer/env | cut -d= -f2-)
+            for f in $(ls db/migrations/*.sql | sort); do
+              sudo psql -v ON_ERROR_STOP=1 "$DB_CONN" -f "$f" 2>/dev/null || true
+            done
 
             sudo cp build/server/server /opt/anjeer/anjeer_server
             sudo cp config/prod.json /opt/anjeer/config/prod.json
