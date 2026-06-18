@@ -28,7 +28,7 @@ jobs:
           restore-keys: fetchcontent-
 
       - name: Build server binary
-        run: make build
+        run: make build-server
 
       - name: Build frontend
         working-directory: frontend
