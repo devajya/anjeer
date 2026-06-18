@@ -42,7 +42,8 @@ jobs:
             build/server/server \
             config/prod.json \
             db/migrations \
-            frontend/dist
+            frontend/dist \
+            nginx/anjeer.conf
 
       - name: Deploy to EC2
         env:
@@ -79,6 +80,9 @@ jobs:
 
             sudo chown -R anjeer:anjeer /opt/anjeer
             sudo systemctl start anjeer
+
+            sudo cp nginx/anjeer.conf /etc/nginx/sites-enabled/anjeer
+            sudo nginx -t && sudo systemctl reload nginx
 
             sleep 5
             curl -f http://localhost:10000/health
