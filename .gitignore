@@ -12,8 +12,11 @@ cmake-build-*/
 /session_summaries/
 /imgs/
 /readings/
-/build/
-/build-tsan/
+build
+build/
+build-tsan/
+.deps
+.deps/
 /blender/
 
 # ── Logs: track the folder (via .gitkeep) but ignore all log files ─────────
