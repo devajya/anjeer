@@ -194,17 +194,38 @@ catch_discover_tests(test_logger)
 
 add_executable(test_health
     tests/test_health.cpp
+    src/db.cpp
 )
 target_include_directories(test_health PRIVATE include)
-target_link_libraries(test_health PRIVATE Catch2::Catch2WithMain)
-catch_discover_tests(test_health)
+target_compile_definitions(test_health PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+target_link_libraries(test_health PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+)
+add_test(NAME test_health COMMAND test_health)
+set_tests_properties(test_health PROPERTIES RUN_SERIAL TRUE)
 
 add_executable(test_startup_cleanup
     tests/test_startup_cleanup.cpp
+    src/db.cpp
+    src/crypto_util.cpp
+    src/spectate_token_repo.cpp
 )
 target_include_directories(test_startup_cleanup PRIVATE include)
-target_link_libraries(test_startup_cleanup PRIVATE Catch2::Catch2WithMain)
-catch_discover_tests(test_startup_cleanup)
+target_compile_definitions(test_startup_cleanup PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+target_link_libraries(test_startup_cleanup PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+add_test(NAME test_startup_cleanup COMMAND test_startup_cleanup)
+set_tests_properties(test_startup_cleanup PROPERTIES RUN_SERIAL TRUE)
 
 # ---------------------------------------------------------------------------
 # Integration tests — spin up a real WsServer and connect a WS client
@@ -842,3 +863,94 @@ target_link_libraries(reconnect_integration_tests PRIVATE
 
 add_test(NAME reconnect_integration_tests COMMAND reconnect_integration_tests)
 set_tests_properties(reconnect_integration_tests PROPERTIES RUN_SERIAL TRUE)
+
+# ---------------------------------------------------------------------------
+# Free-tier resource protection tests
+# ---------------------------------------------------------------------------
+
+add_executable(test_resource_session
+    tests/test_resource_session.cpp
+    src/eval_runner.cpp
+    src/bayesian_eval_module.cpp
+    src/accumulation_eval_module.cpp
+    src/execution_eval_module.cpp
+    src/bot_scheduler.cpp
+)
+target_include_directories(test_resource_session PRIVATE include)
+target_link_libraries(test_resource_session PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+catch_discover_tests(test_resource_session)
+
+add_executable(test_resource_db
+    tests/test_resource_db.cpp
+    src/db.cpp
+)
+target_include_directories(test_resource_db PRIVATE include)
+target_compile_definitions(test_resource_db PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+target_link_libraries(test_resource_db PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+)
+add_test(NAME test_resource_db COMMAND test_resource_db)
+set_tests_properties(test_resource_db PROPERTIES RUN_SERIAL TRUE)
+
+add_executable(test_resource_lobby
+    tests/test_resource_lobby.cpp
+    src/db.cpp
+    src/lobby_repo.cpp
+)
+target_include_directories(test_resource_lobby PRIVATE include)
+target_compile_definitions(test_resource_lobby PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+target_link_libraries(test_resource_lobby PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+add_test(NAME test_resource_lobby COMMAND test_resource_lobby)
+set_tests_properties(test_resource_lobby PROPERTIES RUN_SERIAL TRUE)
+
+add_executable(test_resource_bots
+    tests/test_resource_bots.cpp
+    src/bot_adapter.cpp
+    src/bot_scheduler.cpp
+)
+target_include_directories(test_resource_bots PRIVATE include)
+target_link_libraries(test_resource_bots PRIVATE
+    Catch2::Catch2WithMain
+    engine
+    anjeer_exchange
+    nlohmann_json::nlohmann_json
+    readerwriterqueue
+    pthread
+)
+catch_discover_tests(test_resource_bots)
+
+add_executable(test_resource_reconnect
+    tests/test_resource_reconnect.cpp
+    src/db.cpp
+    src/crypto_util.cpp
+    src/reconnect_token_repo.cpp
+)
+target_include_directories(test_resource_reconnect PRIVATE include)
+target_compile_definitions(test_resource_reconnect PRIVATE
+    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
+)
+target_link_libraries(test_resource_reconnect PRIVATE
+    Catch2::Catch2WithMain
+    libpqxx::pqxx
+    crypto
+)
+add_test(NAME test_resource_reconnect COMMAND test_resource_reconnect)
+set_tests_properties(test_resource_reconnect PROPERTIES RUN_SERIAL TRUE)

@@ -65,6 +65,8 @@ public:
     const std::string&  bot_uuid() const { return bot_uuid_; }
     void teardown();
 
+    size_t test_action_queue_size() const { return action_queue_.size_approx(); }
+
 private:
     using clock      = std::chrono::steady_clock;
     using time_point = clock::time_point;
