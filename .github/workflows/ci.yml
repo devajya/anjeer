@@ -45,6 +45,10 @@ jobs:
           key: fetchcontent-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: fetchcontent-
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Build
         run: make build
 
@@ -55,6 +59,4 @@ jobs:
 
       - name: Frontend tests
         working-directory: frontend
-        run: |
-          npm ci
-          npm run test
+        run: npm run test
