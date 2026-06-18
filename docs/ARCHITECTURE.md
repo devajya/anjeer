@@ -16,8 +16,8 @@ Four-layer architecture. Strict dependency direction: Frontend → (WebSocket) �
        │               │
 ┌──────▼──────┐  ┌─────▼────────────────────────┐
 │  WsServer   │  │  HttpServer  (Crow async)     │
-│  uWS :9001  │  │  :8080                        │
-│  game loop  │  │  OAuth, JWT, REST endpoints   │
+│  uWS :9001  │  │  :10000                       │
+│  game loop  │  │  OAuth, JWT, REST, /health    │
 └──────┬──────┘  └─────┬────────────────────────┘
        │               │
        │    shared: DbPool, ServerConfig
@@ -103,7 +103,7 @@ NetSubmit → GameSession::handle_submit
 - Timers via `std::chrono::steady_clock` on the game thread — no uWS involvement
 - Persists session + round records to DB via `SessionRepo`; writes `session_errors` on unhandled exceptions
 
-`HttpServer` (Crow async, port 8080):
+`HttpServer` (Crow async, port 10000):
 - `GET /auth/{provider}` — redirect to OAuth provider with CSRF state nonce
 - `GET /auth/{provider}/callback` — exchange code → `AuthService::find_or_create` → JWT cookies → redirect frontend
 - `POST /auth/refresh` — validate refresh token cookie → issue new access token cookie
@@ -121,6 +121,7 @@ NetSubmit → GameSession::handle_submit
 - `GET /lobbies/:id_or_code` — fetch single lobby by UUID or 6-char code
 - `POST /players/me/spectate-token` — issue a short-lived single-use `stk_` token for spectator handoff
 - `GET /auth/spectate` — consume a spectate token, establish a browser session, redirect to spectator view
+- `GET /health` — no auth; executes `SELECT 1` via `pqxx::nontransaction`; returns `{"status":"ok"}` (200) or `{"status":"error","detail":"db unreachable"}` (503); used by the deploy workflow smoke test and systemd watchdog
 
 `SessionRepo` (Slice 7):
 - Writes session lifecycle records to `game_sessions`, `rounds`, `session_errors` tables
@@ -335,7 +336,7 @@ All messages are JSON objects with a `type` string discriminator.
 ## Configuration Surface
 
 All tuneable values live in `config/default.json`. Key sections:
-- `server` — host, WS port (9001), HTTP port (8080), heartbeat/ping intervals, CORS origin
+- `server` — host, WS port (9001), HTTP port (10000), heartbeat/ping intervals, CORS origin
 - `order_book` — price range, nudge seed prices, active suits
 - `game` — player count, card distribution, countdown, round duration
 - `scoring` — starting balance, buy-in, points per card
@@ -345,6 +346,10 @@ All tuneable values live in `config/default.json`. Key sections:
 - `event_bus` — `"local"` (in-process) or `"redis"` (Upstash, Slice 16+)
 - `rate_limit` — `capacity`, `refill_rate`, `suspend_threshold`, `suspend_seconds` (Slice 9+)
 - `bots` — `scheduler_threads`, `tick_interval_ms`, `tick_jitter_ms`, `thinking_min_ms`, `thinking_max_ms`, `sim_network_delay_ms`, `spawn_bots_on_leave` (server-wide default; per-lobby override in DB), `bot_spawn_difficulty`; per-difficulty sub-objects `easy`/`medium`/`hard` with strategy-specific thresholds (Slice 10+)
+
+**Environment variable overrides:** Nine env vars override their corresponding `config/*.json` fields after the file is parsed. This allows `config/prod.json` to be committed with `OVERRIDE_VIA_<ENVVAR>` sentinel strings while real secrets are injected at runtime via `/etc/anjeer/env` (systemd `EnvironmentFile`). Vars: `ANJEER_DB_CONN`, `ANJEER_JWT_SECRET`, `ANJEER_GITHUB_CLIENT_ID`, `ANJEER_GITHUB_CLIENT_SECRET`, `ANJEER_GITHUB_REDIRECT_URI`, `ANJEER_GOOGLE_CLIENT_ID`, `ANJEER_GOOGLE_CLIENT_SECRET`, `ANJEER_GOOGLE_REDIRECT_URI`, `ANJEER_CORS_ORIGIN`. Empty string values are ignored.
+
+**Logger none-mode:** If `ANJEER_LOG_FILE=none` is set, the `Logger` skips file creation entirely and writes only to stdout. Used in production where systemd captures stdout to journald/CloudWatch.
 
 ## When to Update This Document
 
@@ -391,6 +396,20 @@ a reminder. The hook is installed by running `make install-hooks`.
 For in-session changes: after adding a new engine or server header, Claude will update
 the Module Map in CLAUDE.md and this document's module list before ending the task.
 This is specified as a rule in CLAUDE.md's "Documentation Maintenance" section.
+
+---
+
+## Production Deployment
+
+**Infrastructure:** Single EC2 `t3.micro` (Ubuntu 24.04) + RDS PostgreSQL 15 `db.t3.micro`. nginx terminates TLS and proxies: WS/`/api/log` → port 9001 (uWS), all other REST + `/health` → port 10000 (Crow). Elastic IP pinned to the instance; DNS via DuckDNS (domain: `anjeer.duckdns.org`).
+
+**Process model:** The server binary runs as the `anjeer` system user under systemd (`Restart=always`, `RestartSec=5`). Secrets are injected via `EnvironmentFile=/etc/anjeer/env` (chmod 600, root-owned). The binary is deployed to `/opt/anjeer/anjeer_server`.
+
+**Shutdown:** SIGTERM → `WsServer::run()` sigaction handler calls `loop->defer([&app]{ app.close(); })` on the uWS event loop. `HttpServer::stop()` is called from main after `ws_server.run()` returns, invoking `app.stop()` on the Crow instance. A watcher thread joins the http thread and calls `std::exit(1)` on unclean exit so systemd restarts the process.
+
+**Startup cleanup:** On each start, after migrations run, a single transaction prunes `spectate_tokens WHERE expires_at < NOW()` and closed lobbies. Failure is non-fatal (logged as WARN).
+
+**CI/CD:** GitHub Actions — CI runs on every push/PR (build + ctest + npm test + gitleaks). CD triggers on push to `main`: build binary → npm build → tarball → SCP to EC2 → idempotent migrations → swap binary → `systemctl restart anjeer` → smoke `GET http://localhost:10000/health`.
 
 ---
 
