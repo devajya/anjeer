@@ -157,6 +157,7 @@ public:
 private:
     struct BotEntry {
         std::string                      bot_uuid;
+        std::string                      username;
         anjeer::engine::BotDifficulty    difficulty;
         BotHandle                        handle{0};
         std::unique_ptr<BotAdapter>      adapter;
@@ -175,7 +176,7 @@ private:
     anjeer::engine::BotConfig             make_engine_config(anjeer::engine::BotDifficulty d) const;
     const ServerConfig::BotsConfig::PerDifficultyParams& select_difficulty_params(anjeer::engine::BotDifficulty d) const;
     static std::string                    difficulty_str(anjeer::engine::BotDifficulty d) noexcept;
-    static std::string        bot_username(anjeer::engine::BotDifficulty d, int index) noexcept;
+    std::string               pick_bot_username(const std::vector<BotEntry>& existing);
     std::string               generate_bot_id();
 };
 

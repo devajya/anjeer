@@ -40,11 +40,10 @@ BotAddResult BotManager::add_bot(
     BotEntry entry;
     entry.bot_uuid   = generate_bot_id();
     entry.difficulty = difficulty;
+    entry.username   = pick_bot_username(bots);
     bots.push_back(std::move(entry));
 
-    const int index    = static_cast<int>(bots.size()) - 1;
-    const std::string username = bot_username(difficulty, index);
-    return {true, bots.back().bot_uuid, username};
+    return {true, bots.back().bot_uuid, bots.back().username};
 }
 
 BotRemoveResult BotManager::remove_bot(const std::string& lobby_id, const std::string& bot_uuid) {
@@ -59,8 +58,7 @@ BotRemoveResult BotManager::remove_bot(const std::string& lobby_id, const std::s
     // Only allow removal before game starts.
     if (it->adapter) return {false, ""};
 
-    const int index = static_cast<int>(it - bots.begin());
-    const std::string username = bot_username(it->difficulty, index);
+    const std::string username = it->username;
     bots.erase(it);
     if (bots.empty()) sessions_.erase(sit);
     return {true, username};
@@ -176,12 +174,11 @@ std::vector<BotSlotInfo> BotManager::get_bots(const std::string& lobby_id) const
 
     std::vector<BotSlotInfo> result;
     result.reserve(it->second.size());
-    int index = 0;
     for (const auto& e : it->second) {
         result.push_back({
             e.bot_uuid,
             difficulty_str(e.difficulty),
-            bot_username(e.difficulty, index++),
+            e.username,
             e.slot
         });
     }
@@ -286,7 +283,8 @@ void BotManager::spawn_replacement(
     // Enqueue NetConnect so GameSession re-activates the slot for this bot.
     // Follow with NetSendFeedSnapshot so the session sends the right book snapshot type.
     const int64_t bot_pid    = -(static_cast<int64_t>(slot) + 1);
-    const std::string bot_name = bot_username(diff, slot);
+    const std::string bot_name = pick_bot_username(bots);
+    entry.username = bot_name;
     session_inbound.enqueue(NetConnect{slot, bot_pid, bot_name});
     session_inbound.enqueue(NetSendFeedSnapshot{slot, ctx.feed});
 
@@ -352,17 +350,33 @@ std::string BotManager::difficulty_str(anjeer::engine::BotDifficulty d) noexcept
     return "easy";
 }
 
-std::string BotManager::bot_username(anjeer::engine::BotDifficulty /*d*/, int index) noexcept {
+std::string BotManager::pick_bot_username(const std::vector<BotEntry>& existing) {
     static constexpr const char* kNames[7] = {
-        "SleepyLlama",   // Ollama
-        "DockWhale",     // Docker
-        "RustyCrab",     // Rust / Ferris
-        "GopherBroke",   // Go gopher
-        "TuxedoPenguin", // Linux / Tux
-        "PythonBoa",     // Python
-        "OctoProxy",     // GitHub Octocat
+        "SleepyLlama",
+        "DockWhale",
+        "RustyCrab",
+        "GopherBroke",
+        "TuxedoPenguin",
+        "PythonBoa",
+        "OctoProxy",
     };
-    return kNames[index % 7];
+    // Build candidate list of names not already in use in this lobby.
+    std::vector<const char*> candidates;
+    candidates.reserve(7);
+    for (const char* name : kNames) {
+        bool taken = false;
+        for (const auto& e : existing) {
+            if (e.username == name) { taken = true; break; }
+        }
+        if (!taken) candidates.push_back(name);
+    }
+    if (candidates.empty()) {
+        // All 7 names taken (> 7 bots — should not happen given max_players <= 5).
+        // Fall back to a numbered name rather than crash.
+        return "Bot" + std::to_string(existing.size());
+    }
+    std::uniform_int_distribution<size_t> pick(0, candidates.size() - 1);
+    return candidates[pick(rng_)];
 }
 
 std::string BotManager::generate_bot_id() {

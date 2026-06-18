@@ -74,7 +74,7 @@
     "thinking_min_ms": 0,
     "thinking_max_ms": 0,
     "easy": {
-      "tick_interval_ms": 3000, "tick_jitter_ms": 1000,
+      "tick_interval_ms": 4500, "tick_jitter_ms": 1000,
       "thinking_min_ms": 1500, "thinking_max_ms": 3000,
       "confidence_discount": 0.80, "taker_threshold": 0.85,
       "min_bid_ev": 3.0, "max_ask_ev": 7.0,
@@ -85,7 +85,7 @@
       "endgame_threshold_s": 0, "early_seed_threshold": 0.0, "quoting_kappa": 0.30
     },
     "medium": {
-      "tick_interval_ms": 1500, "tick_jitter_ms": 500,
+      "tick_interval_ms": 3000, "tick_jitter_ms": 500,
       "thinking_min_ms": 500, "thinking_max_ms": 1500,
       "confidence_discount": 0.90, "taker_threshold": 0.95,
       "min_bid_ev": 2.0, "max_ask_ev": 8.0,
@@ -96,7 +96,7 @@
       "endgame_threshold_s": 15, "early_seed_threshold": 0.0, "quoting_kappa": 0.60
     },
     "hard": {
-      "tick_interval_ms": 750, "tick_jitter_ms": 250,
+      "tick_interval_ms": 2250, "tick_jitter_ms": 250,
       "thinking_min_ms": 150, "thinking_max_ms": 500,
       "confidence_discount": 1.00, "taker_threshold": 1.05,
       "min_bid_ev": 1.5, "max_ask_ev": 8.5,
