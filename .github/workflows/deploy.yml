@@ -8,7 +8,6 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    needs: []
 
     steps:
       - uses: actions/checkout@v4
@@ -53,11 +52,14 @@ jobs:
           echo "$EC2_SSH_KEY" > /tmp/ec2_key
           chmod 600 /tmp/ec2_key
 
-          scp -i /tmp/ec2_key -o StrictHostKeyChecking=no \
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+          scp -i /tmp/ec2_key \
             anjeer-deploy.tar.gz \
             ubuntu@$EC2_HOST:/tmp/anjeer-deploy.tar.gz
 
-          ssh -i /tmp/ec2_key -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'REMOTE'
+          ssh -i /tmp/ec2_key ubuntu@$EC2_HOST << 'REMOTE'
             set -euo pipefail
 
             cd /tmp
