@@ -797,7 +797,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 added->order_id, suit, added->side, added->price, added->seq,
                 added->player_slot, added->qty)});
             eval_runner_->push_order_added(eval::EvalOrderAdded{
-                suit, added->price, added->qty, added->player_slot, added->seq,
+                suit, added->price, added->qty, added->player_slot, static_cast<int64_t>(added->seq),
                 added->order_id, added->side == exchange::Side::Buy});
         } else if (const auto* exec = std::get_if<exchange::OrderExecuted>(&mev)) {
             const std::string suit = instrument_suit_label(exec->instrument_id);
@@ -876,7 +876,7 @@ bool GameSession::dispatch_result(int32_t slot, const exchange::ExchangeResult& 
                 engine::kAllSuits[cxl->instrument_id],
                 cxl->seq)});
             eval_runner_->push_order_cancelled(eval::EvalOrderCancelled{
-                engine::kAllSuits[cxl->instrument_id], cxl->order_id, cxl->seq});
+                engine::kAllSuits[cxl->instrument_id], cxl->order_id, static_cast<int64_t>(cxl->seq)});
         }
     }
 

@@ -84,7 +84,7 @@ int main(int argc, char* argv[]) {
 
     std::atomic<bool> http_shutdown_clean{false};
 
-    std::thread http_thread([&http_server] { http_server.run(); });
+    std::thread http_thread([p = &http_server] { p->run(); });
 
     std::thread http_watcher([&]{
         http_thread.join();

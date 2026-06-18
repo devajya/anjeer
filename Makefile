@@ -29,22 +29,22 @@ DB_CONN   ?= postgresql:///anjeer_dev
 # FetchContent deps live in .deps/ (set via FETCHCONTENT_BASE_DIR in CMakeLists.txt)
 # so they survive `make clean` and are never re-downloaded unnecessarily.
 # ---------------------------------------------------------------------------
-$(BUILD_DIR)/Makefile: CMakeLists.txt exchange/CMakeLists.txt engine/CMakeLists.txt server/CMakeLists.txt
-	cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug
+$(BUILD_DIR)/build.ninja: CMakeLists.txt exchange/CMakeLists.txt engine/CMakeLists.txt server/CMakeLists.txt
+	cmake -B $(BUILD_DIR) -G Ninja -DCMAKE_BUILD_TYPE=Debug
 
 # ---------------------------------------------------------------------------
 # Build targets
 # ---------------------------------------------------------------------------
-build-engine: $(BUILD_DIR)/Makefile
+build-engine: $(BUILD_DIR)/build.ninja
 	cmake --build $(BUILD_DIR) --target engine --parallel
 
-build-server: $(BUILD_DIR)/Makefile
+build-server: $(BUILD_DIR)/build.ninja
 	cmake --build $(BUILD_DIR) --target server --parallel
 
 build-frontend:
 	npm run build --prefix frontend
 
-build: $(BUILD_DIR)/Makefile
+build: $(BUILD_DIR)/build.ninja
 	# AGENT-CTX: C++ and frontend builds are independent — run them in parallel.
 	# Each background job's exit code is captured; both must succeed.
 	cmake --build $(BUILD_DIR) --parallel & CPP_PID=$$!; \
@@ -87,7 +87,7 @@ dev: build-server reset-lobby-db
 # ---------------------------------------------------------------------------
 # Test targets
 # ---------------------------------------------------------------------------
-test-unit: $(BUILD_DIR)/Makefile
+test-unit: $(BUILD_DIR)/build.ninja
 	# AGENT-CTX: Build all test binaries explicitly before running ctest.
 	# Adding a new test binary in a subdirectory CMakeLists requires a matching
 	# --target entry in the single cmake --build call below.
@@ -135,7 +135,7 @@ test-unit: $(BUILD_DIR)/Makefile
 	# RUN_SERIAL in CMakeLists so ctest automatically holds it until parallel tests finish.
 	cd $(BUILD_DIR) && ctest --output-on-failure -j$$(nproc)
 
-test-one: $(BUILD_DIR)/Makefile
+test-one: $(BUILD_DIR)/build.ninja
 	# Usage: make test-one T=market_data_wire_tests
 	# Builds the named target then runs its binary directly (bypasses ctest name-matching).
 	cmake --build $(BUILD_DIR) --target $(T) --parallel
