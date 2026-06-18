@@ -238,6 +238,7 @@ set_tests_properties(test_startup_cleanup PROPERTIES RUN_SERIAL TRUE)
 # ---------------------------------------------------------------------------
 
 add_executable(ws_server_tests
+    tests/ws_server_main.cpp
     tests/test_ws_server.cpp
     src/config.cpp
     src/ws_server.cpp
@@ -276,7 +277,7 @@ target_compile_definitions(ws_server_tests PRIVATE
 )
 
 target_link_libraries(ws_server_tests PRIVATE
-    Catch2::Catch2WithMain
+    Catch2::Catch2
     engine
     anjeer_exchange
     uWebSockets
