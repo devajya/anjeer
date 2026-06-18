@@ -15,22 +15,22 @@ const BLOCKS: BlockContent[] = [
   {
     tag: 'Step 1',
     headline: 'Join a lobby',
-    body: `Create a private lobby or browse open games. Invite friends with a six-character code, set the buy-in, choose how many rounds you want to play, and configure whether empty seats should be filled by bots while you wait. Games support two to four players — human, bot, or a mix — and can start the moment the host is ready.`,
+    body: `You can create a lobby or browse open games. Invite friends to your lobbies, or for those 1 am sessions, play with bots of any difficulty. Bonus points (not really okay scoring is hard) if you can spot the easter eggs in their names. If you're more of a hacker, the whole game is playable via the terminal, and you can write the trading strategies yourself (templates in docs).`,
   },
   {
     tag: 'Step 2',
     headline: 'Receive your hand',
-    body: `At the start of each round the deck is distributed secretly. Every player holds a private hand and a hidden goal suit — the suit you need to accumulate to win. You can see how many cards others hold in aggregate, but not what suits they are. The only way to figure out what opponents are chasing is to watch which prices they push, which offers they lift, and which sides they ignore.`,
+    body: `At the start of each round the deck is distributed secretly. Every round has a hidden goal suit. Your task is to make as much money as you can per round. There's no one right way to do this. Play the market maker or figure out the suit, scalp cards or play the villain, strategy is entirely up to you. Want to know how to win? Track everything - you can see per player card deltas, trade history, and some rudiemntary probabilitis for important metrics.`,
   },
   {
     tag: 'Step 3',
     headline: 'Trade to accumulate',
-    body: `Place bids and asks on any of the four suits at integer prices. Every matched trade wipes the entire book — so timing matters as much as price. You can bluff a suit you don't want to drive others away, front-run a player whose order flow gives them away, or quietly accumulate at the ask while everyone else fights over something else. The market is the only communication channel.`,
+    body: `The basic mechanic is to place bids and asks on any of the four suits at integer prices. Different game modes, gve you different levels of information on the market, and more control over orders. The better you get at processing information quickly, the better you'll be at playing the harder modes. You can choose to play the volatility of the market, or if you think you have more edge, quitely accumulate. The market is responsive, so be careful what you put out there.`,
   },
   {
     tag: 'Step 4',
     headline: 'Score the round',
-    body: `When the clock expires, positions are evaluated. The player holding the majority of the goal suit's cards captures the pot — the sum of all buy-ins for the round. Bonus cards pay a flat rate per unit regardless of majority. Ties on majority split the pot evenly. After scoring, standings update and the next round begins with a fresh deal. The player with the highest balance when all rounds conclude wins.`,
+    body: `When the clock hits 0, positions are evaluated. Winnngs are distributed accordng to the rules and profits takn during the round. The player holding the majority of the goal suit's cards captures the pot — the sum of all buy-ins for the round. Bonus cards pay a flat rate per unit regardless of majority. Ties on majority split the pot evenly. After scoring, standings update and the next round begins with a fresh deal. The player with the highest balance when all rounds conclude wins.`,
   },
 ]
 

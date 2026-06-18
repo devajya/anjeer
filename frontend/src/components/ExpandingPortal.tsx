@@ -9,9 +9,9 @@ export interface ExpandingPortalProps {
 }
 
 const HERO_CONTENT = {
-  eyebrow: 'Multiplayer card trading',
+  eyebrow: 'Math disgusied as Multiplayer card trading',
   headline: 'Anjeer',
-  body: 'Four players. Four suits. One hidden goal. Trade your way to a majority before time runs out.',
+  body: 'Four players. Four suits. One hidden goal - Rake in the chips. Do the math and trade your way to a majority before time runs out.',
 }
 
 function CornerBrackets() {

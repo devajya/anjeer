@@ -1,551 +1,150 @@
-# Anjeer
+<p align="center">
+  <img src="docs/imgs/logo.png" alt="Anjeer" width="480"/>
+</p>
 
-A real-time multiplayer card-trading game built from scratch — C++ matching engine, multithreaded game server, probabilistic bot AI, and a React frontend over WebSockets. Everything is production-style: lock-free concurrency, OAuth + JWT auth, a live order book, Bayesian inference bots, and a terminal CLI for scripted players.
+<p align="center">
+  <img src="https://img.shields.io/badge/C%2B%2B-17-blue?logo=cplusplus&logoColor=white" alt="C++17"/>
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React"/>
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript"/>
+  <img src="https://img.shields.io/badge/PostgreSQL-15-336791?logo=postgresql&logoColor=white" alt="PostgreSQL"/>
+  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white" alt="Python"/>
+  <img src="https://img.shields.io/badge/AWS-EC2%20%2B%20RDS-FF9900?logo=amazonaws&logoColor=white" alt="AWS"/>
+</p>
 
-> This project is a technical portfolio piece. The sections below are organized by engineering discipline so you can jump to what's relevant to you.
+<p align="center">
+  <strong>Live:</strong> <a href="https://anjeer.duckdns.org">anjeer.duckdns.org</a> &nbsp;·&nbsp; <strong>Demo:</strong> coming soon
+</p>
 
 ---
 
-## Demo
+  A real-time multiplayer card-trading game with a C++ matching engine, multithreaded server, Bayesian bot AI, and a React frontend deployed on AWS.
 
-> Video walkthrough coming soon.
+## Inspired by Figgie
 
-Live: [https://anjeer.duckdns.org](https://anjeer.duckdns.org)
+Anjeer is inspired by [Figgie](https://figgie.com), a card game designed by Jane Street as a simplified model of financial markets. In Figgie, four players trade cards in real time trying to accumulate the hidden goal suit before the round ends. See the [official rules](https://figgie.com/how-to-play).
+
+**What anjeer adds on top:**
+
+- **Broader Game Mechanics** - 3 different game modes, giving you MBP-1, MBP-5 and MBO views of the orderbook, with real-time bid/ask depth, optional persistence, trade feed, delta tracking and real time back-of-the-napkin math for the game.
+- **Eval framework** — real-time analysis running on a dedicated thread: Bayesian posteriors per player, accumulation signals, and execution guidance, essentially a subset of the signal you want to learn to do in your head over time.
+- **API mode & scripted players** — in case you enjoy coding, players can connect self developed algorithms/strategies for the game over the same WebSocket protocol the browser uses; a Python CLI handles lobby management and script launch, so you can focus on just policy.
+- **And more?** - the project is built to naturally extend to include leaderboards, ranked gameplay, and machine learning integrations as well as to scale up across multiple nodes of deployment to handle more traffic.
 
 ---
 
-## What Was Built — By Area
+## System Architecture
+
+```mermaid
+graph TD
+    Browser["Browser — React + TypeScript"]
+
+    subgraph prod["EC2 (t3.micro)"]
+        nginx["nginx — TLS · rate limit · SPA fallback"]
+
+        subgraph server["C++ Server"]
+            WS["WsServer — uWebSockets :9001"]
+            HTTP["HttpServer — Crow :10000\nOAuth · JWT · REST · /health"]
+
+            subgraph threads["Per-lobby threads"]
+                GS["GameSession — phase state machine"]
+                BS["BotScheduler — thread pool"]
+                ER["EvalRunner — worker thread"]
+            end
+
+            subgraph core["Pure C++ (no I/O)"]
+                EX["Exchange — OrderBook · Sequencer"]
+                EN["Engine — GameState · Scoring · Bots"]
+            end
+        end
+    end
+
+    DB[("PostgreSQL 15 — RDS")]
+
+    Browser -->|"WSS"| nginx
+    Browser -->|"HTTPS"| nginx
+    nginx --> WS & HTTP
+    WS <-->|"SPSC queues"| GS
+    GS --> BS & ER & EX
+    EX --> EN
+    HTTP & WS --> DB
+```
+
+## Order Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant W as WsServer
+    participant G as GameSession
+    participant E as Exchange
+    participant N as Engine
+
+    B->>W: submit_order — WebSocket
+    W->>G: NetEvent — lock-free SPSC enqueue
+    G->>E: submit_order(instrument, side, price, slot)
+    E->>N: match()
+    N-->>E: vector‹OrderEvent›
+    E-->>G: ExchangeResult {feedback, market}
+    G->>G: post-trade pipeline
+    G-->>W: GameEvent — SPSC dequeue (16ms timer)
+    W-->>B: order_ack — targeted
+    W-->>B: trade — broadcast, your_side personalized
+    W-->>B: book_update · delta_update · all_balances
+```
+
+---
+
+## What Was Built
 
 | Area | What's here |
 |---|---|
-| **Systems / C++** | Lock-free SPSC queue architecture, four independent threading axes, custom matching engine, exchange layer with dual-return event API, SIGTERM handling, watcher thread for crash detection |
-| **Algorithms / Math** | Multivariate hypergeometric Bayesian posterior, EV-anchored price discovery, EWMA accumulation signals, fill-probability estimation, posterior collapse detection |
-| **Backend** | OAuth 2.0 (GitHub + Google), JWT cookies, API key auth with SHA-256 hashing, spectator token handoff, versioned DB migrations, connection pool |
-| **Concurrency** | Four lock-free threading axes (uWS loop, GameSession, BotScheduler, EvalRunner) — all cross-thread data via `moodycamel::ReaderWriterQueue`, no shared mutable state |
-| **Frontend** | React + TypeScript + Vite, real-time WebSocket state, keyboard shortcuts, route-level code splitting, GSAP + Framer Motion landing page |
-| **DevTools / API** | Python CLI, scripted player interface, MBO/MBP-N market data feed tiers, MessagePack binary encoding |
-| **Infrastructure** | EC2 + RDS deployment, nginx reverse proxy, systemd service, GitHub Actions CI/CD, Docker multi-stage build, CloudWatch agent |
-| **Data** | PostgreSQL with forward-only versioned migrations, no ORM, raw pqxx, full session/round/error persistence |
+| [**Engine & Exchange**](engine/README.md) | Basic limit order book, dual-return event API, pure C++ game logic and scoring |
+| [**Server & Backend**](server/README.md) | Four-axis lock-free threading model, OAuth + JWT auth, WebSocket + REST servers, Bayesian eval framework |
+| [**Frontend**](frontend/README.md) | React + TypeScript, real-time WebSocket state, landing page, three market data view modes |
+| [**CLI**](cli/README.md) | Python CLI for scripted/algorithmic players; full wire protocol access |
 
 ---
 
-## Table of Contents
-
-| Section | Relevant to |
-|---|---|
-| [System Overview](#system-overview) | Everyone |
-| [Matching Engine](#matching-engine--exchange-layer) | Systems, Backend, Algorithms |
-| [Server & Concurrency](#server--concurrency) | Systems, Backend |
-| [Bot AI & Probabilistic Reasoning](#bot-ai--probabilistic-reasoning) | Algorithms, ML, Math |
-| [Evaluation Framework](#evaluation-framework) | Algorithms, Data Engineering |
-| [Auth, Security & API](#auth-security--api) | Backend, Security |
-| [Frontend Architecture](#frontend-architecture) | Frontend, Full-stack |
-| [Wire Protocol](#wire-protocol) | Full-stack, Systems |
-| [Database & Persistence](#database--persistence) | Backend, Data |
-| [CLI & Scripted Players](#cli--scripted-players) | DevTools, Backend |
-| [Production Deployment](#production-deployment) | DevOps, Backend |
-| [Getting Started](#getting-started) | Everyone |
-| [Configuration](#configuration) | Everyone |
-| [Makefile Reference](#makefile-reference) | Everyone |
-| [Project Layout](#project-layout) | Everyone |
-
----
-
-## System Overview
-
-```
-┌──────────────────────────────────────┐
-│  Browser  (React + TypeScript)       │  port 5173 (dev) / nginx (prod)
-└────────┬──────────────────┬──────────┘
-         │  WebSocket :9001 │  HTTP :10000
-┌────────▼──────┐   ┌───────▼──────────────────┐
-│   WsServer    │   │   HttpServer  (Crow)      │
-│  uWebSockets  │   │   OAuth · JWT · REST      │
-└────────┬──────┘   └───────┬──────────────────┘
-         │                  │  shared: DbPool, ServerConfig
-         │           ┌──────▼────────┐
-         │           │  PostgreSQL   │
-         │           └───────────────┘
-┌────────▼──────────────────────────────┐
-│  Exchange  (market mechanics)         │
-│  ExchangeSession · OrderBook          │
-│  Sequencer · MarketDataEvent          │
-└────────┬──────────────────────────────┘
-┌────────▼──────────────────────────────┐
-│  Engine  (pure game logic, no I/O)    │
-│  GameState · ScoringEngine            │
-│  BotAgent (Easy / Medium / Hard)      │
-└───────────────────────────────────────┘
-```
-
-Four strict layers. Neither the exchange nor the engine has any I/O — both return typed event vectors; the server owns all serialization and dispatch. The frontend is a pure consumer of WebSocket messages.
-
----
-
-## Matching Engine & Exchange Layer
-
-**Locations:** `engine/` · `exchange/`
-
-The matching stack is split into two pure C++ libraries. Neither has network, filesystem, or JSON dependencies.
-
-### Exchange Layer (`exchange/`)
-
-Sits between the game server and the engine. Owns market mechanics that are independent of game rules.
-
-- **`ExchangeSession`** — owns all four `OrderBook` instances; routes `submit_order` / `cancel_order` / `cancel_player` through a `Sequencer` that stamps monotonic sequence numbers onto every outbound event. Returns an `ExchangeResult{feedback, market}` — `feedback` is the private operational response to the submitting player; `market` is the observable event broadcast to all participants.
-- **`Sequencer`** — monotonic `seq_t` counter; `next_seq()` / `reset()`. Guarantees strict event ordering across all instruments in a session.
-- **`OrderBook`** — price-time priority limit order matching. Operations: `submit`, `cancel`, `cancel_player`, `wipe`. All prices are `int32_t` — no floats anywhere in the matching path. Multi-quantity orders supported in intermediate and advanced modes.
-- `wipe()` fires after every trade in simple and intermediate modes — all four books cleared atomically. Advanced mode disables the wipe, enabling partial fills: a resting order persists with reduced `qty_remaining` after a partial match.
-
-### Engine (`engine/`)
-
-Pure game logic — deck dealing, hand tracking, scoring. No market mechanics.
-
-### Game State
-
-- `GameState` owns per-player hand counts and deck dealing
-- 12 pre-defined deck configurations in a static `kDecks` table — each specifies per-suit distribution and an **explicit** goal suit (not derived from counts)
-- `transfer_card` mutates hand state post-trade for accurate end-of-round scoring
-
-### Scoring
-
-- `ScoringEngine::score_round()` — pure function, no side effects
-- Pot, per-card payouts, majority/plurality bonus split
-- `bonus_pool` derived by server as `pot_size − total_goal_cards × points_per_card` and passed in at scoring time — server owns the arithmetic, engine owns the payout logic
-
----
-
-## Server & Concurrency
-
-**Location:** `server/`
-
-### Threading Model
-
-Four independent threading axes — no shared mutable state, all cross-thread data flows through lock-free SPSC queues (`moodycamel::ReaderWriterQueue`):
-
-```
-uWS event loop thread
-  ├─ parses inbound JSON → enqueues NetEvent onto session's inbound SPSC queue
-  ├─ 16ms drain timer → pops GameEvent from session's outbound SPSC queue → WS send
-  ├─ drain_bot_actions() → moves bot action_queue_ items → session inbound SPSC queue
-  └─ encoding: JSON text by default; binary msgpack if client negotiated
-    Sec-WebSocket-Protocol: anjeer-msgpack (/ws/marketdata always uses msgpack)
-
-GameSession thread (one per active lobby)
-  ├─ owns engine calls, round timers, scoring, DB writes
-  └─ communicates exclusively via the two SPSC queues above
-
-BotScheduler thread pool (configurable, default 4 threads)
-  ├─ tick() → drains event_queue_, updates snapshot, calls decide(), enqueues result
-  └─ pending_ delay heap → sim_network_delay_ms models realistic bot latency
-
-EvalRunner worker thread (one per active session)
-  ├─ drains 64-slot SPSC queue pushed by the game-loop thread (non-blocking; drops on full)
-  ├─ fans each event to BayesianEvalModule, AccumulationEvalModule, ExecutionEvalModule
-  └─ emits eval outputs via callback → WsServer routes unicast/broadcast to WS handles
-```
-
-### GameSession
-
-- `SessionPhase` state machine: `Lobby → Countdown → RoundActive → InterRound → Ended`
-- Post-trade pipeline runs in strict order: card transfers → balance settlements → delta accumulation → broadcast
-- Collects buy-ins at round start; multi-round loop until majority vote-to-end or all players leave
-- Persists session + round records via `SessionRepo`
-
-### Rate Limiting & Resilience
-
-- In-process token-bucket rate limiter per connection (`rate_limiter.h`) — capacity and refill rate from config
-- `rate_limit_warning` event on bucket empty; temporary suspension on sustained excess
-- Bot slots use negative `player_id` values; vote majority and min-player checks use `real_player_count_` (bots excluded)
-
----
-
-## Bot AI & Probabilistic Reasoning
-
-**Location:** `engine/bots/`
-
-Three difficulty tiers, all implementing the `BotAgent` abstract interface. The factory `make_bot()` is the only public entry point.
-
-### Shared Infrastructure
-
-- **`BotAdapter`** bridges the engine strategy to the server's SPSC queue architecture — it drains JSON events from `event_queue_`, maintains a `GameStateSnapshot`, and calls `decide()` on a scheduler thread
-- **`BotScheduler`** — fixed thread pool with a min-heap priority queue for scheduled ticks; `tick_jitter_ms` and `thinking_min_ms/max_ms` produce human-like timing distributions
-- **`BotBookUpdateEvent`** carries `best_bid_qty` / `best_ask_qty` so strategies can read side depth and detect thin (potentially manipulative) quotes
-
-### Easy Bot
-
-Hand-heuristic belief (no Bayesian inference). Scans for taker opportunities when spreads are wide, places gap-fill maker quotes, cancels stale orders via `max_resting_ms`. Simple but fast.
-
-### Medium Bot
-
-- Opens with a multivariate hypergeometric posterior over the 12 deck configurations from the player's starting hand
-- Noisy Bayesian update on observed trades (partial information — only suit and price visible, not hands)
-- EV-threshold maker/taker decisions: submits if `E[value of card] > ask` (taker) or quotes if spread gap is profitable (maker)
-- `conviction_threshold` gates conviction-dump and endgame lock-in behavior
-- Conviction dump price derived from EV rather than price 1 to sustain market activity and not signal goal suit
-
-### Hard Bot
-
-- **Exact Bayesian posterior** over 12 deck configurations, updated on every trade event
-- Multivariate hypergeometric likelihood scaled by `deck_multiplier` for hard-mode games — posterior math stays correct as card counts scale
-- Tracks `pressure_[slot]` — per-player directional trade history used to infer goal suits
-- **Posterior collapse detection** — when P(deck) > 0.90 for a single configuration, switches to deterministic lock-in mode
-- **Card-count elimination** — rules out deck configs where `suit_counts × deck_multiplier ≤ observed_trades`
-- **Early market seeding** — posts quotes before round pressure builds to obscure own accumulation
-- **Depth-aware taker scan** — skips thin quotes (`best_ask_qty == 1`) that may be bait; boosts crossing threshold for large resting offers (`qty ≥ 3`)
-- **EV-bounded bid-strike price discovery** — tracks `bid_strike_[s]`, the count of consecutive trade wipes where suit `s` had an unfilled resting bid. On each wipe, bid price = `min(base_price + strike, floor(EV_s))`. Repeated unmet demand organically pushes quotes toward full EV; the EV ceiling prevents irrational bidding above expected value
-
-### Hard-Mode Deck Scaling
-
-When a lobby is set to hard difficulty, `game.hard.deck_multiplier` (default 2) scales all 12 deck variants proportionally — a 40-card deck becomes 80 cards, giving players ~20 cards per round instead of 10. All proportions are preserved so the Bayesian math is identical; inference simply converges faster because each player holds more evidence. Multi-quantity orders become meaningfully sized against a deeper deck.
-
-### Single-Order-Per-Submission Design
-
-Bots place one order at a time (qty ≥ 1 per submission) rather than flooding with many small orders. In a low-participant environment this keeps the market dynamic — each submission is a deliberate price signal, not noise. However, because the order book aggregates resting orders at the same price level, human players see accumulated depth that behaves like a multi-quantity order and can fill it in a single submission.
-
-**The tradeoff:** when you hit aggregated bot depth, you cannot distinguish which individual bot you traded with. This matters for game theory — you lose the ability to selectively route trades to deny opportunities to the most dangerous opponent or to exploit an opponent who you believe has already accumulated their goal suit. Adverse-selection calculations become noisier because the counterparty identity is opaque behind the aggregated book.
-
-### Key Design Choice
-
-Bot difficulty tiers differ in _information model quality_, not just parameter tuning. Easy uses no inference; Medium uses approximate Bayesian with noise; Hard uses exact Bayesian with opponent modeling, depth reading, and EV-anchored price discovery. Same interface, qualitatively different strategies.
-
----
-
-## Evaluation Framework
-
-**Location:** `server/eval/`
-
-An in-process plugin architecture running on a dedicated thread. `EvalRunner` maintains a lock-free SPSC queue fed by the game loop and fans events out to registered `EvalModule` implementations.
-
-Three modules:
-
-| Module | Output | Routing |
-|---|---|---|
-| `BayesianEvalModule` | Deck posteriors, goal-suit marginals, settlement EV, per-suit delta EV; resting-order evidence nudges posterior toward suits with deep bid depth | Private per-slot |
-| `AccumulationEvalModule` | Per-player behavioral signals (Normal / Elevated / High) with EWMA baseline; qty-weighted to reflect multi-card order significance | Broadcast |
-| `ExecutionEvalModule` | Per-suit fill probability, aggressive vs. passive EV, spread cost, recommendation; qty-aware for partial-fill scenarios | Broadcast |
-
-All eval data flows over the existing WebSocket connection as `eval.*` prefixed messages — no new endpoints.
-
----
-
-## Auth, Security & API
-
-**Location:** `server/include/server/`
-
-- **OAuth 2.0** — GitHub and Google providers (`oauth_provider.h`)
-- **JWT** — access (15 min) + refresh (7 day) tokens issued as HttpOnly cookies (`auth_service.h`)
-- **API keys** — SHA-256 hashed, `ank_<64hex>` format, 30-day TTL, max 1 active key per player (`api_key_repo.h`, `crypto_util.h`)
-- Bearer auth on WebSocket upgrade; `api_key_invalid` event + close on expiry or revocation
-- **Spectator tokens** — short-lived single-use `stk_<hex>` tokens for browser spectator handoff without re-authentication (`spectate_token_repo.h`)
-- All key generation uses `RAND_bytes` (OpenSSL); hashing via EVP SHA-256
-
----
-
-## Frontend Architecture
-
-**Location:** `frontend/`
-
-React + TypeScript + Vite. State flows down from hooks; components are stateless consumers of props.
-
-### Key Hooks
-
-| Hook | Responsibility |
-|---|---|
-| `useWebSocket` | Single WS connection, full message type dispatch, all game state |
-| `useKeyBinds` | Fetches per-player keybind overrides from REST; merges with defaults |
-| `useKeyboardShortcuts` | Global `keydown` listener; dispatches 11 trading actions via inverted combo map |
-| `useEvalMetrics` | Subscribes to `eval.*` messages; exposes posterior, accumulation, guidance state |
-| `useGameConfig` | Reads `GameConfigContext`; exposes `gameMode`, `allowMultiQty`, `wipeOnTrade` flags |
-
-### Pages & Components
-
-```
-/                  Landing page (public)
-  ├─ ExpandingPortal        — GSAP scroll-pin hero, framer-motion layout spring, mouse parallax
-  ├─ AutoAdvanceProgress    — scroll-driven accordion; step-by-step game rules; canvas chip anim
-  ├─ ScrollTrackerSection   — 400vh sticky slideshow; SVG stepped-border frame; GSAP pill indicator
-  └─ MathDive               — CSS 3D camera dive (EV → Bayes → order book → CTA); GSAP ScrollTrigger
-/auth              OAuth buttons (Login)
-/lobby             Lobby browser — list, create, join by code, active tab
-/lobby/:code       Lobby room — roster, bot controls, start button
-/game              Trading UI — 3-col layout in intermediate/advanced (left: feed+orders,
-  │                             center: depth/mbo, right: overview+suits)
-  ├─ MarketOverview + DeltaTable   — hand counts + per-player net card flow
-  ├─ SuitPanel (×4)                — order form + best bid/ask; multi-qty inputs in
-  │                                  intermediate/advanced modes
-  ├─ MyOrders                      — resting orders + cancel; shows qty_remaining/qty
-  ├─ TradeFeed                     — recent trade history
-  ├─ MbpNDepthPanel                — full price-level depth ladder (intermediate center)
-  ├─ MboFeedPanel                  — MBO event log: order_added/executed/cancelled (advanced center)
-  ├─ InterRoundScreen              — standings + vote-to-end + countdown
-  ├─ RoundEndModal                 — goal reveal, payouts
-  ├─ GameEndScreen                 — final standings + per-round breakdown
-  └─ EvalPanel                     — collapsible; posterior, accumulation signals, guidance
-/spectate/:lobbyId  Read-only spectator view with script log panel
-/settings/keybinds  Keybind customisation (GET/PUT /players/me/keybinds)
-/api-keys           API key CRUD
-/docs               Static API reference + script templates
-/learn              Grouped eval-module documentation
-```
-
-`AppNav` — persistent top bar across all authenticated non-game routes; lives outside `AnimatePresence` so it never flashes during page transitions.
-
-### Design Choices
-
-- **CSS design tokens** — all colors, typography, radii, and spacing defined as CSS custom properties in `src/styles/tokens.css`; no magic numbers in component CSS
-- **Route-level code splitting** — every page is `React.lazy()`; below-fold landing sections deferred behind a `Suspense` boundary; each route is its own chunk loaded on demand
-- `BrowserRouter` with lobby UUID passed via navigation state; falls back to REST lookup for direct URL navigation
-- `delta_update` is a full 4×4 snapshot replacement on every trade — no client-side accumulation
-- All 11 keyboard shortcuts are configurable per player and persisted to the DB
-
----
-
-## Wire Protocol
-
-All messages are JSON with a `type` string discriminator. The single source of truth is `frontend/src/types/messages.ts`.
-
-**Server → Client (selected):**
-
-| Type | Description |
-|---|---|
-| `round_start` | Per-player: hand, slot, `round_end_at`, `game_mode` |
-| `trade` | Broadcast; `your_side` personalized per recipient; carries `qty_filled`, `aggressor_order_id` |
-| `book_update` | MBP-1: best bid/ask per suit; carries `seq` + `v` |
-| `book_depth` / `book_depth_snapshot` | MBP-N: full price-level depth per suit (incremental / on connect) |
-| `order_added` / `order_executed` / `order_cancelled` | MBO: individual order lifecycle events with `seq` + `v` |
-| `order_book_snapshot` | MBO: full per-suit order list on connect or resync |
-| `book_state_snapshot` | Bulk best-bid/ask reset for all suits at round start |
-| `order_partially_filled` | Private to order owner: partial fill in advanced mode, updated `qty_remaining` |
-| `delta_update` | Full 4×4 net card flow snapshot after every trade |
-| `all_balances` | All slot balances after every trade |
-| `hand_totals` | Total card count per slot after every trade |
-| `inter_round` | Standings, vote tallies, countdown |
-| `eval_posterior_update` | Private per-slot: deck posteriors, settlement EV |
-| `eval_accumulation_signal` | Broadcast: per-player behavioral signals |
-| `eval_execution_guidance` | Broadcast: per-suit execution recommendations |
-
-**Client → Server (selected):**
-
-| Type | Description |
-|---|---|
-| `submit_order` | `suit`, `side`, `price`, `qty` |
-| `nudge` | Move best quote ±1 on a suit |
-| `cancel_order` | By order ID; server scans all books |
-| `resync` | Request a full snapshot for your current feed tier |
-| `vote_to_end` | Majority vote ends game early |
-| `add_bot` / `remove_bot` | Owner-only lobby bot management |
-| `script_log` | Plain string (≤500 chars); forwarded to spectators |
-
----
-
-## Database & Persistence
-
-**Location:** `db/`
-
-PostgreSQL with a versioned migration system — `DbMigrator` applies `db/migrations/` files in version order on every server start. RAII connection pool via libpqxx (`DbPool`).
-
-Key tables: `players`, `lobbies`, `lobby_players`, `game_sessions`, `rounds`, `session_errors`, `player_keybinds`, `api_keys`, `spectate_tokens`.
-
-No ORM — raw SQL via pqxx. Migrations are additive and forward-only.
-
----
-
-## CLI & Scripted Players
-
-**Location:** `cli/`
-
-A Python CLI for terminal-based and scripted players using API-mode lobbies. Production install uses `uv tool install anjeer`; for local dev use `pip install -e cli/` from the repo root.
+## Quick Start
 
 ```bash
-anjeer setup                             # Prompt for API key + language, copy template, save anjeer.json in cwd
-anjeer find                              # List open API-mode lobbies
-anjeer create                            # Create a lobby (prompts for game mode, bot settings)
-anjeer create --game-mode advanced \
-              --spawn-bots \
-              --bot-difficulty hard      # Non-interactive create with all flags
-anjeer join <code>                       # Join a lobby, wait for start, launch your script
-anjeer start <code>                      # (creator) wait for players, start the game, launch script
-anjeer close <code>                      # Leave a lobby and delete it if now empty
-anjeer preset list/save/delete           # Manage saved lobby presets
-```
-
-`anjeer setup` saves config to `anjeer.json` in the current working directory — run it from your bot's project folder. All subsequent commands read that local file when present, falling back to `~/.anjeer/config.json`.
-
-`anjeer start` / `anjeer join` set `ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, `ANJEER_HTTP_URL`, `ANJEER_LOBBY_CODE`, and `ANJEER_GAME_MODE` as environment variables, then exec your configured script. Scripts communicate over WebSocket using the same wire protocol as the browser client. The spectator view shows a live `script_log` panel fed by messages from your script.
-
-> **Spectator feed limitation:** the spectator view currently always shows MBP-1 (simple mode) regardless of the game mode. MBO and MBP-N feeds to spectators are a known deferred item.
-
-### Scripted Players & ML Pipelines
-
-The scripted-player interface is mature enough for real automated strategies. Scripts receive the full wire protocol — including MBP-N depth snapshots, MBO order lifecycle events, eval module outputs, and delta tables — giving enough data surface for time-series feature extraction and model-driven order placement.
-
-A skilled player can wire the environment variables (`ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, `ANJEER_LOBBY_CODE`, `ANJEER_GAME_MODE`) into a Python or TypeScript agent, subscribe to the WebSocket feed, maintain a local order book and hand state, and issue `submit_order` / `cancel_order` actions via the same protocol the browser uses.
-
-Possible pipeline patterns:
-- **Time-series model** — buffer `book_depth` snapshots + trade events into a feature matrix; predict goal-suit probability and act on confidence crossings
-- **Bayesian agent** — replicate or extend the hard bot's hypergeometric posterior in Python with full access to your own hand and observed market signals
-- **Reinforcement learning** — treat each round as an episode; reward function based on end-of-round balance delta; action space is submit/cancel/hold per suit
-
----
-
-## Production Deployment
-
-**Infrastructure:** EC2 `t3.micro` + RDS PostgreSQL 15 `db.t3.micro` on AWS. nginx terminates TLS and proxies WebSocket traffic to port 9001 and REST to port 10000. The server binary runs as a systemd service (`Restart=always`) with secrets injected via `EnvironmentFile`.
-
-**CI/CD:** GitHub Actions — CI runs on every push and pull request (build + ctest + Vitest + gitleaks secret scan). CD triggers on push to `main`: builds the binary and frontend, SCPs a tarball to EC2, runs migrations, swaps the binary, restarts the service, and smoke-tests `GET /health`.
-
-**Health check:** `GET /health` on port 10000 executes `SELECT 1` against the DB pool and returns `{"status":"ok"}` or `{"status":"error","detail":"db unreachable"}`. Used by the deploy workflow and can be used by an external uptime monitor.
-
-See `scripts/` for the EC2 setup script, systemd unit file, and CloudWatch agent config. See `nginx/anjeer.conf` for the reverse proxy and rate-limit configuration.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-| Tool | Version |
-|---|---|
-| g++ | 11+ |
-| cmake | 3.20+ |
-| Node.js | 18+ |
-| npm | 9+ |
-| PostgreSQL | 15 |
-| libpqxx-dev | system package |
-| libssl-dev | system package |
-| clang-format | any recent |
-
-On Ubuntu/Debian:
-```bash
-sudo apt install g++ cmake libpqxx-dev libssl-dev clang-format
-```
-
-### 1. Clone & install frontend dependencies
-
-```bash
-git clone git@github.com:devajya/anjeer.git
-cd anjeer
+git clone git@github.com:devajya/anjeer.git && cd anjeer
 npm install --prefix frontend
-```
-
-### 2. Create the database
-
-```bash
-createdb anjeer_dev
-```
-
-### 3. Configure
-
-```bash
 cp config/default.example.json config/default.json
-```
-
-Edit `config/default.json` and fill in:
-
-- `db.connection_string` — e.g. `"postgresql:///anjeer_dev"`
-- `auth.jwt_secret` — any long random string
-- `auth.github.client_id` / `client_secret` — from a [GitHub OAuth App](https://github.com/settings/developers)
-- `auth.google.client_id` / `client_secret` — from [Google Cloud Console](https://console.cloud.google.com/)
-
-For local dev, set OAuth redirect URIs to `http://localhost:10000/auth/callback`.
-
-### 4. Build & run
-
-```bash
+# fill in: db connection string, jwt secret, OAuth credentials
 make dev
 ```
 
-Builds the C++ server and frontend, then starts both concurrently. Open [http://localhost:5173](http://localhost:5173).
-
-### 5. (Optional) Install the CLI
-
-```bash
-pip install -e cli/          # dev install from repo
-cd /your/bot/directory
-anjeer setup                 # prompts for API key + language; saves anjeer.json here
-```
+Open [http://localhost:5173](http://localhost:5173). See the sub-READMEs above for deeper setup and configuration.
 
 ---
 
-## Configuration
-
-All tuneable values live in `config/default.json` — nothing is hardcoded. Local overrides go in `config/dev.json` (gitignored). Production uses `config/prod.json` with secrets injected via environment variables at runtime.
-
-| Section | Controls |
-|---|---|
-| `server` | Host, WS port (9001), HTTP port (10000), heartbeat/ping intervals, CORS origin |
-| `order_book` | Price range (1–99), initial nudge prices, active suits |
-| `game` | Player count, total cards (40), countdown, round duration (240s), inter-round (30s) |
-| `game.hard` | `deck_multiplier` (default 2) — scales card counts for hard-difficulty lobbies |
-| `scoring` | Starting balance (400), pot size (200), points per card (10) |
-| `db` | Connection string, pool size, migrations directory |
-| `auth` | JWT secret, token TTLs, secure_cookies flag, OAuth client credentials |
-| `lobby` | `min_players`, `max_players` |
-| `bots` | Scheduler threads, tick intervals, jitter, network delay sim, per-difficulty strategy thresholds |
-| `rate_limit` | Token bucket capacity, refill rate, suspension thresholds |
-
----
-
-## Makefile Reference
-
-```bash
-make build          # Compile C++ (engine + server) + build frontend
-make dev            # Build server, then run server + Vite in parallel (ports 9001 + 5173)
-make test           # All C++ unit/integration tests + frontend Vitest
-make test-unit      # C++ Catch2 tests only (via ctest)
-make test-frontend  # Vitest only
-make fmt            # clang-format all C++; prettier all TS/CSS
-make clean          # Wipe build/ and frontend/dist (keeps .deps/ and node_modules/)
-make clean-all      # Full reset including .deps/ and node_modules/
-```
-
----
-
-## Project Layout
+## Repo Layout
 
 ```
 anjeer/
-├── engine/
-│   ├── include/engine/    # Public headers
-│   ├── src/               # Implementation
-│   └── tests/             # Catch2 unit tests
-├── exchange/
-│   ├── include/exchange/  # OrderBook, ExchangeSession, Sequencer, market_data types
-│   ├── src/               # Implementation
-│   └── tests/             # Catch2 tests
-├── server/
-│   ├── include/server/    # Server headers
-│   ├── src/               # WsServer, HttpServer, GameSession, repos
-│   ├── eval/              # EvalRunner + analysis modules
-│   └── tests/             # Integration tests
-├── frontend/
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Route-level pages
-│   │   ├── hooks/         # useWebSocket, useKeyBinds, useEvalMetrics, ...
-│   │   └── types/         # messages.ts — wire protocol source of truth
-│   └── vite.config.ts
-├── cli/                   # Python CLI package
-├── db/
-│   └── migrations/        # Versioned SQL (applied automatically on server start)
-├── config/
-│   ├── default.example.json
-│   ├── default.json       # gitignored — copy from example
-│   └── prod.json          # committed; secrets are OVERRIDE_VIA_* sentinels
-├── nginx/
-│   └── anjeer.conf        # Reverse proxy, TLS, rate limiting
-├── scripts/
-│   ├── anjeer.service     # systemd unit
-│   ├── setup-ec2.sh       # One-time EC2 provisioning
-│   └── cloudwatch-agent.json
-├── docs/
-│   ├── ARCHITECTURE.md    # Module boundaries, threading model, wire protocol detail
-│   └── work-todos.md      # Deferred work, known issues, architectural notes
-├── .github/
-│   └── workflows/
-│       ├── ci.yml         # Build + test on every push/PR
-│       └── deploy.yml     # Deploy to EC2 on push to main
-├── Dockerfile             # Multi-stage build
-└── Makefile
+├── engine/        # Pure C++ game logic and bot strategies
+├── exchange/      # OrderBook, ExchangeSession, Sequencer
+├── server/        # WsServer, HttpServer, GameSession, auth, eval
+├── frontend/      # React + TypeScript + Vite
+├── cli/           # Python CLI package
+├── db/migrations/ # Versioned SQL (auto-applied on server start)
+├── config/        # default.example.json, prod.json
+├── nginx/         # Reverse proxy config
+├── scripts/       # systemd unit, EC2 setup, CloudWatch config
+└── .github/       # CI + CD workflows
 ```
+
+---
+
+## Known Limitations
+
+- **Lobby list is REST-only** — no live updates; the lobby browser requires a manual refresh to reflect new lobbies or status changes.
+- **Spectate feed is always MBP-1** — the spectator view shows simple best-bid/ask regardless of the lobby's game mode.
+- **Reconnect token unreliable in round 1** — tokens issued before the game-loop thread finishes initializing slot state may not work.
+- **No multi-node support** — `LocalEventBus` is in-process only; `RedisEventBus` exists as a stub for when horizontal scaling is needed.
+
+## Acknowledgements
+
+- **[Figgie](https://figgie.com)** by Jane Street — the original game this project is based on. See the [official rules](https://figgie.com/how-to-play), and I'm happy to take this down in case I'm accidentally violating terms of use.
+- **[Claude Code](https://claude.ai/code)** This project was also an attempt to build a somewhat complete project primarily driven by AI. I planned out I'd say about 75% of the project in vertical slices and features with definitions, user stories objectives and acceptance criteria. I then resolved ambiguities consistently at a project and concerns level till I felt enough context existed for a task by task breakdown. Then I would implement tasks one by one using claude, changing direction and fixing bad practices when I spotted them. I broadly directed architecture and design decisions, reviewed all output, and manually authored the parts that required the most care — threading logic, bot math, and visual design. Claude Code handled the bulk of implementation.
