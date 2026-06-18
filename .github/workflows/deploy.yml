@@ -66,16 +66,15 @@ jobs:
             cd /tmp
             tar -xzf anjeer-deploy.tar.gz
 
-            DB_CONN=$(grep ANJEER_DB_CONN /etc/anjeer/env | cut -d= -f2-)
-            for f in $(ls db/migrations/*.sql | sort); do
-              sudo psql -v ON_ERROR_STOP=1 "$DB_CONN" -f "$f" 2>/dev/null || true
-            done
-
             sudo systemctl stop anjeer
 
             sudo cp build/server/server /opt/anjeer/anjeer_server
             sudo cp config/prod.json /opt/anjeer/config/prod.json
-            sudo cp -r db/migrations /opt/anjeer/db/migrations
+
+            sudo mkdir -p /opt/anjeer/db/migrations
+            sudo rsync -a --delete db/migrations/ /opt/anjeer/db/migrations/
+
+            sudo rm -rf /opt/anjeer/dist
             sudo cp -r frontend/dist /opt/anjeer/dist
 
             sudo chown -R anjeer:anjeer /opt/anjeer

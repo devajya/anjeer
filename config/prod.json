@@ -38,7 +38,7 @@
   "db": {
     "connection_string": "OVERRIDE_VIA_ANJEER_DB_CONN",
     "pool_size": 4,
-    "migrations_dir": "db/migrations"
+    "migrations_dir": "/opt/anjeer/db/migrations"
   },
   "auth": {
     "jwt_secret": "OVERRIDE_VIA_ANJEER_JWT_SECRET",
