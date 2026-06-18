@@ -265,7 +265,7 @@ static ServerConfig make_test_server_config(int port) {
     cfg.game.total_cards            = 40;
     cfg.game.countdown_seconds      = 0;
     cfg.game.round_duration_seconds = 3600;
-    cfg.game.inter_round_seconds    = 5;
+    cfg.game.inter_round_seconds    = 3600;
     cfg.scoring.starting_balance    = 100;
     cfg.scoring.pot_size            = 40;
     cfg.scoring.points_per_card     = 20;

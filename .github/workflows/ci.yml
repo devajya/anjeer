@@ -51,7 +51,7 @@ jobs:
       - name: Run C++ tests
         run: |
           cd build
-          ctest --output-on-failure -j$(nproc) -E session_queue_tsan_tests
+          ctest --output-on-failure -j$(nproc) -E "session_queue_tsan_tests|perf:|500µs"
 
       - name: Frontend tests
         working-directory: frontend

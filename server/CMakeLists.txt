@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(DEFINED ENV{TEST_DB_CONN})
+    set(_test_db_conn $ENV{TEST_DB_CONN})
+else()
+    set(_test_db_conn "postgresql:///anjeer_test")
+endif()
+
 # ---------------------------------------------------------------------------
 # Server executable
 # ---------------------------------------------------------------------------
@@ -198,7 +204,7 @@ add_executable(test_health
 )
 target_include_directories(test_health PRIVATE include)
 target_compile_definitions(test_health PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 target_link_libraries(test_health PRIVATE
@@ -216,7 +222,7 @@ add_executable(test_startup_cleanup
 )
 target_include_directories(test_startup_cleanup PRIVATE include)
 target_compile_definitions(test_startup_cleanup PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 target_link_libraries(test_startup_cleanup PRIVATE
@@ -265,7 +271,7 @@ add_executable(ws_server_tests
 target_include_directories(ws_server_tests PRIVATE include)
 
 target_compile_definitions(ws_server_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -302,7 +308,7 @@ add_executable(auth_integration_tests
 target_include_directories(auth_integration_tests PRIVATE include)
 
 target_compile_definitions(auth_integration_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
@@ -346,7 +352,7 @@ add_executable(lobby_tests
 target_include_directories(lobby_tests PRIVATE include)
 
 target_compile_definitions(lobby_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -382,7 +388,7 @@ add_executable(http_lobby_tests
 target_include_directories(http_lobby_tests PRIVATE include)
 
 target_compile_definitions(http_lobby_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -413,7 +419,7 @@ add_executable(session_repo_tests
 target_include_directories(session_repo_tests PRIVATE include)
 
 target_compile_definitions(session_repo_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -439,7 +445,7 @@ add_executable(lobby_resilience_tests
 target_include_directories(lobby_resilience_tests PRIVATE include)
 
 target_compile_definitions(lobby_resilience_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -475,7 +481,7 @@ add_executable(game_session_tests
 target_include_directories(game_session_tests PRIVATE include)
 
 target_compile_definitions(game_session_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -531,7 +537,7 @@ add_executable(api_key_repo_tests
 target_include_directories(api_key_repo_tests PRIVATE include)
 
 target_compile_definitions(api_key_repo_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -679,7 +685,7 @@ add_executable(bot_headless_tests
 target_include_directories(bot_headless_tests PRIVATE include)
 
 target_compile_definitions(bot_headless_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -711,7 +717,7 @@ add_executable(reconnect_token_repo_tests
 target_include_directories(reconnect_token_repo_tests PRIVATE include)
 
 target_compile_definitions(reconnect_token_repo_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -732,7 +738,7 @@ add_executable(test_spectate_cleanup
 )
 target_include_directories(test_spectate_cleanup PRIVATE include)
 target_compile_definitions(test_spectate_cleanup PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 target_link_libraries(test_spectate_cleanup PRIVATE
@@ -770,7 +776,7 @@ add_executable(game_slots_repo_tests
 target_include_directories(game_slots_repo_tests PRIVATE include)
 
 target_compile_definitions(game_slots_repo_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -844,7 +850,7 @@ add_executable(reconnect_integration_tests
 target_include_directories(reconnect_integration_tests PRIVATE include)
 
 target_compile_definitions(reconnect_integration_tests PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 
@@ -892,7 +898,7 @@ add_executable(test_resource_db
 )
 target_include_directories(test_resource_db PRIVATE include)
 target_compile_definitions(test_resource_db PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 target_link_libraries(test_resource_db PRIVATE
@@ -909,7 +915,7 @@ add_executable(test_resource_lobby
 )
 target_include_directories(test_resource_lobby PRIVATE include)
 target_compile_definitions(test_resource_lobby PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 target_link_libraries(test_resource_lobby PRIVATE
@@ -944,7 +950,7 @@ add_executable(test_resource_reconnect
 )
 target_include_directories(test_resource_reconnect PRIVATE include)
 target_compile_definitions(test_resource_reconnect PRIVATE
-    TEST_DB_CONN="postgresql:///anjeer_test"
+    TEST_DB_CONN="${_test_db_conn}"
     TEST_MIGRATIONS_DIR="${CMAKE_SOURCE_DIR}/db/migrations"
 )
 target_link_libraries(test_resource_reconnect PRIVATE
