@@ -6,12 +6,35 @@ A real-time multiplayer card-trading game built from scratch — C++ matching en
 
 ---
 
+## Demo
+
+> Video walkthrough coming soon.
+
+Live: [https://anjeer.duckdns.org](https://anjeer.duckdns.org)
+
+---
+
+## What Was Built — By Area
+
+| Area | What's here |
+|---|---|
+| **Systems / C++** | Lock-free SPSC queue architecture, four independent threading axes, custom matching engine, exchange layer with dual-return event API, SIGTERM handling, watcher thread for crash detection |
+| **Algorithms / Math** | Multivariate hypergeometric Bayesian posterior, EV-anchored price discovery, EWMA accumulation signals, fill-probability estimation, posterior collapse detection |
+| **Backend** | OAuth 2.0 (GitHub + Google), JWT cookies, API key auth with SHA-256 hashing, spectator token handoff, versioned DB migrations, connection pool |
+| **Concurrency** | Four lock-free threading axes (uWS loop, GameSession, BotScheduler, EvalRunner) — all cross-thread data via `moodycamel::ReaderWriterQueue`, no shared mutable state |
+| **Frontend** | React + TypeScript + Vite, real-time WebSocket state, keyboard shortcuts, route-level code splitting, GSAP + Framer Motion landing page |
+| **DevTools / API** | Python CLI, scripted player interface, MBO/MBP-N market data feed tiers, MessagePack binary encoding |
+| **Infrastructure** | EC2 + RDS deployment, nginx reverse proxy, systemd service, GitHub Actions CI/CD, Docker multi-stage build, CloudWatch agent |
+| **Data** | PostgreSQL with forward-only versioned migrations, no ORM, raw pqxx, full session/round/error persistence |
+
+---
+
 ## Table of Contents
 
 | Section | Relevant to |
 |---|---|
 | [System Overview](#system-overview) | Everyone |
-| [Matching Engine](#matching-engine) | Systems, Backend, Algorithms |
+| [Matching Engine](#matching-engine--exchange-layer) | Systems, Backend, Algorithms |
 | [Server & Concurrency](#server--concurrency) | Systems, Backend |
 | [Bot AI & Probabilistic Reasoning](#bot-ai--probabilistic-reasoning) | Algorithms, ML, Math |
 | [Evaluation Framework](#evaluation-framework) | Algorithms, Data Engineering |
@@ -20,6 +43,7 @@ A real-time multiplayer card-trading game built from scratch — C++ matching en
 | [Wire Protocol](#wire-protocol) | Full-stack, Systems |
 | [Database & Persistence](#database--persistence) | Backend, Data |
 | [CLI & Scripted Players](#cli--scripted-players) | DevTools, Backend |
+| [Production Deployment](#production-deployment) | DevOps, Backend |
 | [Getting Started](#getting-started) | Everyone |
 | [Configuration](#configuration) | Everyone |
 | [Makefile Reference](#makefile-reference) | Everyone |
@@ -31,7 +55,7 @@ A real-time multiplayer card-trading game built from scratch — C++ matching en
 
 ```
 ┌──────────────────────────────────────┐
-│  Browser  (React + TypeScript)       │  port 5173 (dev)
+│  Browser  (React + TypeScript)       │  port 5173 (dev) / nginx (prod)
 └────────┬──────────────────┬──────────┘
          │  WebSocket :9001 │  HTTP :10000
 ┌────────▼──────┐   ┌───────▼──────────────────┐
@@ -356,12 +380,24 @@ anjeer preset list/save/delete           # Manage saved lobby presets
 
 The scripted-player interface is mature enough for real automated strategies. Scripts receive the full wire protocol — including MBP-N depth snapshots, MBO order lifecycle events, eval module outputs, and delta tables — giving enough data surface for time-series feature extraction and model-driven order placement.
 
-A skilled player can wire the environment variables (`ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, `ANJEER_LOBBY_CODE`, `ANJEER_GAME_MODE`) into a Python or TypeScript agent, subscribe to the WebSocket feed, maintain a local order book and hand state, and issue `submit_order` / `cancel_order` actions via the same protocol the browser uses. Helper templates covering connection setup, book reconstruction, and hand tracking are planned.
+A skilled player can wire the environment variables (`ANJEER_API_KEY`, `ANJEER_SERVER_WS_URL`, `ANJEER_LOBBY_CODE`, `ANJEER_GAME_MODE`) into a Python or TypeScript agent, subscribe to the WebSocket feed, maintain a local order book and hand state, and issue `submit_order` / `cancel_order` actions via the same protocol the browser uses.
 
 Possible pipeline patterns:
 - **Time-series model** — buffer `book_depth` snapshots + trade events into a feature matrix; predict goal-suit probability and act on confidence crossings
 - **Bayesian agent** — replicate or extend the hard bot's hypergeometric posterior in Python with full access to your own hand and observed market signals
 - **Reinforcement learning** — treat each round as an episode; reward function based on end-of-round balance delta; action space is submit/cancel/hold per suit
+
+---
+
+## Production Deployment
+
+**Infrastructure:** EC2 `t3.micro` + RDS PostgreSQL 15 `db.t3.micro` on AWS. nginx terminates TLS and proxies WebSocket traffic to port 9001 and REST to port 10000. The server binary runs as a systemd service (`Restart=always`) with secrets injected via `EnvironmentFile`.
+
+**CI/CD:** GitHub Actions — CI runs on every push and pull request (build + ctest + Vitest + gitleaks secret scan). CD triggers on push to `main`: builds the binary and frontend, SCPs a tarball to EC2, runs migrations, swaps the binary, restarts the service, and smoke-tests `GET /health`.
+
+**Health check:** `GET /health` on port 10000 executes `SELECT 1` against the DB pool and returns `{"status":"ok"}` or `{"status":"error","detail":"db unreachable"}`. Used by the deploy workflow and can be used by an external uptime monitor.
+
+See `scripts/` for the EC2 setup script, systemd unit file, and CloudWatch agent config. See `nginx/anjeer.conf` for the reverse proxy and rate-limit configuration.
 
 ---
 
@@ -434,7 +470,7 @@ anjeer setup                 # prompts for API key + language; saves anjeer.json
 
 ## Configuration
 
-All tuneable values live in `config/default.json` — nothing is hardcoded. Local overrides go in `config/dev.json` (gitignored).
+All tuneable values live in `config/default.json` — nothing is hardcoded. Local overrides go in `config/dev.json` (gitignored). Production uses `config/prod.json` with secrets injected via environment variables at runtime.
 
 | Section | Controls |
 |---|---|
@@ -471,17 +507,17 @@ make clean-all      # Full reset including .deps/ and node_modules/
 ```
 anjeer/
 ├── engine/
-│   ├── include/engine/    # Public headers (engine.h is the only façade)
+│   ├── include/engine/    # Public headers
 │   ├── src/               # Implementation
 │   └── tests/             # Catch2 unit tests
 ├── exchange/
 │   ├── include/exchange/  # OrderBook, ExchangeSession, Sequencer, market_data types
 │   ├── src/               # Implementation
-│   └── tests/             # Catch2 tests (order book, sequencer, session)
+│   └── tests/             # Catch2 tests
 ├── server/
 │   ├── include/server/    # Server headers
 │   ├── src/               # WsServer, HttpServer, GameSession, repos
-│   ├── eval/              # EvalRunner + analysis modules (Slice 11)
+│   ├── eval/              # EvalRunner + analysis modules
 │   └── tests/             # Integration tests
 ├── frontend/
 │   ├── src/
@@ -495,6 +531,21 @@ anjeer/
 │   └── migrations/        # Versioned SQL (applied automatically on server start)
 ├── config/
 │   ├── default.example.json
-│   └── default.json       # gitignored — copy from example
+│   ├── default.json       # gitignored — copy from example
+│   └── prod.json          # committed; secrets are OVERRIDE_VIA_* sentinels
+├── nginx/
+│   └── anjeer.conf        # Reverse proxy, TLS, rate limiting
+├── scripts/
+│   ├── anjeer.service     # systemd unit
+│   ├── setup-ec2.sh       # One-time EC2 provisioning
+│   └── cloudwatch-agent.json
+├── docs/
+│   ├── ARCHITECTURE.md    # Module boundaries, threading model, wire protocol detail
+│   └── work-todos.md      # Deferred work, known issues, architectural notes
+├── .github/
+│   └── workflows/
+│       ├── ci.yml         # Build + test on every push/PR
+│       └── deploy.yml     # Deploy to EC2 on push to main
+├── Dockerfile             # Multi-stage build
 └── Makefile
 ```
