@@ -21,6 +21,11 @@ BotManager::BotManager(BotScheduler& scheduler, const ServerConfig::BotsConfig& 
     , rng_(std::random_device{}())
 {}
 
+BotManager::~BotManager() {
+    while (!sessions_.empty())
+        teardown_session(sessions_.begin()->first);
+}
+
 // ── Lobby phase ───────────────────────────────────────────────────────────────
 
 BotAddResult BotManager::add_bot(
