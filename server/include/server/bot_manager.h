@@ -52,6 +52,7 @@ public:
         const ServerConfig::BotsConfig&            bots_cfg,
         const ServerConfig::GameConfig::HardModeConfig& hard_game_cfg = {}
     );
+    ~BotManager();
 
     // ── Lobby phase (uWS thread) ──────────────────────────────────────────
 

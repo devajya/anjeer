@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <regex>
+#include <thread>
 #include <unordered_map>
 
 #include "server/bot_manager.h"
@@ -88,21 +90,26 @@ TEST_CASE("BotManager bot_uuid_for_slot returns UUID4 after attach", "[bots][man
 }
 
 // T7 — get_displaceable_bot_slot with two Easy bots returns the one with lower cash.
+// Scopes mgr inside sched so the destructor runs while the scheduler thread is still
+// live — exercises the deregister-before-free path in BotManager::~BotManager().
 TEST_CASE("BotManager get_displaceable_bot_slot picks lower-cash Easy bot", "[bots][manager][T7]") {
     BotScheduler sched(1);
-    BotManager   mgr(sched, make_bots_cfg());
+    {
+        BotManager mgr(sched, make_bots_cfg());
 
-    auto r1 = mgr.add_bot("lobby-t7b", BotDifficulty::Easy, 4);
-    auto r2 = mgr.add_bot("lobby-t7b", BotDifficulty::Easy, 3);
-    REQUIRE(r1.ok); REQUIRE(r2.ok);
-    const std::string u1 = r1.bot_uuid, u2 = r2.bot_uuid;
+        auto r1 = mgr.add_bot("lobby-t7b", BotDifficulty::Easy, 4);
+        auto r2 = mgr.add_bot("lobby-t7b", BotDifficulty::Easy, 3);
+        REQUIRE(r1.ok); REQUIRE(r2.ok);
+        const std::string u1 = r1.bot_uuid, u2 = r2.bot_uuid;
 
-    mgr.attach_to_session("lobby-t7b", std::unordered_map<std::string,int>{{u1, 0}, {u2, 1}},
-                          10, 100, 60);
+        mgr.attach_to_session("lobby-t7b", std::unordered_map<std::string,int>{{u1, 0}, {u2, 1}},
+                              10, 100, 60);
 
-    // Slot 1 has less cash → it is more displaceable.
-    const std::unordered_map<int,int> balances{{0, 200}, {1, 50}};
-    REQUIRE(mgr.get_displaceable_bot_slot("lobby-t7b", balances) == 1);
+        // Slot 1 has less cash → it is more displaceable.
+        const std::unordered_map<int,int> balances{{0, 200}, {1, 50}};
+        REQUIRE(mgr.get_displaceable_bot_slot("lobby-t7b", balances) == 1);
+    } // mgr destroyed here with sched still running — must not crash
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 // Extra — multiple bots can be added up to open_slots.
