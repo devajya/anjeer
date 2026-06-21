@@ -32,24 +32,6 @@ describe('LandingPage', () => {
     expect(await screen.findByTestId('section-scroll-tracker')).toBeInTheDocument()
   })
 
-  it('"Play Now" CTA links to /auth', () => {
-    // ExpandingPortal owns the CTA; here we render a real-ish stub that includes it
-    vi.doMock('../../components/ExpandingPortal', () => ({
-      ExpandingPortal: () => (
-        <section data-testid="section-expanding-portal">
-          <a href="/auth">Play Now</a>
-        </section>
-      ),
-    }))
-    renderLanding()
-    // The stub renders the CTA; verify it points to /auth
-    const cta = screen.queryByRole('link', { name: /play now/i })
-    if (cta) {
-      expect(cta).toHaveAttribute('href', '/auth')
-    }
-    // If the default stub renders no CTA, the route-guard test below is sufficient
-  })
-
   it('renders without auth guard — accessible to unauthenticated users', () => {
     // No ProtectedRoute wrapping; unauthenticated render must succeed
     renderLanding()

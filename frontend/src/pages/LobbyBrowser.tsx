@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { listLobbies } from '../api/lobbyApi'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { QueuePopup } from '../components/QueuePopup'
+import { Footer } from '../components/Footer'
 import type { LobbyView } from '../types/lobby'
 import './LobbyBrowser.css'
 
@@ -331,6 +332,8 @@ export function LobbyBrowser() {
 
         </div>
       </div>
+
+      <Footer />
 
       {/* ── Queue popup overlay ─────────────────────────────────────────── */}
       {queueState.status === 'queued' && (

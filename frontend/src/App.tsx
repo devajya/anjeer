@@ -18,6 +18,7 @@ const ApiKeySettings   = lazy(() => import('./pages/ApiKeySettings').then(m => (
 const SpectatorView    = lazy(() => import('./pages/SpectatorView').then(m => ({ default: m.SpectatorView })))
 const DocsPage         = lazy(() => import('./pages/DocsPage').then(m => ({ default: m.DocsPage })))
 const LearnPage        = lazy(() => import('./pages/LearnPage').then(m => ({ default: m.LearnPage })))
+const RulesPage        = lazy(() => import('./pages/RulesPage').then(m => ({ default: m.RulesPage })))
 
 // AGENT-CTX: Prevents direct access to /game without a lobby_id query param.
 function GameRouteGuard({ children }: { children: ReactNode }) {
@@ -40,7 +41,7 @@ function PageTransition({ children }: { children: ReactNode }) {
   )
 }
 
-const NAV_PREFIXES = ['/lobby', '/docs', '/api-keys', '/settings', '/learn']
+const NAV_PREFIXES = ['/lobby', '/rules', '/docs', '/api-keys', '/settings', '/learn']
 
 // AGENT-CTX: AppNav sits outside AnimatePresence so it stays mounted and
 // doesn't flash during route transitions. Suspense wraps AnimatePresence so
@@ -118,6 +119,10 @@ function AnimatedRoutes() {
                     <PageTransition><SpectatorView /></PageTransition>
                   </ProtectedRoute>
                 }
+              />
+              <Route
+                path="/rules"
+                element={<PageTransition><RulesPage /></PageTransition>}
               />
               <Route
                 path="/docs"
