@@ -40,6 +40,7 @@ frontend/dist/
 frontend/.vite/
 cli/dist/
 cli/build/
+cli/**/*.egg-info/
 cli/*.egg-info/
 .parcel-cache/
 
