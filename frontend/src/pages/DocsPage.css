@@ -270,3 +270,36 @@
 .docs__table tr:nth-child(even) td {
   background: rgba(255,255,255,0.02);
 }
+
+/* ── Doc tabs ────────────────────────────────────────────────────────────── */
+
+.docs__tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 2rem;
+}
+
+.docs__tab {
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  margin-bottom: -1px;
+}
+
+.docs__tab:hover:not(.docs__tab--active) {
+  color: var(--color-text);
+}
+
+.docs__tab--active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+  font-weight: var(--font-weight-semi);
+}

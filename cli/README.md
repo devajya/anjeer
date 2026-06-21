@@ -5,9 +5,7 @@ A Python CLI for managing lobbies and launching scripted players in API-mode gam
 ## Installation
 
 ```bash
-pip install -e cli/          # RECOMMENDED: dev install from repo root
-# or
-uv tool install anjeer       # production install
+uv tool install anjeer
 ```
 
 Run `anjeer setup` from your bot's project directory. It prompts for your API key and preferred language, saves config to `anjeer.json` in the current directory, and copies a starter script template.

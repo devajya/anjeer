@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { ExpandingPortal } from '../components/ExpandingPortal'
+import { Footer } from '../components/Footer'
 
 // Below-fold sections loaded on demand — none are visible on initial render.
 // ExpandingPortal stays static: it is the above-fold hero section.
@@ -24,6 +25,7 @@ export function LandingPage() {
         <ScrollTrackerSection reducedMotion={prefersReducedMotion} />
         <MathDive reducedMotion={prefersReducedMotion} />
       </Suspense>
+      <Footer />
     </main>
   )
 }

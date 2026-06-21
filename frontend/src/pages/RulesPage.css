@@ -1,0 +1,366 @@
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+
+.rules {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+.rules__header {
+  margin-bottom: 2rem;
+}
+
+.rules__title {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+}
+
+/* ── Attribution notice ──────────────────────────────────────────────────── */
+
+.rules__attribution {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  margin-bottom: 2rem;
+}
+
+.rules__attribution-icon {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.rules__attribution p {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.rules__attribution a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.rules__attribution a:hover {
+  text-decoration: underline;
+}
+
+/* ── Tab strip ───────────────────────────────────────────────────────────── */
+
+.rules__tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 2rem;
+}
+
+.rules__tab {
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  margin-bottom: -1px;
+}
+
+.rules__tab:hover:not(.rules__tab--active) {
+  color: var(--color-text);
+}
+
+.rules__tab--active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+  font-weight: var(--font-weight-semi);
+}
+
+/* ── Body content ────────────────────────────────────────────────────────── */
+
+.rules__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.rules__body h2 {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text);
+  margin-bottom: 0.6rem;
+  letter-spacing: 0.01em;
+}
+
+.rules__body h3 {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-text);
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.rules__body p {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+.rules__body p + p {
+  margin-top: 0.6rem;
+}
+
+.rules__body em {
+  color: var(--color-text);
+  font-style: normal;
+  font-weight: var(--font-weight-medium);
+}
+
+.rules__body strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semi);
+}
+
+/* ── Section blocks ──────────────────────────────────────────────────────── */
+
+.rules__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ── Suit chip row ───────────────────────────────────────────────────────── */
+
+.rules__suits {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.rules__suit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  letter-spacing: 0.04em;
+}
+
+.rules__suit--black { color: var(--color-text); }
+.rules__suit--red   { color: #c84b4b; }
+
+/* ── Deck table ──────────────────────────────────────────────────────────── */
+
+.rules__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  margin-top: 0.5rem;
+}
+
+.rules__table th,
+.rules__table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+.rules__table th {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semi);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.rules__table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Scoring callout ─────────────────────────────────────────────────────── */
+
+.rules__callout {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.rules__callout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+}
+
+.rules__callout-row em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semi);
+}
+
+/* ── Walkthrough scenario box ────────────────────────────────────────────── */
+
+.rules__scenario {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rules__scenario-label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semi);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rules__scenario p {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.rules__hand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.rules__hand {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
+}
+
+.rules__hand-name {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-text);
+  margin-bottom: 0.3rem;
+  letter-spacing: 0.02em;
+}
+
+.rules__hand-cards {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+  letter-spacing: 0.03em;
+}
+
+/* ── Mode cards ──────────────────────────────────────────────────────────── */
+
+.rules__mode-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rules__mode-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.rules__mode-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.rules__mode-name {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semi);
+  color: var(--color-text);
+}
+
+.rules__mode-badge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semi);
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.04em;
+}
+
+.rules__mode-badge--beginner {
+  background: rgba(100, 180, 100, 0.12);
+  color: #6aab6a;
+  border: 1px solid rgba(100, 180, 100, 0.3);
+}
+
+.rules__mode-badge--intermediate {
+  background: rgba(100, 149, 237, 0.12);
+  color: #8ba7d4;
+  border: 1px solid rgba(100, 149, 237, 0.35);
+}
+
+.rules__mode-badge--advanced {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.rules__mode-desc {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
+.rules__mode-detail {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+  opacity: 0.8;
+  line-height: 1.5;
+}

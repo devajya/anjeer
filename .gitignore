@@ -38,6 +38,10 @@ _deps/
 node_modules/
 frontend/dist/
 frontend/.vite/
+cli/dist/
+cli/build/
+cli/**/*.egg-info/
+cli/*.egg-info/
 .parcel-cache/
 
 # ── Python ──────────────────────────────────────────────────────────────────

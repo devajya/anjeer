@@ -28,6 +28,14 @@ export function AppNav() {
           Lobby
         </NavLink>
         <NavLink
+          to="/rules"
+          className={({ isActive }) =>
+            `app-nav__link${isActive ? ' app-nav__link--active' : ''}`
+          }
+        >
+          Rules
+        </NavLink>
+        <NavLink
           to="/docs"
           className={({ isActive }) =>
             `app-nav__link${isActive ? ' app-nav__link--active' : ''}`
@@ -57,7 +65,7 @@ export function AppNav() {
             `app-nav__link${isActive ? ' app-nav__link--active' : ''}`
           }
         >
-          Learn
+          Math
         </NavLink>
       </div>
 

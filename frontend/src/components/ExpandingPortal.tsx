@@ -312,9 +312,6 @@ export function ExpandingPortal({
                   <span className="ep-eyebrow">{HERO_CONTENT.eyebrow}</span>
                   <h1 className="ep-headline">{HERO_CONTENT.headline}</h1>
                   <p className="ep-body">{HERO_CONTENT.body}</p>
-                  <a className="ep-cta" href="/auth">
-                    Play Now →
-                  </a>
                 </div>
               </>
             )}
