@@ -58,22 +58,24 @@ def main() -> None:
     """anjeer — Anjeer game CLI for terminal players."""
 
 
-def _install_python_deps() -> None:
+def _check_python_deps() -> None:
+    # websockets is a declared dependency, so it is present in any correctly
+    # installed environment. Do NOT try to pip-install it on a miss: the
+    # documented install path (`uv tool install anjeer`) produces an isolated
+    # environment with no pip module, so `python -m pip` fails there and the
+    # bot template — which imports websockets — could never run anyway.
     click.echo("Checking Python dependencies...")
     try:
         import websockets  # noqa: F401
-        click.echo("  websockets: already installed")
     except ImportError:
-        click.echo("  Installing websockets...", nl=False)
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "websockets"],
-            capture_output=True, text=True,
+        click.echo(
+            "  websockets: MISSING\n"
+            "  Your install looks incomplete. Repair it with:\n"
+            "    uv tool install --force anjeer",
+            err=True,
         )
-        if result.returncode == 0:
-            click.echo(" done")
-        else:
-            click.echo(f" FAILED\n{result.stderr}", err=True)
-            sys.exit(1)
+        sys.exit(1)
+    click.echo("  websockets: ok")
 
 
 _CPP_INSTALL_HINT = (
@@ -197,7 +199,7 @@ def setup(language: Optional[str], api_key: Optional[str],
     language = language.lower()
 
     if language == "python":
-        _install_python_deps()
+        _check_python_deps()
     else:
         _check_cpp_deps()
 
@@ -406,8 +408,15 @@ def start(code: str) -> None:
             click.echo("Error: lobby disappeared.", err=True)
             sys.exit(1)
         count = current.get("player_count", 0)
-        click.echo(f"\r[{count}/{max_players}] Waiting for players…", nl=False)
-        if count >= min_players:
+        # Bots count toward the start requirement — the server's own gate is
+        # `player_count + bot_count >= min_players`. Counting only humans here
+        # made this loop stricter than the server and left a solo API lobby
+        # waiting forever even with every remaining seat filled by bots.
+        bots = current.get("bot_count", 0)
+        filled = count + bots
+        label = f"{count}+{bots} bots" if bots else f"{count}"
+        click.echo(f"\r[{label}/{max_players}] Waiting for players…", nl=False)
+        if filled >= min_players:
             click.echo()
             break
         time.sleep(2)

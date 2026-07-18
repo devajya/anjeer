@@ -84,6 +84,7 @@ nlohmann::json lobby_view_json(const LobbyView& lv)
     j["min_players"]           = lv.lobby.min_players;
     j["max_players"]           = lv.lobby.max_players;
     j["player_count"]          = lv.player_count;
+    j["bot_count"]             = lv.lobby.bot_count;
     j["created_at"]            = lv.lobby.created_at;
     j["spawn_bots_on_leave"]   = lv.lobby.spawn_bots_on_leave;
     j["bot_spawn_difficulty"]  = lv.lobby.bot_spawn_difficulty;
