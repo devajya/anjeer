@@ -12,8 +12,10 @@
 </p>
 
 <p align="center">
-  <strong>Live:</strong> <a href="https://anjeer.duckdns.org">anjeer.duckdns.org</a> &nbsp;·&nbsp; <strong>Demo:</strong> coming soon
+  <strong>Live:</strong> <a href="https://anjeer.duckdns.org">anjeer.duckdns.org</a> &nbsp;·&nbsp; <strong>Demo:</strong> the walkthrough below
 </p>
+
+https://github.com/user-attachments/assets/edce5fb8-db75-4260-abab-41ef00ae4576
 
 ---
 

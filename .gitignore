@@ -92,3 +92,7 @@ lcov.info
 
 
 CLAUDE.md
+
+# ── Demo video pipeline (local tooling, not part of the build) ─────────────
+demo/
+frontend/src/demo/
