@@ -44,6 +44,7 @@ const INITIAL_STATE: WsState = {
   gameMode:   null,
   bookDepths: {},
   mboLogs:    {},
+  liveOrders: {},
 }
 
 // Spectator-only hook. Connects to /ws, sends spectate_lobby on open, and
