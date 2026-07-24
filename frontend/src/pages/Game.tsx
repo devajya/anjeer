@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useAuth } from '../hooks/useAuth'
@@ -26,6 +26,8 @@ import { MboFeedPanel, useMboDepth } from '../components/MboFeedPanel'
 import { slotColorSemi } from '../utils/playerColors'
 import { SUIT_ORDER } from '../utils/suits'
 import '../App.css'
+
+const EMPTY_ORDERS: never[] = []
 
 export function Game() {
   const { user } = useAuth()
@@ -119,8 +121,11 @@ export function Game() {
 
   const isOwner = playerId !== null && currentOwnerPlayerId !== null && playerId === currentOwnerPlayerId
 
-  function handleStartNextRound() { sendMessage({ type: 'start_next_round' }) }
-  function handleEndGame()        { sendMessage({ type: 'end_game' }) }
+  const handleStartNextRound = useCallback(() => { sendMessage({ type: 'start_next_round' }) }, [sendMessage])
+  const handleEndGame        = useCallback(() => { sendMessage({ type: 'end_game' }) }, [sendMessage])
+  const handleCancel         = useCallback((orderId: number) => {
+    sendMessage({ type: 'cancel_order', order_id: orderId })
+  }, [sendMessage])
 
   useEffect(() => {
     if (!connected || playerSlot !== null || reconnectStatus !== 'reconnecting') return
@@ -188,6 +193,12 @@ export function Game() {
     if (order) sendMessage({ type: 'cancel_order', order_id: order.order_id })
   }, [selectedSuit, myOrders, sendMessage])
 
+  const myOrdersBySuit = useMemo(() => {
+    const grouped: Record<string, typeof myOrders> = {}
+    for (const o of myOrders) (grouped[o.suit] ??= []).push(o)
+    return grouped
+  }, [myOrders])
+
   useKeyboardShortcuts({
     binds,
     enabled: !showRoundEnd && !showInterRound,
@@ -217,10 +228,6 @@ export function Game() {
   const lastTradePrices: Record<string, number> = {}
   for (const t of trades) {
     if (!(t.suit in lastTradePrices)) lastTradePrices[t.suit] = t.price
-  }
-
-  function handleCancel(orderId: number) {
-    sendMessage({ type: 'cancel_order', order_id: orderId })
   }
 
   const displayBalance = balance ?? null
@@ -371,7 +378,7 @@ export function Game() {
                         suitCardCount={hand ? hand[suit as keyof typeof hand] : null}
                         isOwnBestBid={ownsBestBidBySuit[suit] ?? false}
                         isOwnBestAsk={ownsBestAskBySuit[suit] ?? false}
-                        myOrdersForSuit={myOrders.filter(o => o.suit === suit)}
+                        myOrdersForSuit={myOrdersBySuit[suit] ?? EMPTY_ORDERS}
                         balance={displayBalance}
                         bidPlayerColor={
                           books[suit]?.best_bid_slot != null

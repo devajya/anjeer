@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { decode } from '@msgpack/msgpack'
 import type {
   ServerMessage,
@@ -815,15 +815,18 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
   // Derived per-suit self-trade guards. When the server adds best_bid_player /
   // best_ask_player fields (Slice 8), replace this derivation in one place here.
-  const ownsBestBidBySuit: Record<string, boolean> = {}
-  const ownsBestAskBySuit: Record<string, boolean> = {}
-  for (const [suit, book] of Object.entries(state.books)) {
-    const orders = state.myOrders.filter(o => o.suit === suit)
-    ownsBestBidBySuit[suit] = book.best_bid !== null &&
-      orders.some(o => o.side === 'buy'  && o.price === book.best_bid)
-    ownsBestAskBySuit[suit] = book.best_ask !== null &&
-      orders.some(o => o.side === 'sell' && o.price === book.best_ask)
-  }
+  const { ownsBestBidBySuit, ownsBestAskBySuit } = useMemo(() => {
+    const bid: Record<string, boolean> = {}
+    const ask: Record<string, boolean> = {}
+    for (const [suit, book] of Object.entries(state.books)) {
+      const orders = state.myOrders.filter(o => o.suit === suit)
+      bid[suit] = book.best_bid !== null &&
+        orders.some(o => o.side === 'buy'  && o.price === book.best_bid)
+      ask[suit] = book.best_ask !== null &&
+        orders.some(o => o.side === 'sell' && o.price === book.best_ask)
+    }
+    return { ownsBestBidBySuit: bid, ownsBestAskBySuit: ask }
+  }, [state.books, state.myOrders])
 
   return { ...state, sendMessage, ownsBestBidBySuit, ownsBestAskBySuit, subscribeLobby, unsubscribeLobby, joinQueue, leaveQueue, resetQueue }
 }
