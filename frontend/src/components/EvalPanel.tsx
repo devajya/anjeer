@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import type { EvalPosteriorUpdateMessage, EvalAccumulationSignalMessage, EvalExecutionGuidanceMessage } from '../types/messages'
 import { PosteriorDisplay } from './PosteriorDisplay'
 import { SettlementEV } from './SettlementEV'
@@ -14,7 +14,7 @@ interface EvalPanelProps {
   executionGuidance?: EvalExecutionGuidanceMessage | null
 }
 
-export function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, accumulationSignal = null, executionGuidance = null }: EvalPanelProps) {
+export const EvalPanel = memo(function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, accumulationSignal = null, executionGuidance = null }: EvalPanelProps) {
   const [expanded, setExpanded] = useState(true)
 
   function toggle() {
@@ -54,4 +54,4 @@ export function EvalPanel({ children, onExpandedChange, posteriorUpdate = null, 
       )}
     </div>
   )
-}
+})
