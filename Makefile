@@ -11,7 +11,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
 
 .PHONY: build build-engine build-server build-frontend \
         dev dev-server dev-frontend \
-        test test-unit test-one test-frontend \
+        test test-unit test-one test-frontend lint-frontend preflight \
         clean clean-all fmt install-hooks install-deps \
         db-migrate db-seed reset-lobby-db
 
@@ -165,7 +165,15 @@ test-frontend:
 	# AGENT-CTX: Call vitest directly to skip ~300ms npm process-wrapper overhead.
 	cd frontend && npx vitest run
 
+# Frontend ESLint gate (Rules of React / React Compiler safety). Fails only on
+# errors; pre-existing set-state-in-effect / exhaustive-deps issues are warnings.
+lint-frontend:
+	cd frontend && npx eslint .
+
 test: test-unit test-frontend
+
+# Pre-push gate: lint + full test suite. Run this before pushing a branch.
+preflight: lint-frontend test
 
 # ---------------------------------------------------------------------------
 # Utility
