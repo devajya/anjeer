@@ -49,7 +49,14 @@ export function QueuePopup({ position, queueSize, playersAround, onLeave, onSpec
     // FLIP: for entries that existed before, animate from their old position
     entryRefs.current.forEach((el, username) => {
       const prev = prevRects.current.get(username)
-      if (prev === undefined) return  // new entry — CSS handles enter animation
+      if (prev === undefined) {
+        // New entry — flag it here (before paint) so CSS plays the enter
+        // animation. Done in the effect, not during render, so we never read
+        // prevRects while rendering.
+        el.dataset.new = 'true'
+        return
+      }
+      el.removeAttribute('data-new')
       const curr = newRects.get(username)
       if (curr === undefined) return
       const deltaY = prev - curr
@@ -110,9 +117,7 @@ export function QueuePopup({ position, queueSize, playersAround, onLeave, onSpec
             </div>
           )}
 
-          {playersAround.map(entry => {
-            const isNew = !prevRects.current.has(entry.username)
-            return (
+          {playersAround.map(entry => (
               <div
                 key={entry.position}
                 ref={el => {
@@ -125,7 +130,6 @@ export function QueuePopup({ position, queueSize, playersAround, onLeave, onSpec
                   entry.is_self && advancing ? 'qp__entry--advancing' : '',
                 ].filter(Boolean).join(' ')}
                 aria-current={entry.is_self ? 'true' : undefined}
-                data-new={isNew ? 'true' : undefined}
               >
                 <span className="qp__entry-pos">#{entry.position}</span>
                 <span className="qp__entry-name">
@@ -135,8 +139,7 @@ export function QueuePopup({ position, queueSize, playersAround, onLeave, onSpec
                   <span className="qp__entry-badge" aria-hidden="true">↑</span>
                 )}
               </div>
-            )
-          })}
+          ))}
 
           {behindCount > 0 && (
             <div
