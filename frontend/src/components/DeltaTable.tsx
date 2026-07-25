@@ -1,4 +1,3 @@
-import { memo } from 'react'
 import './DeltaTable.css'
 
 // AGENT-CTX: suit_index order mirrors engine::kAllSuits (0=clubs 1=diamonds
@@ -33,7 +32,7 @@ function DeltaCell({ value }: { value: number }) {
   )
 }
 
-export const DeltaTable = memo(function DeltaTable({ deltas, roster, mySlot }: DeltaTableProps) {
+export function DeltaTable({ deltas, roster, mySlot }: DeltaTableProps) {
   if (roster.length === 0) return null
 
   // AGENT-CTX: Roster is pre-sorted by player_slot from the server. We keep
@@ -93,4 +92,4 @@ export const DeltaTable = memo(function DeltaTable({ deltas, roster, mySlot }: D
       </table>
     </div>
   )
-})
+}

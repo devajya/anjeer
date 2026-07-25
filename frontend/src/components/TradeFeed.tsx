@@ -1,4 +1,3 @@
-import { memo } from 'react'
 import type { TradeEntry } from '../hooks/useWebSocket'
 import { SUIT_SYMBOLS as SUIT_SYMBOL, suitClass } from '../utils/suits'
 import './TradeFeed.css'
@@ -20,7 +19,7 @@ function slotName(slot: number, roster: RosterEntry[]): string {
   return roster.find(r => r.player_slot === slot)?.username ?? `Slot ${slot}`
 }
 
-export const TradeFeed = memo(function TradeFeed({ trades, roster }: Props) {
+export function TradeFeed({ trades, roster }: Props) {
   return (
     <div className="trade-feed">
       {trades.length === 0 ? (
@@ -66,4 +65,4 @@ export const TradeFeed = memo(function TradeFeed({ trades, roster }: Props) {
       )}
     </div>
   )
-})
+}

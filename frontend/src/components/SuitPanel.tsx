@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState, useEffect, memo } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, useEffect } from 'react'
 import type { BookState, MyOrder } from '../hooks/useWebSocket'
 import type { ErrorMessage, ClientCommand } from '../types/messages'
 import { useOrderForm } from '../hooks/useOrderForm'
@@ -65,7 +65,7 @@ function useTimedValue<T>(value: T | null, delayMs: number): T | null {
   return visible
 }
 
-export const SuitPanel = memo(forwardRef<SuitPanelHandle, Props>(function SuitPanel({
+export const SuitPanel = forwardRef<SuitPanelHandle, Props>(function SuitPanel({
   suit,
   book,
   playerId,
@@ -389,4 +389,4 @@ export const SuitPanel = memo(forwardRef<SuitPanelHandle, Props>(function SuitPa
       )}
     </div>
   )
-}))
+})
