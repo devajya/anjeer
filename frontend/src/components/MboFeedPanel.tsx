@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { MboLogEntry, MyOrder } from '../hooks/useWebSocket'
+import type { MboLogEntry, MyOrder, LiveOrder } from '../hooks/useWebSocket'
 import { SUIT_SYMBOLS, SUIT_ORDER, suitClass } from '../utils/suits'
 import { slotColor } from '../utils/playerColors'
 import './MboFeedPanel.css'
@@ -8,6 +8,7 @@ interface RosterEntry { player_slot: number; username: string }
 
 interface Props {
   mboLogs:     Record<string, MboLogEntry[]>
+  liveOrders:  Record<string, Record<number, LiveOrder>>
   myOrders:    MyOrder[]
   onCancel:    (orderId: number) => void
   roster?:     RosterEntry[]
@@ -21,39 +22,24 @@ interface SyntheticSuit {
 }
 
 function useSyntheticBook(
-  mboLogs:  Record<string, MboLogEntry[]>,
-  myOrders: MyOrder[],
+  liveOrders: Record<string, Record<number, LiveOrder>>,
 ): Record<string, SyntheticSuit> {
-  const myIds = useMemo(() => new Set(myOrders.map(o => `${o.suit}:${o.order_id}`)), [myOrders])
   return useMemo(() => {
     const out: Record<string, SyntheticSuit> = {}
     for (const suit of SUIT_ORDER) {
-      const entries = mboLogs[suit] ?? []
-      const active  = new Map<number, { side: 'buy' | 'sell'; price: number }>()
-      const removed = new Set<number>()
-      for (const e of entries.slice().reverse()) {
-        if (removed.has(e.order_id)) continue
-        if (e.kind === 'added' && e.side && e.price !== null) {
-          active.set(e.order_id, { side: e.side, price: e.price })
-        } else if (e.kind === 'executed' || e.kind === 'cancelled') {
-          removed.add(e.order_id)
-          active.delete(e.order_id)
-        }
-      }
       const bidMap = new Map<number, number>()
       const askMap = new Map<number, number>()
-      for (const [, { side, price }] of active) {
+      for (const { side, price } of Object.values(liveOrders[suit] ?? {})) {
         const m = side === 'buy' ? bidMap : askMap
         m.set(price, (m.get(price) ?? 0) + 1)
       }
-      void myIds
       out[suit] = {
         bids: [...bidMap].map(([price, count]) => ({ price, count })).sort((a, b) => b.price - a.price),
         asks: [...askMap].map(([price, count]) => ({ price, count })).sort((a, b) => a.price - b.price),
       }
     }
     return out
-  }, [mboLogs, myIds])
+  }, [liveOrders])
 }
 
 // ── Price ladder ──────────────────────────────────────────────────────────────
@@ -262,8 +248,8 @@ function OrderFeed({
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-export function MboFeedPanel({ mboLogs, myOrders, onCancel, roster, playerSlot }: Props) {
-  const synBook = useSyntheticBook(mboLogs, myOrders)
+export function MboFeedPanel({ mboLogs, liveOrders, myOrders, onCancel, roster, playerSlot }: Props) {
+  const synBook = useSyntheticBook(liveOrders)
   return (
     <div className="mbo">
       <PriceLadder synBook={synBook} />
@@ -283,34 +269,14 @@ export function MboFeedPanel({ mboLogs, myOrders, onCancel, roster, playerSlot }
 // trades that suppress book_update/book_depth on the server). Returns the SUM of
 // remaining qty for all active orders at the best bid and best ask price levels,
 // so the SuitPanel quick-submit button trades the correct total available quantity.
-export function useMboDepth(mboLogs: Record<string, MboLogEntry[]>) {
+export function useMboDepth(liveOrders: Record<string, Record<number, LiveOrder>>) {
   return useMemo(() => {
     const result: Record<string, { bidQty: number | null; askQty: number | null }> = {}
     for (const suit of SUIT_ORDER) {
-      const entries = mboLogs[suit] ?? []
-      // Reconstruct qty-aware book from MBO events oldest-first.
-      // Track remaining qty per order: decrement on each executed fill,
-      // remove when qty reaches 0 or on cancel.
-      const active = new Map<number, { side: 'buy' | 'sell'; price: number; qty: number }>()
-      const removed = new Set<number>()
-      for (const e of entries.slice().reverse()) {
-        if (removed.has(e.order_id)) continue
-        if (e.kind === 'added' && e.side && e.price !== null) {
-          active.set(e.order_id, { side: e.side, price: e.price, qty: e.qty ?? 1 })
-        } else if (e.kind === 'executed') {
-          const o = active.get(e.order_id)
-          if (o) {
-            o.qty -= e.qty_filled ?? 1
-            if (o.qty <= 0) { active.delete(e.order_id); removed.add(e.order_id) }
-          }
-        } else if (e.kind === 'cancelled') {
-          removed.add(e.order_id); active.delete(e.order_id)
-        }
-      }
       // Find best bid (highest) and best ask (lowest), summing all qty at those levels.
       let bestBid: number | null = null, bidQty = 0
       let bestAsk: number | null = null, askQty = 0
-      for (const [, { side, price, qty }] of active) {
+      for (const { side, price, qty } of Object.values(liveOrders[suit] ?? {})) {
         if (side === 'buy') {
           if (bestBid === null || price > bestBid) { bestBid = price; bidQty = qty }
           else if (price === bestBid) bidQty += qty
@@ -322,5 +288,5 @@ export function useMboDepth(mboLogs: Record<string, MboLogEntry[]>) {
       result[suit] = { bidQty: bestBid !== null ? bidQty : null, askQty: bestAsk !== null ? askQty : null }
     }
     return result
-  }, [mboLogs])
+  }, [liveOrders])
 }

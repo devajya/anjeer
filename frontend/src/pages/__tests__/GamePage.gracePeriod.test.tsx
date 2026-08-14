@@ -58,6 +58,7 @@ const WS_DEFAULTS = {
   lobbyState: null,
   lobbyStarted: null,
   mboLogs: {},
+  liveOrders: {},
   bookDepths: {},
   gameMode: null,
 }
