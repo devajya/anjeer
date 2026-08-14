@@ -30,3 +30,15 @@ target_link_libraries(exchange_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(exchange_tests)
+
+add_executable(exchange_bench EXCLUDE_FROM_ALL
+    bench/bench_order_book.cpp
+    src/order_book.cpp
+)
+
+target_include_directories(exchange_bench PRIVATE include)
+target_compile_features(exchange_bench PRIVATE cxx_std_17)
+target_compile_options(exchange_bench PRIVATE
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O2>
+)
+target_compile_definitions(exchange_bench PRIVATE NDEBUG)
