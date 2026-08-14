@@ -11,7 +11,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
 
 .PHONY: build build-engine build-server build-frontend \
         dev dev-server dev-frontend \
-        test test-unit test-one test-frontend \
+        test test-unit test-one test-frontend bench-exchange \
         clean clean-all fmt install-hooks install-deps \
         db-migrate db-seed reset-lobby-db
 
@@ -166,6 +166,15 @@ test-frontend:
 	cd frontend && npx vitest run
 
 test: test-unit test-frontend
+
+# OrderBook throughput harness. Excluded from `test-unit` because it is a
+# benchmark, not a pass/fail gate. Compiles order_book.cpp at -O2 regardless of
+# the build dir's CMAKE_BUILD_TYPE, so the numbers mean something in a Debug
+# tree. Set PERF_N to change the order count.
+PERF_N ?= 200000
+bench-exchange: $(BUILD_DIR)/build.ninja
+	cmake --build $(BUILD_DIR) --target exchange_bench --parallel
+	find $(BUILD_DIR) -maxdepth 2 -name 'exchange_bench' -exec chmod +x {} \; -exec {} $(PERF_N) \;
 
 # ---------------------------------------------------------------------------
 # Utility
