@@ -11,7 +11,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
 
 .PHONY: build build-engine build-server build-frontend \
         dev dev-server dev-frontend \
-        test test-unit test-one test-frontend test-frontend-perf bench-exchange \
+        test test-unit test-one test-frontend test-frontend-perf bench-exchange metrics \
         lint-frontend preflight \
         clean clean-all fmt install-hooks install-deps \
         db-migrate db-seed reset-lobby-db
@@ -190,6 +190,14 @@ PERF_N ?= 200000
 bench-exchange: $(BUILD_DIR)/build.ninja
 	cmake --build $(BUILD_DIR) --target exchange_bench --parallel
 	find $(BUILD_DIR) -maxdepth 2 -name 'exchange_bench' -exec chmod +x {} \; -exec {} $(PERF_N) \;
+
+# Full metrics sweep: order book throughput, render cost, Lighthouse, and the
+# live numbers (order->ack latency, capacity ramp, RSS, CPU, wire encoding).
+# Writes docs/metrics-<date>.md. Live metrics need `make dev` up and psql on
+# PATH; use METRICS_ARGS='--offline' to skip them. Records, never gates.
+METRICS_ARGS ?=
+metrics:
+	python3 scripts/collect_metrics.py $(METRICS_ARGS)
 
 # ---------------------------------------------------------------------------
 # Utility
