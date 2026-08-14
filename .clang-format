@@ -1,0 +1,3 @@
+---
+BasedOnStyle: LLVM
+SpaceBeforeCpp11BracedList: true
