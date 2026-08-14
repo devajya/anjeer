@@ -65,6 +65,45 @@ Belongs in offline research tooling gated behind a CMake option or separate harn
 
 ---
 
+## Frontend Render Performance — In Progress
+
+Branch `perf/ws-ingest-measurement`. The bottleneck is re-render *scope*, not WS data volume. Four findings, fixed in priority order.
+
+### Done — commit `8d92f86`
+
+**Synthetic order book is now incremental.** `useSyntheticBook` and `useMboDepth` in `MboFeedPanel.tsx` each replayed the entire per-suit MBO log on every message — `entries.slice().reverse()` for 4 suits across 2 hooks, then rebuilding Maps. Replaced with a `liveOrders` map (`suit → order_id → {side, price, qty}`) maintained incrementally by `applyMboEvent` in `useWsReducer.ts`.
+
+Two behavior changes, both fixes:
+
+- `mboLogs` is capped at `MBO_LOG_CAP` (100), so replay silently dropped any order added more than 100 events ago — from the price ladder *and* from `useMboDepth`, which feeds the SuitPanel quick-submit quantity. `liveOrders` is unwindowed and stays correct.
+- A partially filled resting order now stays on the ladder with its remaining qty. Previously `useSyntheticBook` dropped it on any execution while `useMboDepth` decremented it; the two disagreed. Both now use the qty-aware semantics.
+
+`applyMboEvent` returns the same `liveOrders` object identity for no-op events so downstream memos are not invalidated needlessly. `OrderFeed`/`buildOrderSummaries` still replays `mboLogs` — correct, since it renders the event log itself and the cap is the intended window there.
+
+Verified: `tsc --noEmit` clean, 317/317 frontend tests passing.
+
+### Next — prop identity, then memoization
+
+`React.memo` is inert until props are stable, so ordering matters. Known identity leaks to fix first:
+
+- `useWebSocket.ts` (~line 812) rebuilds `ownsBestBidBySuit` / `ownsBestAskBySuit` as fresh objects on *every* render, outside any memo. These flow into every SuitPanel.
+- The hook returns `{ ...state, sendMessage, ... }` — a new object every render by construction. `Game.tsx` destructures 12 fields off it and passes them down, so one `book_update` re-renders the whole game tree.
+- Audit `Game.tsx` handlers (`handleCancel` et al.) for missing `useCallback`.
+
+Then apply `React.memo` to the leaf panels — TradeFeed, DeltaTable, EvalPanel, SuitPanel. Currently only `LobbyBrowser.tsx:14` (`ObWatermark`) is memoized.
+
+### Open question — how far to go on state splitting
+
+`WsState` is a monolith: books, trades, myOrders, mboLogs, roster, and eval data share one object, so any update invalidates all of it. Three options, not yet decided:
+
+1. **Split `WsState` by consumer** — no new dependency, moderate churn, keeps the existing hook shape.
+2. **Move to a store with selectors** — `useSyncExternalStore` (no dep) or Zustand (new dep; not currently in `package.json`). Components subscribe to slices.
+3. **React Compiler** — would cover much of the memoization work automatically. Project is on React 18, so this needs the runtime package plus build config, not just a flag.
+
+Option 1 plus the prop-identity fixes above is the lowest-risk path and captures most of the win; a full store migration can follow if profiling still justifies it.
+
+---
+
 ## Slice Order Rationale
 
 Slices 1–4 build and validate the core engine in isolation before auth or persistence complexity is introduced. Slice 5 wires identity. Slice 6 introduces the lobby system and `IEventBus` abstraction — the foundation for multi-node production without local dev overhead. Slice 6.5 adds observability immediately after the lobby so `GameSession` crashes surface as typed errors rather than silent hangs. Slice 7 completes the game lifecycle and threading model; it folds in lobby-layer resilience fixes as small prerequisites. Slice 7.5 adds in-game connection resilience after `GameSession` exists. Slices 8–9 make the game usable by both player types. Slices 10–11 add depth. Slice 11.5 introduces the tiered market data feed after bots (Slice 10) provide multi-session load to validate the endpoint and after eval (Slice 11) establishes separate event namespaces; it precedes recording (Slice 12) so the recorder captures raw order events from the start. Slices 12–14 form an atomic review pipeline. Slice 15 is polish. Slice 16 is the first time multiple nodes exist and Redis is required — `RedisEventBus` (stubbed since Slice 6) is completed here. Slice 17 generalizes the engine for richer game configurations and folds in MessagePack binary encoding since the serialization layer is already being overhauled.
