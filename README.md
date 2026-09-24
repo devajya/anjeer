@@ -22,6 +22,7 @@ https://github.com/user-attachments/assets/edce5fb8-db75-4260-abab-41ef00ae4576
   A real-time multiplayer card-trading game with a C++ matching engine, multithreaded server, Bayesian bot AI, and a React frontend deployed on AWS.
 
 ## Inspired by Figgie
+Update: I'm almost out of AWS credts :_(. Thank you so much to everyone who enjoyed this project. I'm not taking it down permanently, and if you're one of the clubs that uses this, we should already be in touch regarding getting this to run locally on university machines. I'm somewhat busy with other stuff, but just know if this does go down, it will come back when I get the chance to figure out the migration or shell out more dolla dolla to AWS <3.
 
 Anjeer is inspired by [Figgie](https://figgie.com), a card game designed by Jane Street as a simplified model of financial markets. In Figgie, four players trade cards in real time trying to accumulate the hidden goal suit before the round ends. See the [official rules](https://figgie.com/how-to-play).
 
