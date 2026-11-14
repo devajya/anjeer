@@ -69,6 +69,7 @@ vi.mock('../../hooks/useWebSocket', () => ({
     leaveQueue: vi.fn(),
     resetQueue: vi.fn(),
     mboLogs: {},
+    liveOrders: {},
     bookDepths: {},
     gameMode: null,
     ...wsState,

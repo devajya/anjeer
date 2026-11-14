@@ -8,7 +8,13 @@ import react from '@vitejs/plugin-react'
 // If the port changes, update both this file and config/default.json.
 // See contexts/machine-setup.md for the nginx production note.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', { target: '18' }]],
+      },
+    }),
+  ],
   build: {
     rollupOptions: {
       output: {

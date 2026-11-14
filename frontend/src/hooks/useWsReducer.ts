@@ -1,11 +1,64 @@
-import { MAX_TRADE_HISTORY } from '../constants'
+import { MAX_TRADE_HISTORY, MBO_LOG_CAP } from '../constants'
 import type {
   ServerMessage,
   BookUpdateMessage,
   TradeMessage,
   AllBalancesMessage,
 } from '../types/messages'
-import type { WsState, TradeEntry } from './useWebSocket'
+import type { WsState, TradeEntry, MboLogEntry } from './useWebSocket'
+
+/**
+ * Applies one MBO event to both the capped event log and the incrementally
+ * maintained live-order map. The map is the authoritative source for the price
+ * ladder and top-of-book depth: replaying the log cannot reconstruct orders
+ * that have aged past the MBO_LOG_CAP window.
+ *
+ * Returns the same liveOrders object identity when the event changes nothing,
+ * so downstream memos are not invalidated by no-op events.
+ */
+export function applyMboEvent(
+  s:     Pick<WsState, 'mboLogs' | 'liveOrders'>,
+  suit:  string,
+  entry: MboLogEntry,
+): Pick<WsState, 'mboLogs' | 'liveOrders'> {
+  return {
+    mboLogs:    { ...s.mboLogs, [suit]: [entry, ...(s.mboLogs[suit] ?? [])].slice(0, MBO_LOG_CAP) },
+    liveOrders: applyLiveOrder(s.liveOrders, suit, entry),
+  }
+}
+
+function applyLiveOrder(
+  liveOrders: WsState['liveOrders'],
+  suit:       string,
+  e:          MboLogEntry,
+): WsState['liveOrders'] {
+  const suitOrders = liveOrders[suit] ?? {}
+
+  if (e.kind === 'added') {
+    if (!e.side || e.price === null) return liveOrders
+    return {
+      ...liveOrders,
+      [suit]: { ...suitOrders, [e.order_id]: { side: e.side, price: e.price, qty: e.qty ?? 1 } },
+    }
+  }
+
+  if (e.kind === 'executed') {
+    // Only the passive (resting) order is tracked here. An aggressor that rests
+    // with a remainder arrives as its own 'added' event.
+    const o = suitOrders[e.order_id]
+    if (!o) return liveOrders
+    const qty  = o.qty - (e.qty_filled ?? 1)
+    const next = { ...suitOrders }
+    if (qty <= 0) delete next[e.order_id]
+    else          next[e.order_id] = { ...o, qty }
+    return { ...liveOrders, [suit]: next }
+  }
+
+  if (!(e.order_id in suitOrders)) return liveOrders
+  const next = { ...suitOrders }
+  delete next[e.order_id]
+  return { ...liveOrders, [suit]: next }
+}
 /**
  * Pure reducer for ServerMessage cases shared between useWebSocket and useSpectator.
  * Returns the updated state, or the original state object if the message type is

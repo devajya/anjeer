@@ -11,7 +11,7 @@ DB_CONN   ?= postgresql:///anjeer_dev
 
 .PHONY: build build-engine build-server build-frontend \
         dev dev-server dev-frontend \
-        test test-unit test-one test-frontend \
+        test test-unit test-one test-frontend test-frontend-perf lint-frontend preflight \
         clean clean-all fmt install-hooks install-deps \
         db-migrate db-seed reset-lobby-db
 
@@ -163,9 +163,23 @@ test-tsan:
 
 test-frontend:
 	# AGENT-CTX: Call vitest directly to skip ~300ms npm process-wrapper overhead.
-	cd frontend && npx vitest run
+	cd frontend && npx vitest run --exclude 'src/__perf__/**'
+
+# Render-performance harness: profiles the real Game tree under an MBO burst via
+# React's Profiler API. Excluded from `test-frontend` because it is a benchmark,
+# not a pass/fail gate. Set PERF_N to change the message count.
+test-frontend-perf:
+	cd frontend && npx vitest run src/__perf__/renderProfile.perf.test.tsx
+
+# Frontend ESLint gate (Rules of React / React Compiler safety). Fails only on
+# errors; pre-existing set-state-in-effect / exhaustive-deps issues are warnings.
+lint-frontend:
+	cd frontend && npx eslint .
 
 test: test-unit test-frontend
+
+# Pre-push gate: lint + full test suite. Run this before pushing a branch.
+preflight: lint-frontend test
 
 # ---------------------------------------------------------------------------
 # Utility

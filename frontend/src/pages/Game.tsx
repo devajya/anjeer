@@ -53,11 +53,11 @@ export function Game() {
     reconnectTokenMsg, gameStateSnapshot, reconnectWindowExpired, queueState,
     currentOwnerPlayerId, currentOwnerUsername,
     evalPosteriorUpdate, evalAccumulationSignal, evalExecutionGuidance,
-    bookDepths, mboLogs,
+    bookDepths, mboLogs, liveOrders,
     gameMode,
   } = useWebSocket('/ws')
 
-  const mboDepth = useMboDepth(mboLogs)
+  const mboDepth = useMboDepth(liveOrders)
 
   const {
     status: reconnectStatus,
@@ -323,6 +323,7 @@ export function Game() {
                       ? <MbpNDepthPanel bookDepths={bookDepths} />
                       : <MboFeedPanel
                           mboLogs={mboLogs}
+                          liveOrders={liveOrders}
                           myOrders={myOrders}
                           onCancel={handleCancel}
                           roster={roster}

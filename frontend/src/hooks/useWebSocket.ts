@@ -16,7 +16,7 @@ import type {
   PlayersAround,
 } from '../types/messages'
 import { logger } from '../logger'
-import { applyMessage } from './useWsReducer'
+import { applyMessage, applyMboEvent } from './useWsReducer'
 
 // ─── Domain types exposed by the hook ────────────────────────────────────────
 
@@ -186,8 +186,20 @@ export interface WsState {
   gameMode: import('../types/messages').GameMode | null
   /** Top-of-book depth per suit. Populated by book_depth / book_depth_snapshot messages. */
   bookDepths: Record<string, { bids: { price: number; qty: number }[]; asks: { price: number; qty: number }[] }>
-  /** Per-suit MBO event log, newest first, capped at 100. */
+  /** Per-suit MBO event log, newest first, capped at MBO_LOG_CAP. Display only. */
   mboLogs: Record<string, MboLogEntry[]>
+  /**
+   * Live order book per suit, keyed by order_id, maintained incrementally from
+   * MBO events. Unlike mboLogs this is not windowed, so it stays correct for
+   * orders that have aged out of the log.
+   */
+  liveOrders: Record<string, Record<number, LiveOrder>>
+}
+
+export interface LiveOrder {
+  side:  'buy' | 'sell'
+  price: number
+  qty:   number
 }
 
 export interface MboLogEntry {
@@ -264,6 +276,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     gameMode: null,
     bookDepths: {},
     mboLogs: {},
+    liveOrders: {},
   })
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -407,6 +420,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             myOrders: [],
             bookDepths: {},
             mboLogs: {},
+            liveOrders: {},
           }))
           break
 
@@ -690,10 +704,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             price: msg.price, side: msg.side,
             owner_slot: msg.owner_slot, qty: msg.qty,
           }
-          setState(s => ({
-            ...s,
-            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
-          }))
+          setState(s => ({ ...s, ...applyMboEvent(s, msg.suit, entry) }))
           break
         }
 
@@ -703,19 +714,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
             qty_filled: msg.qty_filled, aggressor_order_id: msg.aggressor_order_id,
             buyer_slot: msg.buyer_slot, seller_slot: msg.seller_slot,
           }
-          setState(s => ({
-            ...s,
-            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
-          }))
+          setState(s => ({ ...s, ...applyMboEvent(s, msg.suit, entry) }))
           break
         }
 
         case 'order_cancelled': {
           const entry: MboLogEntry = { kind: 'cancelled', seq: msg.seq, order_id: msg.order_id, price: null }
-          setState(s => ({
-            ...s,
-            mboLogs: { ...s.mboLogs, [msg.suit]: [entry, ...(s.mboLogs[msg.suit] ?? [])].slice(0, 100) },
-          }))
+          setState(s => ({ ...s, ...applyMboEvent(s, msg.suit, entry) }))
           break
         }
 

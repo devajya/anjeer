@@ -63,6 +63,7 @@ vi.mock('../../hooks/useWebSocket', () => ({
     lobbyState: null,
     lobbyStarted: null,
     mboLogs: {},
+    liveOrders: {},
     bookDepths: {},
     gameMode: null,
     ...wsState,
