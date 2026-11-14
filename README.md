@@ -1,4 +1,4 @@
-Update: This version is no longer live. Cloud credts ran out and while fun I want to explore other projects. If you're a uni or club using this I should have been in touch (reach out if not) regarding the whole on campus / intra-collgiate competition thing so I will continue to work with you on that, but the cloud version will stay down. Anyone is, of course, welcome to repurpose this as you wish! Onto the next thing!
+Update: This version is no longer live. Cloud credits ran out and while fun I want to explore other projects. If you're a uni or club using this I should have been in touch (reach out if not) regarding the whole on campus / cross-college competition thing so I will continue to work with you on that, but the cloud version will stay down. Anyone is, of course, welcome to repurpose this as you wish! Onto the next thing!
 
 <p align="center">
   <img src="docs/imgs/logo.png" alt="Anjeer" width="480"/>
